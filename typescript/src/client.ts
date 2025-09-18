@@ -26,13 +26,15 @@ export class Client {
   private taskClient: TaskClient | null = null;
   private appIDClient: AppIDClient | null = null;
   private nodeConfig: NodeConfig | null = null;
-  private timeout: number;
+  private frostTimeout: number;
+  private ecdsaTimeout: number;
   private votingHandler: VotingHandler;
   private votingServer: grpc.Server | null = null;
 
   constructor(configServerAddress: string, options?: Partial<ClientOptions>) {
     this.configClient = new ConfigClient(configServerAddress);
-    this.timeout = options?.timeout || Constants.DEFAULT_CLIENT_TIMEOUT;
+    this.frostTimeout = options?.timeout || Constants.DEFAULT_CLIENT_TIMEOUT;
+    this.ecdsaTimeout = this.frostTimeout * 2;
     
     // Set default voting handler (auto-approve all votes)
     this.votingHandler = this.createDefaultVotingHandler();
@@ -67,28 +69,25 @@ export class Client {
 
   async init(votingHandler?: VotingHandler): Promise<void> {
     // 1. Fetch configuration
-    const nodeConfig = await this.configClient.getConfig(this.timeout);
+    const nodeConfig = await this.configClient.getConfig(this.frostTimeout);
     this.nodeConfig = nodeConfig;
 
     // 2. Create task client
     this.taskClient = new TaskClient(nodeConfig);
     
-    // 3. Create TLS configuration for TEE server
-    const teeTLSConfig = this.createTEETLSConfig();
-    
-    // 4. Connect to TEE server
-    await this.taskClient.connect(this.timeout);
+    // 3. Connect to TEE server
+    await this.taskClient.connect(this.frostTimeout);
 
-    // 5. Create AppID client
+    // 4. Create AppID client
     this.appIDClient = new AppIDClient(nodeConfig.appNodeAddr);
     
-    // 6. Create TLS configuration for App node
+    // 5. Create TLS configuration for App node
     const appTLSConfig = this.createAppTLSConfig();
     
-    // 7. Connect to user management system
+    // 6. Connect to user management system
     await this.appIDClient.connect(appTLSConfig);
 
-    // 8. Set voting handler and auto-start voting service
+    // 7. Set voting handler and auto-start voting service
     if (votingHandler) {
       this.votingHandler = votingHandler;
       console.log('🗳️  Using custom voting handler provided in init()');
@@ -170,26 +169,12 @@ export class Client {
   }
 
   setTimeout(timeout: number): void {
-    this.timeout = timeout;
-    if (this.taskClient) {
-      this.taskClient.setTimeout(timeout);
-    }
+    this.frostTimeout = timeout;
+    this.ecdsaTimeout = timeout * 2;
   }
 
   setTaskTimeout(timeout: number): void {
     this.setTimeout(timeout);
-  }
-
-  // Create TLS configuration for TEE server
-  private createTEETLSConfig(): tls.SecureContextOptions {
-    if (!this.nodeConfig) {
-      throw new Error('config not loaded');
-    }
-    return {
-      cert: this.nodeConfig.cert,
-      key: this.nodeConfig.key,
-      ca: this.nodeConfig.targetCert,
-    };
   }
 
   // Create TLS configuration for App node (user management system)
@@ -261,7 +246,8 @@ export class Client {
     const publicKeyBuffer = Buffer.from(publicKeyHex, 'hex');
 
     // Sign the message directly through taskClient
-    return this.taskClient.sign(message, new Uint8Array(publicKeyBuffer), protocolNum, curveNum, this.timeout);
+    const timeout = protocolNum === Protocol.ECDSA ? this.ecdsaTimeout : this.frostTimeout;
+    return this.taskClient.sign(message, new Uint8Array(publicKeyBuffer), protocolNum, curveNum, timeout);
   }
 
   // Sign method that matches Go's Sign method signature
@@ -393,7 +379,7 @@ export class Client {
     }
 
     // Get deployment targets, voting sign path, and required votes from server
-    const { deploymentTargets, votingSignPath, requiredVotes } = await this.appIDClient!.getDeploymentTargetsForVotingSign(signerAppId, this.timeout);
+    const { deploymentTargets, votingSignPath, requiredVotes } = await this.appIDClient!.getDeploymentTargetsForVotingSign(signerAppId, this.frostTimeout);
     
     // Extract target app IDs from deployment targets
     const targetAppIds = Object.keys(deploymentTargets);
@@ -455,7 +441,7 @@ export class Client {
               modifiedRequestData = VotingClient.markRequestAsForwarded(voteRequestData);
             }
 
-            const approved = await VotingClient.sendHTTPVoteRequestWithHeaders(target, modifiedRequestData || new Uint8Array(), headers || null, this.timeout);
+            const approved = await VotingClient.sendHTTPVoteRequestWithHeaders(target, modifiedRequestData || new Uint8Array(), headers || null, this.frostTimeout);
 
             return {
               clientId: targetAppId,

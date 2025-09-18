@@ -36,7 +36,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-
 // VoteDetail contains details of each vote
 type VoteDetail struct {
 	ClientID string `json:"client_id"`
@@ -82,7 +81,8 @@ type Client struct {
 	taskClient     *task.Client
 	userMgmtClient *usermgmt.Client
 	nodeConfig     *config.NodeConfig
-	timeout        time.Duration
+	frostTimeout   time.Duration
+	ecdsaTimeout   time.Duration
 	votingHandler  func(context.Context, *pb.VotingRequest) (*pb.VotingResponse, error)
 	votingServer   *grpc.Server
 }
@@ -91,7 +91,8 @@ type Client struct {
 func NewClient(configServerAddr string) *Client {
 	client := &Client{
 		configClient: config.NewClient(configServerAddr),
-		timeout:      constants.DefaultClientTimeout,
+		frostTimeout: constants.DefaultClientTimeout,
+		ecdsaTimeout: constants.DefaultClientTimeout * 2,
 	}
 
 	// Set default voting handler (auto-approve all votes)
@@ -132,7 +133,7 @@ func (c *Client) SetVotingHandler(handler func(context.Context, *pb.VotingReques
 // Init initializes client, fetches config and establishes TLS connection
 // If votingHandler is nil, uses the default auto-approve handler
 func (c *Client) Init(votingHandler func(context.Context, *pb.VotingRequest) (*pb.VotingResponse, error)) error {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.frostTimeout)
 	defer cancel()
 
 	// 1. Fetch configuration
@@ -196,7 +197,7 @@ func (c *Client) signWithAppID(message []byte, appID string) ([]byte, error) {
 	}
 
 	// Get public key from user management system
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.frostTimeout)
 	defer cancel()
 
 	publicKeyStr, protocolStr, curveStr, err := c.userMgmtClient.GetPublicKeyByAppID(ctx, appID)
@@ -226,7 +227,11 @@ func (c *Client) signWithAppID(message []byte, appID string) ([]byte, error) {
 	}
 
 	// Sign the message
-	ctx2, cancel2 := context.WithTimeout(context.Background(), c.timeout)
+	timeout := c.frostTimeout
+	if protocol == constants.ProtocolECDSA {
+		timeout = c.ecdsaTimeout
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), timeout)
 	defer cancel2()
 
 	return c.taskClient.Sign(ctx2, message, publicKey, protocol, curve)
@@ -238,7 +243,7 @@ func (c *Client) GetPublicKeyByAppID(appID string) (publicKey, protocol, curve s
 		return "", "", "", fmt.Errorf("client not initialized")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.frostTimeout)
 	defer cancel()
 
 	return c.userMgmtClient.GetPublicKeyByAppID(ctx, appID)
@@ -254,7 +259,7 @@ func (c *Client) votingSignWithHeaders(message []byte, signerAppID string, local
 	}
 
 	// Get deployment targets, voting sign path, and required votes from server
-	deploymentTargets, votingSignPath, requiredVotes, err := c.userMgmtClient.GetDeploymentTargetsForVotingSign(signerAppID, c.timeout)
+	deploymentTargets, votingSignPath, requiredVotes, err := c.userMgmtClient.GetDeploymentTargetsForVotingSign(signerAppID, c.frostTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get voting sign configuration: %w", err)
 	}
@@ -365,7 +370,7 @@ func (c *Client) votingSignWithHeaders(message []byte, signerAppID string, local
 					resultChan <- voteResult{appID: appID, approved: false, err: fmt.Errorf("failed to modify request: %w", err)}
 					return
 				}
-				approved, err := voting.SendHTTPVoteRequestWithHeaders(deployTarget, modifiedRequestData, headers, c.timeout)
+				approved, err := voting.SendHTTPVoteRequestWithHeaders(deployTarget, modifiedRequestData, headers, c.frostTimeout)
 				resultChan <- voteResult{appID: appID, approved: approved, err: err}
 			}(targetAppID, target)
 		}
@@ -484,7 +489,7 @@ func (c *Client) Verify(message, signature []byte, appID string) (bool, error) {
 	}
 
 	// Get public key from user management system
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.frostTimeout)
 	defer cancel()
 
 	publicKeyStr, protocolStr, curveStr, err := c.userMgmtClient.GetPublicKeyByAppID(ctx, appID)
@@ -516,7 +521,6 @@ func (c *Client) Verify(message, signature []byte, appID string) (bool, error) {
 	// Verify the signature using the verification package
 	return verification.VerifySignature(message, publicKey, signature, protocol, curve)
 }
-
 
 // Close closes client connections
 func (c *Client) Close() error {

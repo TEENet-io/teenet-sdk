@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"golang.org/x/crypto/sha3"
 )
 
 // ECDSASignature represents an ECDSA signature in ASN.1 format
@@ -101,30 +102,52 @@ func verifySecp256k1(message, publicKeyBytes, signature []byte, protocol uint32)
 
 // verifySecp256k1ECDSA verifies ECDSA signature on secp256k1 using btcec
 func verifySecp256k1ECDSA(message []byte, pubKey *btcec.PublicKey, signature []byte) (bool, error) {
-	// Hash the message with SHA256
-	hasher := sha256.New()
-	hasher.Write(message)
-	messageHash := hasher.Sum(nil)
-
-	// Parse the signature
-	sig, err := btcecdsa.ParseSignature(signature)
-	if err != nil {
-		// Try parsing as raw r,s format (64 bytes)
-		if len(signature) == 64 {
-			// btcec expects DER format, so we'll verify manually with raw r,s
-			r := new(big.Int).SetBytes(signature[:32])
-			s := new(big.Int).SetBytes(signature[32:])
-			
-			// Verify using standard ecdsa
-			ecdsaPubKey := (*ecdsa.PublicKey)(pubKey.ToECDSA())
-			return ecdsa.Verify(ecdsaPubKey, messageHash, r, s), nil
-		} else {
-			return false, fmt.Errorf("failed to parse ECDSA signature: %v", err)
-		}
+	// For Ethereum-style signatures (65 bytes), use Keccak-256
+	// For other signatures, use SHA-256
+	var messageHash []byte
+	
+	if len(signature) == 65 {
+		// Ethereum uses Keccak-256 for message hashing
+		hasher := sha3.NewLegacyKeccak256()
+		hasher.Write(message)
+		messageHash = hasher.Sum(nil)
+	} else {
+		// Standard uses SHA-256
+		hasher := sha256.New()
+		hasher.Write(message)
+		messageHash = hasher.Sum(nil)
 	}
 
-	// Verify the signature
-	return sig.Verify(messageHash, pubKey), nil
+	// Check signature format
+	switch len(signature) {
+	case 65:
+		// Ethereum-style signature with recovery id: r(32) + s(32) + v(1)
+		r := new(big.Int).SetBytes(signature[:32])
+		s := new(big.Int).SetBytes(signature[32:64])
+		// Recovery id is signature[64], but we don't need it for verification
+		
+		// Verify using standard ecdsa
+		ecdsaPubKey := (*ecdsa.PublicKey)(pubKey.ToECDSA())
+		return ecdsa.Verify(ecdsaPubKey, messageHash, r, s), nil
+		
+	case 64:
+		// Raw r,s format without recovery id
+		r := new(big.Int).SetBytes(signature[:32])
+		s := new(big.Int).SetBytes(signature[32:])
+		
+		// Verify using standard ecdsa
+		ecdsaPubKey := (*ecdsa.PublicKey)(pubKey.ToECDSA())
+		return ecdsa.Verify(ecdsaPubKey, messageHash, r, s), nil
+		
+	default:
+		// Try parsing as DER format
+		sig, err := btcecdsa.ParseSignature(signature)
+		if err != nil {
+			return false, fmt.Errorf("failed to parse ECDSA signature (length %d): %v", len(signature), err)
+		}
+		// Verify the signature
+		return sig.Verify(messageHash, pubKey), nil
+	}
 }
 
 // verifySecp256k1Schnorr verifies Schnorr signature on secp256k1 using btcec

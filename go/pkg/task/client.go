@@ -17,7 +17,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/pkg/config"
 	"github.com/TEENet-io/teenet-sdk/go/pkg/constants"
@@ -33,17 +32,15 @@ const (
 
 // Client executes tasks (with TLS and gRPC built-in retry)
 type Client struct {
-	config  *config.NodeConfig
-	conn    *grpc.ClientConn
-	client  pb.UserTaskClient
-	timeout time.Duration
+	config *config.NodeConfig
+	conn   *grpc.ClientConn
+	client pb.UserTaskClient
 }
 
 // NewClient creates a new task client
 func NewClient(nodeConfig *config.NodeConfig) *Client {
 	return &Client{
-		config:  nodeConfig,
-		timeout: constants.DefaultTaskTimeout,
+		config: nodeConfig,
 	}
 }
 
@@ -92,10 +89,7 @@ func (c *Client) Sign(ctx context.Context, message, publicKey []byte, protocol, 
 		return nil, fmt.Errorf("not connected to server")
 	}
 
-	taskCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	resp, err := c.client.Sign(taskCtx, &pb.SignRequest{
+	resp, err := c.client.Sign(ctx, &pb.SignRequest{
 		From:          c.config.NodeID,
 		PublicKeyInfo: publicKey,
 		Msg:           message,
@@ -115,9 +109,4 @@ func (c *Client) Sign(ctx context.Context, message, publicKey []byte, protocol, 
 	}
 
 	return resp.GetSignature(), nil
-}
-
-// SetTimeout sets task timeout
-func (c *Client) SetTimeout(timeout time.Duration) {
-	c.timeout = timeout
 }

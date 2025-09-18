@@ -15,6 +15,7 @@ import * as crypto from 'crypto';
 import { ec as EC } from 'elliptic';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2';
+import { keccak_256 } from '@noble/hashes/sha3';
 import { Protocol, Curve } from '../types';
 import BN from 'bn.js';
 
@@ -131,25 +132,42 @@ function verifySecp256r1(
  * Verifies ECDSA signature
  */
 function verifyECDSA(ec: EC, message: Buffer, key: any, signature: Buffer): boolean {
-  // Hash the message with SHA256
-  const messageHash = crypto.createHash('sha256').update(message).digest();
+  // For Ethereum-style signatures (65 bytes), use Keccak-256
+  // For other signatures, use SHA-256
+  let messageHash: Buffer;
+  
+  if (signature.length === 65) {
+    // Ethereum uses Keccak-256 for message hashing
+    messageHash = Buffer.from(keccak_256(message));
+  } else {
+    // Standard uses SHA-256
+    messageHash = crypto.createHash('sha256').update(message).digest();
+  }
   
   let sig: { r: BN; s: BN };
   
-  try {
-    // Try to parse as DER format first
-    const decoded = ECDSASignature.decode(signature, 'der');
-    sig = { r: decoded.r, s: decoded.s };
-  } catch {
-    // If DER parsing fails, try raw r,s format (64 bytes)
-    if (signature.length !== 64) {
-      throw new Error(`Invalid signature length: expected 64 bytes for raw format or valid DER encoding`);
-    }
-    
+  // Check signature format
+  if (signature.length === 65) {
+    // Ethereum-style signature with recovery id: r(32) + s(32) + v(1)
     sig = {
       r: new BN(signature.slice(0, 32)),
       s: new BN(signature.slice(32, 64))
     };
+    // Recovery id is signature[64], but we don't need it for verification
+  } else if (signature.length === 64) {
+    // Raw r,s format without recovery id
+    sig = {
+      r: new BN(signature.slice(0, 32)),
+      s: new BN(signature.slice(32, 64))
+    };
+  } else {
+    // Try to parse as DER format
+    try {
+      const decoded = ECDSASignature.decode(signature, 'der');
+      sig = { r: decoded.r, s: decoded.s };
+    } catch {
+      throw new Error(`Invalid signature format: length ${signature.length}`);
+    }
   }
   
   // Verify the signature

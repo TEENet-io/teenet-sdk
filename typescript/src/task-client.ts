@@ -15,7 +15,7 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as fs from 'fs';
 import * as path from 'path';
-import { NodeConfig, SignRequest, SignResponse, Constants } from './types';
+import { NodeConfig, SignRequest, SignResponse } from './types';
 
 interface UserTaskClient {
   Sign(request: any, callback: (error: grpc.ServiceError | null, response?: any) => void): grpc.ClientUnaryCall;
@@ -25,11 +25,9 @@ export class TaskClient {
   private config: NodeConfig;
   private client: UserTaskClient | null = null;
   private conn: grpc.Client | null = null;
-  private timeout: number;
 
   constructor(nodeConfig: NodeConfig) {
     this.config = nodeConfig;
-    this.timeout = Constants.DEFAULT_TASK_TIMEOUT;
   }
 
   async connect(timeout?: number): Promise<void> {
@@ -81,7 +79,7 @@ export class TaskClient {
     }
   }
 
-  async sign(message: Uint8Array, publicKey: Uint8Array, protocol: number, curve: number, timeout?: number): Promise<Uint8Array> {
+  async sign(message: Uint8Array, publicKey: Uint8Array, protocol: number, curve: number, timeout: number): Promise<Uint8Array> {
     if (!message || message.length === 0) {
       throw new Error('message cannot be empty');
     }
@@ -93,8 +91,7 @@ export class TaskClient {
     }
 
     return new Promise((resolve, reject) => {
-      const actualTimeout = timeout || this.timeout;
-      const deadline = Date.now() + actualTimeout;
+      const deadline = Date.now() + timeout;
 
       const request = {
         from: this.config.nodeId,
@@ -147,7 +144,4 @@ export class TaskClient {
     }
   }
 
-  setTimeout(timeout: number): void {
-    this.timeout = timeout;
-  }
 }

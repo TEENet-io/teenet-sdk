@@ -5,7 +5,7 @@ go 1.24.2
 toolchain go1.24.5
 
 require (
-	github.com/TEENet-io/teenet-sdk/go v0.0.0-20250912074619-9e592fb9b727
+	github.com/TEENet-io/teenet-sdk/go v0.0.0-20250918093957-05135dd86f1a
 	github.com/gin-gonic/gin v1.10.1
 )
 
