@@ -17,11 +17,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/pkg/config"
 	"github.com/TEENet-io/teenet-sdk/go/pkg/constants"
 	pb "github.com/TEENet-io/teenet-sdk/go/proto/key_management"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
@@ -79,7 +81,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// Sign executes signing operation
+// Sign executes signing operation with retry for timeout errors
 func (c *Client) Sign(ctx context.Context, message, publicKey []byte, protocol, curve uint32) ([]byte, error) {
 	if len(message) == 0 || len(publicKey) == 0 {
 		return nil, fmt.Errorf("message and public key cannot be empty")
@@ -89,24 +91,40 @@ func (c *Client) Sign(ctx context.Context, message, publicKey []byte, protocol, 
 		return nil, fmt.Errorf("not connected to server")
 	}
 
-	resp, err := c.client.Sign(ctx, &pb.SignRequest{
-		From:          c.config.NodeID,
-		PublicKeyInfo: publicKey,
-		Msg:           message,
-		Protocol:      protocol,
-		Curve:         curve,
-	})
-	if err != nil {
-		// Check if it's a gRPC error
-		if st, ok := status.FromError(err); ok {
-			return nil, fmt.Errorf("gRPC call failed [%s]: %w", st.Code(), err)
+	// Retry up to 3 times for timeout errors
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		resp, err := c.client.Sign(ctx, &pb.SignRequest{
+			From:          c.config.NodeID,
+			PublicKeyInfo: publicKey,
+			Msg:           message,
+			Protocol:      protocol,
+			Curve:         curve,
+		})
+		if err != nil {
+			// Check if it's a gRPC error
+			if st, ok := status.FromError(err); ok {
+				// Retry on DeadlineExceeded errors
+				if st.Code() == codes.DeadlineExceeded && attempt < maxRetries-1 {
+					lastErr = fmt.Errorf("gRPC call failed [%s] (attempt %d/%d): %w", st.Code(), attempt+1, maxRetries, err)
+					// Small delay before retry (100ms, 200ms, 300ms)
+					time.Sleep(time.Millisecond * 100 * time.Duration(attempt+1))
+					continue
+				}
+				return nil, fmt.Errorf("gRPC call failed [%s]: %w", st.Code(), err)
+			}
+			return nil, fmt.Errorf("signing failed: %w", err)
 		}
-		return nil, fmt.Errorf("signing failed: %w", err)
+
+		if !resp.Success {
+			return nil, fmt.Errorf("signing failed: %s", resp.Error)
+		}
+
+		return resp.GetSignature(), nil
 	}
 
-	if !resp.Success {
-		return nil, fmt.Errorf("signing failed: %s", resp.Error)
-	}
-
-	return resp.GetSignature(), nil
+	// All retries failed
+	return nil, lastErr
 }

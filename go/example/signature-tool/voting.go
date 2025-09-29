@@ -17,7 +17,6 @@ import (
 	"context"
 	"log"
 	"strings"
-	"time"
 
 	pb "github.com/TEENet-io/teenet-sdk/go/proto/voting"
 )
@@ -25,9 +24,6 @@ import (
 // createVotingHandler creates a voting handler function for the application
 func createVotingHandler(appID string) func(context.Context, *pb.VotingRequest) (*pb.VotingResponse, error) {
 	return func(ctx context.Context, req *pb.VotingRequest) (*pb.VotingResponse, error) {
-		// Simulate processing delay
-		time.Sleep(200 * time.Millisecond)
-
 		// Application-specific voting logic
 		var decision bool
 		if strings.Contains(string(req.Message), "test") {

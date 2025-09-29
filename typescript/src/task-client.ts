@@ -90,43 +90,69 @@ export class TaskClient {
       throw new Error('not connected to server');
     }
 
-    return new Promise((resolve, reject) => {
-      const deadline = Date.now() + timeout;
+    // Retry up to 3 times for timeout errors
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-      const request = {
-        from: this.config.nodeId,
-        msg: Array.from(message),
-        public_key_info: Array.from(publicKey),
-        protocol: protocol,
-        curve: curve
-      };
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await new Promise<Uint8Array>((resolve, reject) => {
+          const deadline = Date.now() + timeout;
 
-      this.client!.Sign(request, (error: grpc.ServiceError | null, response?: any) => {
-        if (error) {
-          reject(new Error(`gRPC call failed [${error.code}]: ${error.message}`));
-          return;
+          const request = {
+            from: this.config.nodeId,
+            msg: Array.from(message),
+            public_key_info: Array.from(publicKey),
+            protocol: protocol,
+            curve: curve
+          };
+
+          this.client!.Sign(request, (error: grpc.ServiceError | null, response?: any) => {
+            if (error) {
+              // Check if it's a deadline exceeded error (code 4 in gRPC)
+              if (error.code === grpc.status.DEADLINE_EXCEEDED && attempt < maxRetries - 1) {
+                lastError = new Error(`gRPC call failed [${error.code}] (attempt ${attempt + 1}/${maxRetries}): ${error.message}`);
+                reject({ retry: true, error: lastError });
+                return;
+              }
+              reject(new Error(`gRPC call failed [${error.code}]: ${error.message}`));
+              return;
+            }
+
+            if (!response) {
+              reject(new Error('no response received'));
+              return;
+            }
+
+            if (!response.success) {
+              reject(new Error(`signing failed: ${response.error || 'unknown error'}`));
+              return;
+            }
+
+            const signature = response.signature;
+            if (signature && signature.data) {
+              resolve(new Uint8Array(signature.data));
+            } else if (signature) {
+              resolve(new Uint8Array(signature));
+            } else {
+              resolve(new Uint8Array());
+            }
+          });
+        });
+      } catch (error: any) {
+        // If it's a retry-able error and not the last attempt, wait and retry
+        if (error?.retry && attempt < maxRetries - 1) {
+          // Small delay before retry (100ms, 200ms, 300ms)
+          await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+          continue;
         }
+        // Otherwise, throw the error
+        throw error?.error || error;
+      }
+    }
 
-        if (!response) {
-          reject(new Error('no response received'));
-          return;
-        }
-
-        if (!response.success) {
-          reject(new Error(`signing failed: ${response.error || 'unknown error'}`));
-          return;
-        }
-
-        const signature = response.signature;
-        if (signature && signature.data) {
-          resolve(new Uint8Array(signature.data));
-        } else if (signature) {
-          resolve(new Uint8Array(signature));
-        } else {
-          resolve(new Uint8Array());
-        }
-      });
-    });
+    // All retries failed
+    throw lastError || new Error('signing failed after all retries');
   }
 
 

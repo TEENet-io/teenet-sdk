@@ -21,6 +21,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	client "github.com/TEENet-io/teenet-sdk/go"
 )
@@ -186,5 +188,119 @@ func main() {
 		}
 	}
 
+	// Example: Test 5 concurrent signatures
+	fmt.Println("\n6. Test 5 concurrent signatures")
+	testConcurrentSignatures(teeClient, appID)
+
 	fmt.Println("\n=== Example completed ===")
+}
+
+// testConcurrentSignatures tests 5 concurrent signature operations
+func testConcurrentSignatures(teeClient *client.Client, appID string) {
+	const numSignatures = 5
+	var wg sync.WaitGroup
+
+	// Channel to collect results
+	type signResult struct {
+		id        int
+		success   bool
+		signature []byte
+		duration  time.Duration
+		err       error
+	}
+	results := make(chan signResult, numSignatures)
+
+	fmt.Printf("Starting %d concurrent signatures...\n", numSignatures)
+	startTime := time.Now()
+
+	// Launch concurrent signature operations
+	for i := 0; i < numSignatures; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			// Create unique message for each signature
+			message := []byte(fmt.Sprintf("Concurrent message #%d at %s", id+1, time.Now().Format("15:04:05.000")))
+
+			signReq := &client.SignRequest{
+				Message: message,
+				AppID:   appID,
+			}
+
+			// Time the signature operation
+			opStart := time.Now()
+			result, err := teeClient.Sign(signReq)
+			duration := time.Since(opStart)
+
+			// Send result to channel
+			if err != nil {
+				results <- signResult{
+					id:       id + 1,
+					success:  false,
+					err:      err,
+					duration: duration,
+				}
+			} else {
+				results <- signResult{
+					id:        id + 1,
+					success:   result.Success,
+					signature: result.Signature,
+					duration:  duration,
+					err:       nil,
+				}
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect and display results
+	successCount := 0
+	failureCount := 0
+	var totalDuration time.Duration
+
+	fmt.Println("\nConcurrent Signature Results:")
+	fmt.Println("------------------------------")
+
+	for result := range results {
+		if result.success {
+			successCount++
+			fmt.Printf("✓ Signature #%d: SUCCESS (Duration: %v)\n", result.id, result.duration)
+			if result.signature != nil {
+				fmt.Printf("  Signature: %x...\n", result.signature[:16]) // Show first 16 bytes
+			}
+		} else {
+			failureCount++
+			if result.err != nil {
+				fmt.Printf("✗ Signature #%d: FAILED (Error: %v, Duration: %v)\n", result.id, result.err, result.duration)
+			} else {
+				fmt.Printf("✗ Signature #%d: FAILED (Duration: %v)\n", result.id, result.duration)
+			}
+		}
+		totalDuration += result.duration
+	}
+
+	totalTime := time.Since(startTime)
+	avgDuration := totalDuration / numSignatures
+
+	fmt.Println("\n------------------------------")
+	fmt.Println("Concurrent Signature Summary:")
+	fmt.Printf("  Total Signatures: %d\n", numSignatures)
+	fmt.Printf("  Successful: %d\n", successCount)
+	fmt.Printf("  Failed: %d\n", failureCount)
+	fmt.Printf("  Total Time: %v\n", totalTime)
+	fmt.Printf("  Average Duration: %v\n", avgDuration)
+	fmt.Printf("  Parallel Speedup: %.2fx\n", float64(totalDuration)/float64(totalTime))
+
+	// Test verification of one successful signature
+	if successCount > 0 {
+		fmt.Println("\nVerifying one of the concurrent signatures...")
+		// Note: In a real scenario, you'd need to store the message along with the signature
+		// to verify it later. For this example, we're just showing the structure.
+		fmt.Println("(Verification requires storing message-signature pairs)")
+	}
 }

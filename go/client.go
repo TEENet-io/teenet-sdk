@@ -104,9 +104,6 @@ func NewClient(configServerAddr string) *Client {
 // createDefaultVotingHandler creates a default voting handler that auto-approves all voting requests
 func (c *Client) createDefaultVotingHandler() func(context.Context, *pb.VotingRequest) (*pb.VotingResponse, error) {
 	return func(ctx context.Context, req *pb.VotingRequest) (*pb.VotingResponse, error) {
-		// Simulate processing delay
-		time.Sleep(200 * time.Millisecond)
-
 		// Auto-approve all voting requests by default
 		log.Printf("✅ [DEFAULT] Auto-approving voting request for task: %s", req.TaskId)
 
