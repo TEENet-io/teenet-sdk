@@ -29,8 +29,6 @@ import (
 
 func main() {
 	// Configuration
-	configServerAddr := "localhost:50052" // TEE config server address
-
 	fmt.Println("=== TEE DAO Key Management Client with Optimizations ===")
 
 	// Create client with custom options
@@ -40,7 +38,7 @@ func main() {
 		FrostTimeout:       10 * time.Second,
 		ECDSATimeout:       20 * time.Second,
 	}
-	teeClient := client.NewClientWithOptions(configServerAddr, opts)
+	teeClient := client.NewClientWithOptions(opts)
 	defer teeClient.Close()
 
 	// Set default App ID before initialization

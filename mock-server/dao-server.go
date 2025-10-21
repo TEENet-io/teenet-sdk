@@ -18,6 +18,10 @@ import (
 
 	pb "tee-dao-mock-server/proto"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -38,7 +42,7 @@ type MockDAOServer struct {
 	pb.UnimplementedUserTaskServer
 	config        *Config
 	ed25519Key    ed25519.PrivateKey   // ED25519 private key
-	secp256k1Key  *ecdsa.PrivateKey    // SECP256K1 private key
+	secp256k1Key  *btcec.PrivateKey    // SECP256K1 private key (real secp256k1)
 	secp256r1Key  *ecdsa.PrivateKey    // SECP256R1 (P-256) private key
 }
 
@@ -152,17 +156,17 @@ func (s *MockDAOServer) generateMockSignature(protocol, curve uint32, message []
 			signature := ed25519.Sign(s.ed25519Key, message)
 			return signature, nil
 		case CurveSECP256K1:
-			// For SECP256K1 Schnorr, use ECDSA as approximation (real Schnorr requires specialized library)
+			// For SECP256K1 Schnorr, use SHA256 and proper BIP-340 Schnorr
 			hash := sha256.Sum256(message)
-			r, s_sig, err := ecdsa.Sign(rand.Reader, s.secp256k1Key, hash[:])
+
+			// Sign using BIP-340 Schnorr signature
+			sig, err := schnorr.Sign(s.secp256k1Key, hash[:])
 			if err != nil {
 				return nil, fmt.Errorf("SECP256K1 Schnorr signing failed: %v", err)
 			}
-			// Convert to 64-byte signature format (32 bytes r + 32 bytes s)
-			signature := make([]byte, 64)
-			r.FillBytes(signature[:32])
-			s_sig.FillBytes(signature[32:])
-			return signature, nil
+
+			// Return the serialized Schnorr signature (64 bytes)
+			return sig.Serialize(), nil
 		default:
 			return nil, fmt.Errorf("unsupported curve for Schnorr: %d", curve)
 		}
@@ -172,15 +176,28 @@ func (s *MockDAOServer) generateMockSignature(protocol, curve uint32, message []
 			// ED25519 doesn't use ECDSA, return error for invalid combination
 			return nil, fmt.Errorf("ECDSA not supported with ED25519 curve")
 		case CurveSECP256K1:
-			hash := sha256.Sum256(message)
-			r, s_sig, err := ecdsa.Sign(rand.Reader, s.secp256k1Key, hash[:])
-			if err != nil {
-				return nil, fmt.Errorf("SECP256K1 ECDSA signing failed: %v", err)
-			}
-			// Convert to 64-byte signature format (32 bytes r + 32 bytes s)
-			signature := make([]byte, 64)
-			r.FillBytes(signature[:32])
-			s_sig.FillBytes(signature[32:])
+			// Use Keccak-256 for Ethereum-compatible signatures (65 bytes)
+			hasher := sha3.NewLegacyKeccak256()
+			hasher.Write(message)
+			messageHash := hasher.Sum(nil)
+
+			// Sign using btcec
+			sig := btcecdsa.Sign(s.secp256k1Key, messageHash)
+
+			// Ethereum-style signature: 65 bytes (R + S + V)
+			signature := make([]byte, 65)
+
+			// Extract R and S as 32-byte values
+			rScalar := sig.R()
+			sScalar := sig.S()
+			rScalar.PutBytesUnchecked(signature[:32])
+			sScalar.PutBytesUnchecked(signature[32:64])
+
+			// Calculate recovery ID (V) for Ethereum compatibility
+			// This allows recovering the public key from signature
+			recoveryID := calculateRecoveryID(s.secp256k1Key.PubKey())
+			signature[64] = byte(recoveryID)
+
 			return signature, nil
 		case CurveSECP256R1:
 			hash := sha256.Sum256(message)
@@ -215,6 +232,26 @@ func (s *MockDAOServer) generateMockSignatureBytes(length int, message []byte) [
 	return signature
 }
 
+// calculateRecoveryID calculates the recovery ID for ECDSA signature
+// This allows recovering the public key from the signature
+func calculateRecoveryID(pubKey *btcec.PublicKey) int {
+	// Recovery ID is based on Y coordinate parity for secp256k1
+	// 0 if Y is even, 1 if Y is odd
+	pubKeyBytes := pubKey.SerializeUncompressed()
+
+	// Extract Y coordinate (last 32 bytes of 65-byte uncompressed format)
+	// pubKeyBytes[0] = 0x04, pubKeyBytes[1:33] = X, pubKeyBytes[33:65] = Y
+	if len(pubKeyBytes) == 65 {
+		yByte := pubKeyBytes[64] // Last byte of Y coordinate
+		if yByte%2 == 0 {
+			return 0 // Y is even
+		}
+		return 1 // Y is odd
+	}
+
+	return 0 // Default to 0
+}
+
 // generateConsistentED25519Key generates a consistent ED25519 private key for testing
 func generateConsistentED25519Key() ed25519.PrivateKey {
 	// Use a deterministic seed for consistent key generation in testing
@@ -226,27 +263,20 @@ func generateConsistentED25519Key() ed25519.PrivateKey {
 }
 
 // generateConsistentSECP256K1Key generates a consistent SECP256K1 private key for testing
-func generateConsistentSECP256K1Key() *ecdsa.PrivateKey {
+func generateConsistentSECP256K1Key() *btcec.PrivateKey {
 	// Use a deterministic seed for consistent key generation in testing
 	seed := []byte("tee-dao-mock-server-secp256k1-key-12345678901234567890123456789012")
 	privateKeyInt := new(big.Int).SetBytes(seed[:32])
-	
+
 	// Ensure the private key is valid for secp256k1 (less than curve order)
-	curve := elliptic.P256() // Using P256 as approximation for secp256k1
-	for privateKeyInt.Cmp(curve.Params().N) >= 0 {
-		privateKeyInt.Sub(privateKeyInt, curve.Params().N)
+	curve := btcec.S256()
+	for privateKeyInt.Cmp(curve.N) >= 0 {
+		privateKeyInt.Sub(privateKeyInt, curve.N)
 	}
-	
-	privateKey := &ecdsa.PrivateKey{
-		D: privateKeyInt,
-		PublicKey: ecdsa.PublicKey{
-			Curve: curve,
-		},
-	}
-	
-	// Generate the public key
-	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(privateKeyInt.Bytes())
-	
+
+	// Create secp256k1 private key using btcec library
+	privateKey, _ := btcec.PrivKeyFromBytes(privateKeyInt.Bytes())
+
 	return privateKey
 }
 

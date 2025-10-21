@@ -127,8 +127,8 @@ type Client struct {
 }
 
 // NewClient creates a new client instance with default settings
-func NewClient(configServerAddr string) *Client {
-	return NewClientWithOptions(configServerAddr, nil)
+func NewClient() *Client {
+	return NewClientWithOptions(nil)
 }
 
 // ClientOptions holds optional configuration for the client
@@ -140,7 +140,7 @@ type ClientOptions struct {
 }
 
 // NewClientWithOptions creates a new client instance with custom options
-func NewClientWithOptions(configServerAddr string, opts *ClientOptions) *Client {
+func NewClientWithOptions(opts *ClientOptions) *Client {
 	// Set defaults
 	cacheTTL := 5 * time.Minute
 	maxConcurrentVotes := 10
@@ -160,6 +160,10 @@ func NewClientWithOptions(configServerAddr string, opts *ClientOptions) *Client 
 		if opts.ECDSATimeout > 0 {
 			ecdsaTimeout = opts.ECDSATimeout
 		}
+	}
+	configServerAddr := os.Getenv("TEE_CONFIG_ADDR")
+	if configServerAddr == "" {
+		configServerAddr = "localhost:50052"
 	}
 
 	client := &Client{

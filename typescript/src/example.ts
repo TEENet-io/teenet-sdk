@@ -12,17 +12,12 @@
 // -----------------------------------------------------------------------------
 
 import { Client, SignOptions, SignResult } from './index';
-// @ts-ignore
-import * as wtfnode from 'wtfnode';
 
 async function main() {
-  // Configuration
-  const configServerAddr = 'localhost:50052'; // TEE config server address
-
-  console.log('=== TEE DAO Key Management Client with Optimizations (v3.0) ===');
+  console.log('=== TEE DAO Key Management Client with Optimizations ===');
 
   // Create client with custom options
-  const teeClient = new Client(configServerAddr, {
+  const teeClient = new Client({
     cacheTTL: 5 * 60 * 1000,        // Cache public keys and deployments for 5 minutes
     maxConcurrentVotes: 10,          // Allow up to 10 concurrent voting requests
     frostTimeout: 10 * 1000,         // 10 seconds
@@ -34,9 +29,6 @@ async function main() {
     const appID = 'secure-messaging-app';
     teeClient.setDefaultAppID(appID);
 
-    // Or load from environment variable (APP_ID)
-    // teeClient.setDefaultAppIDFromEnv();
-
     // Initialize client
     await teeClient.init();
 
@@ -46,7 +38,7 @@ async function main() {
     console.log(`  - Max concurrent votes: 10`);
     console.log(`  - TEE node failover: enabled`);
 
-    // Example 1: Get public key (v3.0 - no AppID parameter needed)
+    // Example 1: Get public key
     console.log('\n1. Get public key');
 
     try {
@@ -59,7 +51,7 @@ async function main() {
       console.error(`Failed to get public key: ${error}`);
     }
 
-    // Example 2: Sign message (v3.0 - simplified API)
+    // Example 2: Sign message
     console.log('\n2. Sign message');
     const message = new TextEncoder().encode('Hello from AppID Service!');
 
@@ -81,7 +73,7 @@ async function main() {
       console.error(`Signing failed: ${error}`);
     }
 
-    // Example 3: Multi-party voting signature (v3.0)
+    // Example 3: Multi-party voting signature
     console.log('\n3. Multi-party voting signature example');
     const votingMessage = new TextEncoder().encode('test message for multi-party voting'); // Contains "test" to trigger approval
 
@@ -112,7 +104,7 @@ async function main() {
     const localApproval = new TextDecoder().decode(votingMessage).toLowerCase().includes('test');
     console.log(`  - Local Approval: ${localApproval}`);
 
-    // Sign with voting options (v3.0 - voting auto-enabled by AppID config)
+    // Sign with voting options
     const votingOptions: SignOptions = {
       localApproval: localApproval,
       httpRequest: httpReq
@@ -151,7 +143,7 @@ async function main() {
       console.error(`Voting signature failed: ${error}`);
     }
 
-    // Example 4: Verify signature (v3.0 - no AppID parameter needed)
+    // Example 4: Verify signature
     console.log('\n4. Verify signature');
     if (signResult && signResult.success && signResult.signature) {
       try {
@@ -178,7 +170,7 @@ async function main() {
       }
     }
 
-    // Example 5: Verify voting signature (v3.0)
+    // Example 5: Verify voting signature
     console.log('\n5. Verify voting signature');
     if (votingSignResult && votingSignResult.signature) {
       try {
@@ -197,13 +189,129 @@ async function main() {
       }
     }
 
+    // Example 6: Test 5 concurrent signatures
+    console.log('\n6. Test 5 concurrent signatures');
+    await testConcurrentSignatures(teeClient);
+
     console.log('\n=== Example completed ===');
 
   } catch (error) {
     console.error('Client initialization failed:', error);
   } finally {
     await teeClient.close();
-    console.log('🏁 Example finished');
+  }
+}
+
+// testConcurrentSignatures tests 5 concurrent signature operations
+async function testConcurrentSignatures(teeClient: Client) {
+  const numSignatures = 5;
+
+  interface SignResult {
+    id: number;
+    success: boolean;
+    signature?: Uint8Array;
+    duration: number;
+    error?: string;
+  }
+
+  console.log(`Starting ${numSignatures} concurrent signatures...`);
+  const startTime = Date.now();
+
+  // Launch concurrent signature operations
+  const promises = Array.from({ length: numSignatures }, async (_, i) => {
+    const id = i + 1;
+
+    // Create unique message for each signature
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
+    const message = new TextEncoder().encode(
+      `Concurrent test message #${id} at ${timeStr}`
+    );
+
+    // Create HTTP request body for voting (if voting is enabled for this AppID)
+    const requestData = {
+      message: Buffer.from(message).toString('base64'),
+      signer_app_id: teeClient.defaultAppID,
+    };
+
+    const requestBody = JSON.stringify(requestData);
+
+    // Create a mock HTTP request
+    const { IncomingMessage } = require('http');
+    const httpReq = new IncomingMessage(null as any);
+    httpReq.method = 'POST';
+    httpReq.url = '/vote';
+    httpReq.headers = {
+      'content-type': 'application/json'
+    };
+    (httpReq as any).body = requestBody;
+
+    // Make vote decision: approve if message contains "test"
+    const localApproval = new TextDecoder().decode(message).toLowerCase().includes('test');
+
+    // Time the signature operation
+    const opStart = Date.now();
+    try {
+      const result = await teeClient.sign(message, {
+        localApproval: localApproval,
+        httpRequest: httpReq
+      });
+      const duration = Date.now() - opStart;
+
+      return {
+        id,
+        success: result.success,
+        signature: result.signature,
+        duration,
+        error: result.error
+      } as SignResult;
+    } catch (error: any) {
+      const duration = Date.now() - opStart;
+      return {
+        id,
+        success: false,
+        duration,
+        error: error.message || String(error)
+      } as SignResult;
+    }
+  });
+
+  // Wait for all operations to complete
+  const results = await Promise.all(promises);
+
+  const totalTime = Date.now() - startTime;
+  const successCount = results.filter(r => r.success).length;
+  const failureCount = results.filter(r => !r.success).length;
+  const totalDuration = results.reduce((sum, r) => sum + r.duration, 0);
+  const avgDuration = totalDuration / numSignatures;
+
+  console.log('\nConcurrent Signature Results:');
+  console.log('------------------------------');
+
+  results.forEach(result => {
+    if (result.success) {
+      console.log(`✓ Signature #${result.id}: SUCCESS (Duration: ${result.duration}ms)`);
+      if (result.signature) {
+        console.log(`  Signature: ${Buffer.from(result.signature).toString('hex').substring(0, 32)}...`);
+      }
+    } else {
+      console.log(`✗ Signature #${result.id}: FAILED (Error: ${result.error}, Duration: ${result.duration}ms)`);
+    }
+  });
+
+  console.log('\n------------------------------');
+  console.log('Concurrent Signature Summary:');
+  console.log(`  Total Signatures: ${numSignatures}`);
+  console.log(`  Successful: ${successCount}`);
+  console.log(`  Failed: ${failureCount}`);
+  console.log(`  Total Time: ${totalTime}ms`);
+  console.log(`  Average Duration: ${avgDuration.toFixed(2)}ms`);
+  console.log(`  Parallel Speedup: ${(totalDuration / totalTime).toFixed(2)}x`);
+
+  // Test verification of one successful signature
+  if (successCount > 0) {
+    console.log('\nVerifying one of the concurrent signatures...');
+    console.log('(Verification requires storing message-signature pairs)');
   }
 }
 

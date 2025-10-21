@@ -7,7 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
@@ -16,6 +16,7 @@ import (
 
 	pb "tee-dao-mock-server/proto"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -61,7 +62,7 @@ func generateMockAppKeys() map[string]*AppKeyInfo {
 		{"secure-messaging-app", "schnorr", "ed25519", "Secure Messaging Application - Schnorr/ED25519"},
 		{"financial-trading-platform", "ecdsa", "secp256r1", "Financial Trading Platform - ECDSA/SECP256R1"},
 		{"digital-identity-service", "schnorr", "secp256k1", "Digital Identity Service - Schnorr/SECP256K1"},
-		{"bitcoin-wallet-app", "ecdsa", "secp256k1", "Bitcoin Wallet - ECDSA/SECP256K1"},
+		{"ethereum-wallet-app", "ecdsa", "secp256k1", "Ethereum Wallet - ECDSA/SECP256K1"},
 	}
 
 	for _, app := range apps {
@@ -70,21 +71,30 @@ func generateMockAppKeys() map[string]*AppKeyInfo {
 		switch app.curve {
 		case "ed25519":
 			publicKey := ed25519Key.Public().(ed25519.PublicKey)
-			publicKeyB64 = base64.StdEncoding.EncodeToString(publicKey)
+			publicKeyB64 = hex.EncodeToString(publicKey)
 		case "secp256k1":
-			// Generate compressed public key for secp256k1
-			publicKeyBytes := elliptic.MarshalCompressed(secp256k1Key.Curve, secp256k1Key.X, secp256k1Key.Y)
-			publicKeyB64 = base64.StdEncoding.EncodeToString(publicKeyBytes)
+			// For Ethereum wallet, use 64-byte uncompressed format (X + Y coordinates without prefix)
+			if app.appID == "ethereum-wallet-app" {
+				// Get uncompressed public key from btcec (65 bytes with 0x04 prefix)
+				uncompressedPubKey := secp256k1Key.PubKey().SerializeUncompressed()
+				// Remove the 0x04 prefix to get 64 bytes
+				publicKeyBytes := uncompressedPubKey[1:]
+				publicKeyB64 = hex.EncodeToString(publicKeyBytes)
+			} else {
+				// For other secp256k1 apps, use compressed format
+				publicKeyBytes := secp256k1Key.PubKey().SerializeCompressed()
+				publicKeyB64 = hex.EncodeToString(publicKeyBytes)
+			}
 		case "secp256r1":
 			// Generate compressed public key for secp256r1 (P-256)
 			publicKeyBytes := elliptic.MarshalCompressed(secp256r1Key.Curve, secp256r1Key.X, secp256r1Key.Y)
-			publicKeyB64 = base64.StdEncoding.EncodeToString(publicKeyBytes)
+			publicKeyB64 = hex.EncodeToString(publicKeyBytes)
 		default:
 			// Fallback to random key for unknown curves
 			keyBytes := make([]byte, 33)
 			rand.Read(keyBytes)
 			keyBytes[0] = 0x02 // Compressed public key prefix
-			publicKeyB64 = base64.StdEncoding.EncodeToString(keyBytes)
+			publicKeyB64 = hex.EncodeToString(keyBytes)
 		}
 
 		keys[app.appID] = &AppKeyInfo{
@@ -125,6 +135,42 @@ func (s *MockAppNode) GetPublicKeyByAppID(ctx context.Context, req *pb.GetPublic
 	}, nil
 }
 
+// GetDeploymentAddresses implements the voting service method
+func (s *MockAppNode) GetDeploymentAddresses(ctx context.Context, req *pb.GetDeploymentAddressesRequest) (*pb.GetDeploymentAddressesResponse, error) {
+	log.Printf("App node: GetDeploymentAddresses called for app_id: %s", req.AppId)
+
+	// Verify App ID
+	if req.AppId == "" {
+		log.Printf("App node: Empty app_id provided")
+		return nil, fmt.Errorf("app_id is required")
+	}
+
+	// Check if the app exists
+	_, exists := s.appKeys[req.AppId]
+	if !exists {
+		log.Printf("App node: App ID not found: %s", req.AppId)
+		return &pb.GetDeploymentAddressesResponse{
+			Deployments:       make(map[string]*pb.DeploymentInfo),
+			NotFound:          []string{req.AppId},
+			VotingSignPath:    "/api/v1/voting/sign",
+			RequiredVotes:     0,
+			EnableVotingSign:  false,
+		}, nil
+	}
+
+	// Mock deployment info - return empty deployment with voting disabled
+	// This simulates the app not being deployed for voting
+	log.Printf("App node: App found but no deployments configured (voting disabled)")
+
+	return &pb.GetDeploymentAddressesResponse{
+		Deployments:       make(map[string]*pb.DeploymentInfo),
+		NotFound:          []string{},
+		VotingSignPath:    "/api/v1/voting/sign",
+		RequiredVotes:     0,
+		EnableVotingSign:  false,
+	}, nil
+}
+
 // generateConsistentED25519Key generates a consistent ED25519 private key for testing
 func generateConsistentED25519Key() ed25519.PrivateKey {
 	// Use a deterministic seed for consistent key generation in testing
@@ -136,27 +182,20 @@ func generateConsistentED25519Key() ed25519.PrivateKey {
 }
 
 // generateConsistentSECP256K1Key generates a consistent SECP256K1 private key for testing
-func generateConsistentSECP256K1Key() *ecdsa.PrivateKey {
+func generateConsistentSECP256K1Key() *btcec.PrivateKey {
 	// Use a deterministic seed for consistent key generation in testing
 	seed := []byte("tee-dao-mock-server-secp256k1-key-12345678901234567890123456789012")
 	privateKeyInt := new(big.Int).SetBytes(seed[:32])
-	
+
 	// Ensure the private key is valid for secp256k1 (less than curve order)
-	curve := elliptic.P256() // Using P256 as approximation for secp256k1
-	for privateKeyInt.Cmp(curve.Params().N) >= 0 {
-		privateKeyInt.Sub(privateKeyInt, curve.Params().N)
+	curve := btcec.S256()
+	for privateKeyInt.Cmp(curve.N) >= 0 {
+		privateKeyInt.Sub(privateKeyInt, curve.N)
 	}
-	
-	privateKey := &ecdsa.PrivateKey{
-		D: privateKeyInt,
-		PublicKey: ecdsa.PublicKey{
-			Curve: curve,
-		},
-	}
-	
-	// Generate the public key
-	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(privateKeyInt.Bytes())
-	
+
+	// Create secp256k1 private key using btcec library
+	privateKey, _ := btcec.PrivKeyFromBytes(privateKeyInt.Bytes())
+
 	return privateKey
 }
 

@@ -40,7 +40,10 @@ export class Client {
   // Concurrency control
   private maxConcurrentVotes: number;
 
-  constructor(configServerAddress: string, options?: Partial<ClientOptions>) {
+  constructor(options?: Partial<ClientOptions>) {
+    // Read config server address from environment variable or use default
+    const configServerAddress = process.env.TEE_CONFIG_ADDR || 'localhost:50052';
+
     this.configClient = new ConfigClient(configServerAddress);
     this.frostTimeout = options?.frostTimeout || options?.timeout || Constants.DEFAULT_CLIENT_TIMEOUT;
     this.ecdsaTimeout = options?.ecdsaTimeout || this.frostTimeout * 2;

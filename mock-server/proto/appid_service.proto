@@ -4,10 +4,14 @@ package appid;
 
 option go_package = "./proto";
 
-// AppID service for getting public key information by app ID
+// AppID service for getting public key information and file downloads by app ID
 service AppIDService {
   // Get public key information by app ID
   rpc GetPublicKeyByAppID(GetPublicKeyByAppIDRequest) returns (GetPublicKeyByAppIDResponse);
+  
+  // Voting service methods
+  // GetDeploymentAddresses gets deployment-client addresses for given app IDs (for voting coordinator)
+  rpc GetDeploymentAddresses(GetDeploymentAddressesRequest) returns (GetDeploymentAddressesResponse);
 }
 
 // Request message for getting public key by app ID
@@ -22,8 +26,31 @@ message GetPublicKeyByAppIDResponse {
   string curve = 3;
 }
 
-// Error response structure
-message ErrorResponse {
-  string code = 1;
-  string message = 2;
+
+// Voting service messages
+// GetDeploymentAddressesRequest for voting coordinator to get deployment-client addresses
+message GetDeploymentAddressesRequest {
+  string app_id = 1;          // Single App ID to get all target deployment addresses for
 }
+
+message GetDeploymentAddressesResponse {
+  map<string, DeploymentInfo> deployments = 1;  // app_id -> deployment info
+  repeated string not_found = 2;                // App IDs that were not found or not deployed
+  string voting_sign_path = 3;                  // Shared VotingSign API path for all instances
+  int32 required_votes = 4;                     // Shared required votes for all instances
+  bool enable_voting_sign = 5;                  // Whether voting sign is enabled for this project
+}
+
+
+// DeploymentInfo represents deployment information for an app
+message DeploymentInfo {
+  string app_id = 1;
+  string project_name = 2;
+  string deployment_host = 3;            // ServiceHost - deployment client host IP
+  string container_ip = 4;               // ContainerIP - direct container IP
+  int32 service_port = 5;                // Container service port
+  string deployment_client_address = 6;  // Pre-constructed deployment-client gRPC address
+  int64 deployed_at = 7;                 // Unix timestamp when deployed
+  string deployment_type = 8;            // 'file', 'docker', or 'image_url'
+}
+

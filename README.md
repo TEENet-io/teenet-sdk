@@ -54,7 +54,7 @@ A comprehensive TEENet sdk library with multi-language support, distributed voti
 
 ## 🏁 Quick Start
 
-### Start Mock Server Environment
+### 1. Start Mock Server Environment
 
 ```bash
 cd mock-server
@@ -63,10 +63,140 @@ cd mock-server
 
 This starts:
 - Config Server on localhost:50052
-- DAO Server on localhost:50051  
+- DAO Server on localhost:50051
 - App Node on localhost:50053
 
-### Run Client Examples
+### 2. Simple Usage Example
+
+**Go (Recommended - Simple):**
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    client "github.com/TEENet-io/teenet-sdk/go"
+)
+
+func main() {
+    // Read from environment variables (with defaults)
+    configAddr := os.Getenv("TEE_CONFIG_ADDR")
+    if configAddr == "" {
+        configAddr = "localhost:50052" // default
+    }
+
+    appID := os.Getenv("APP_ID")
+    if appID == "" {
+        appID = "ethereum-wallet-app" // default
+    }
+
+    // Create client (uses default options)
+    teeClient := client.NewClient(configAddr)
+    defer teeClient.Close()
+
+    // Set App ID and initialize
+    teeClient.SetDefaultAppID(appID)
+    if err := teeClient.Init(); err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("✅ Connected to: %s\n", configAddr)
+    fmt.Printf("✅ Using App ID: %s\n", appID)
+
+    // Sign a message
+    message := []byte("Hello, TEENet!")
+    result, _ := teeClient.Sign(message)
+    fmt.Printf("✅ Signature: %x\n", result.Signature)
+
+    // Verify signature
+    valid, _ := teeClient.Verify(message, result.Signature)
+    fmt.Printf("✅ Valid: %v\n", valid)
+}
+```
+
+**TypeScript (Simple):**
+```typescript
+import { Client } from '@teenet/teenet-sdk';
+
+async function main() {
+  // Read App ID from environment variable (with default)
+  const appID = process.env.APP_ID || 'ethereum-wallet-app';
+
+  // Create client (config address from TEE_CONFIG_ADDR or defaults to localhost:50052)
+  const teeClient = new Client();
+  teeClient.setDefaultAppID(appID);
+  await teeClient.init();
+
+  const configAddr = process.env.TEE_CONFIG_ADDR || 'localhost:50052';
+  console.log(`✅ Connected to: ${configAddr}`);
+  console.log(`✅ Using App ID: ${appID}`);
+
+  // Sign a message
+  const message = Buffer.from('Hello, TEE DAO!');
+  const result = await teeClient.sign(message);
+  console.log(`✅ Signature: ${Buffer.from(result.signature!).toString('hex')}`);
+
+  // Verify signature
+  const valid = await teeClient.verify(message, Buffer.from(result.signature!));
+  console.log(`✅ Valid: ${valid}`);
+
+  await teeClient.close();
+}
+
+main().catch(console.error);
+```
+
+**Run with environment variables:**
+```bash
+# Go
+# Default (localhost)
+go run main.go
+
+# Custom config
+export TEE_CONFIG_ADDR=localhost:50052
+export APP_ID=ethereum-wallet-app
+go run main.go
+
+# Or inline
+TEE_CONFIG_ADDR=localhost:50052 APP_ID=secure-messaging-app go run main.go
+
+# TypeScript
+# Default (localhost)
+npm run example
+
+# Custom config
+export TEE_CONFIG_ADDR=localhost:50052
+export APP_ID=ethereum-wallet-app
+npm run example
+
+# Or inline
+TEE_CONFIG_ADDR=localhost:50052 APP_ID=secure-messaging-app npm run example
+```
+
+**Advanced (with custom options):**
+```go
+// Go - Optional: Customize client behavior
+opts := &client.ClientOptions{
+    CacheTTL:           5 * time.Minute,
+    MaxConcurrentVotes: 10,
+    FrostTimeout:       10 * time.Second,
+    ECDSATimeout:       20 * time.Second,
+}
+teeClient := client.NewClientWithOptions(opts)
+```
+
+```typescript
+// TypeScript - Optional: Customize client behavior
+const teeClient = new Client({
+  cacheTTL: 5 * 60 * 1000,        // 5 minutes
+  maxConcurrentVotes: 10,
+  frostTimeout: 10 * 1000,        // 10 seconds
+  ecdsaTimeout: 20 * 1000,        // 20 seconds
+});
+```
+
+### 3. Run Examples
 
 **Go Example:**
 ```bash
@@ -324,7 +454,19 @@ import (
 )
 
 func main() {
-    // Create client with custom options
+    // Simple usage - Create client with default options
+    teeClient := client.NewClient("localhost:50052")
+    defer teeClient.Close()
+
+    // Set default App ID before initialization
+    teeClient.SetDefaultAppID("secure-messaging-app")
+
+    if err := teeClient.Init(); err != nil {
+        log.Fatalf("Initialization failed: %v", err)
+    }
+
+    // Advanced usage - Create client with custom options (optional)
+    /*
     opts := &client.ClientOptions{
         CacheTTL:           5 * time.Minute,
         MaxConcurrentVotes: 10,
@@ -332,21 +474,9 @@ func main() {
         ECDSATimeout:       20 * time.Second,
     }
     teeClient := client.NewClientWithOptions("localhost:50052", opts)
-    defer teeClient.Close()
+    */
 
-    // Set default App ID before initialization
-    appID := "secure-messaging-app"
-    teeClient.SetDefaultAppID(appID)
-
-    // Or load from environment variable (APP_ID)
-    // teeClient.SetDefaultAppIDFromEnv()
-
-    if err := teeClient.Init(); err != nil {
-        log.Fatalf("Initialization failed: %v", err)
-    }
-
-    fmt.Printf("Client connected, Node ID: %d\n", teeClient.GetNodeID())
-    fmt.Printf("Default App ID: %s\n", appID)
+    fmt.Printf("✅ Client initialized, Node ID: %d\n", teeClient.GetNodeID())
 
     // Example 1: Simple signature (v3.0 - no AppID needed)
     message := []byte("Hello from AppID Service!")
