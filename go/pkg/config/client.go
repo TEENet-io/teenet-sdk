@@ -32,15 +32,22 @@ const (
 	TypeAppNode     uint32 = 3
 )
 
+// TeeNodeInfo holds information about a single TEE node
+type TeeNodeInfo struct {
+	RPCAddress string `json:"rpc_address"`
+	Cert       []byte `json:"cert"`
+}
+
 // NodeConfig holds node configuration information
 type NodeConfig struct {
-	NodeID      uint32 `json:"node_id"`
-	RPCAddress  string `json:"rpc_address"`
-	Cert        []byte `json:"cert"`
-	Key         []byte `json:"key"`
-	TargetCert  []byte `json:"target_cert"`
-	AppNodeAddr string `json:"app_node_addr"`
-	AppNodeCert []byte `json:"app_node_cert"`
+	NodeID      uint32        `json:"node_id"`
+	RPCAddress  string        `json:"rpc_address"` // Primary TEE node address (for backward compatibility)
+	Cert        []byte        `json:"cert"`
+	Key         []byte        `json:"key"`
+	TargetCert  []byte        `json:"target_cert"`  // Primary TEE node cert (for backward compatibility)
+	TeeNodes    []TeeNodeInfo `json:"tee_nodes"`    // All available TEE nodes for failover
+	AppNodeAddr string        `json:"app_node_addr"`
+	AppNodeCert []byte        `json:"app_node_cert"`
 }
 
 // Client pulls configuration from server (without TLS)
@@ -88,34 +95,49 @@ func (c *Client) fetchFromServer(ctx context.Context) (*NodeConfig, error) {
 		return nil, fmt.Errorf("failed to get peer nodes: %w", err)
 	}
 
-	// Find TEE node
-	var teeNode, appNode *nmpb.Peer
+	// Find all TEE nodes and App node
+	var teeNodes []*nmpb.Peer
+	var appNode *nmpb.Peer
 	for _, peer := range peers.Peers {
 		if peer.Type == TypeAppNode {
 			appNode = peer
 		} else if peer.Type == TypeTeeNode {
-			teeNode = peer
-		}
-		if teeNode != nil && appNode != nil {
-			break
+			teeNodes = append(teeNodes, peer)
 		}
 	}
 
-	if teeNode == nil && appNode == nil {
+	if len(teeNodes) == 0 && appNode == nil {
 		return nil, fmt.Errorf("no TEE or App node found")
 	}
+
+	if len(teeNodes) == 0 {
+		return nil, fmt.Errorf("no TEE node found")
+	}
+
+	// Build TEE node list
+	teeNodeInfos := make([]TeeNodeInfo, 0, len(teeNodes))
+	for _, node := range teeNodes {
+		teeNodeInfos = append(teeNodeInfos, TeeNodeInfo{
+			RPCAddress: node.RpcAddress,
+			Cert:       node.Cert,
+		})
+	}
+
+	// Use first TEE node as primary (for backward compatibility)
+	primaryTeeNode := teeNodes[0]
 
 	config := &NodeConfig{
 		NodeID:      nodeInfo.NodeId,
 		Cert:        nodeInfo.Cert,
 		Key:         nodeInfo.Key,
-		TargetCert:  teeNode.Cert,
-		RPCAddress:  teeNode.RpcAddress,
+		TargetCert:  primaryTeeNode.Cert,
+		RPCAddress:  primaryTeeNode.RpcAddress,
+		TeeNodes:    teeNodeInfos,
 		AppNodeAddr: appNode.RpcAddress,
 		AppNodeCert: appNode.Cert,
 	}
 
-	fmt.Printf("Retrieved config from server, node ID: %d\n", config.NodeID)
+	fmt.Printf("Retrieved config from server, node ID: %d, TEE nodes: %d\n", config.NodeID, len(teeNodeInfos))
 	return config, nil
 }
 

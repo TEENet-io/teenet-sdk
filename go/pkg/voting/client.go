@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/pkg/usermgmt"
@@ -30,6 +32,31 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+var (
+	httpClientOnce sync.Once
+	httpClient     *http.Client
+)
+
+// getHTTPClient returns a shared HTTP client with connection pooling
+func getHTTPClient() *http.Client {
+	httpClientOnce.Do(func() {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+		}
+	})
+	return httpClient
+}
 
 // SendVotingRequestToDeployment sends a voting request to deployment-client which forwards to container
 func SendVotingRequestToDeployment(target *usermgmt.DeploymentTarget, taskID string, message []byte, requiredVotes, totalParticipants int, timeout time.Duration) (bool, error) {
@@ -127,19 +154,14 @@ func SendHTTPVoteRequestWithHeaders(target *usermgmt.DeploymentTarget, requestDa
 		}
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: timeout,
-	}
-
-	// Send request
+	// Use shared HTTP client with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	req = req.WithContext(ctx)
 
 	log.Printf("📤 Sending vote request to %s via deployment-client: %s", target.AppID, endpoint)
-	resp, err := client.Do(req)
+	resp, err := getHTTPClient().Do(req)
 	if err != nil {
 		return false, fmt.Errorf("HTTP vote request failed: %w", err)
 	}

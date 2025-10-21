@@ -17,4 +17,4 @@ export { TaskClient } from './task-client';
 export { AppIDClient } from './appid-client';
 export { VotingClient } from './voting-client';
 export * from './types';
-export type { SignRequest, SignResult, VotingInfo } from './types';
+export type { SignRequest, SignResult, SignOptions, VotingInfo, ClientOptions } from './types';

@@ -123,19 +123,20 @@ func (c *Client) GetDeploymentAddresses(ctx context.Context, appID string) (*app
 
 // GetDeploymentTargetsForVotingSign gets deployment targets for voting sign based on a single app ID
 // It returns all target app IDs configured for the voting sign project
-func (c *Client) GetDeploymentTargetsForVotingSign(appID string, timeout time.Duration) (map[string]*DeploymentTarget, string, int32, error) {
+func (c *Client) GetDeploymentTargetsForVotingSign(appID string, timeout time.Duration) (map[string]*DeploymentTarget, string, int32, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	resp, err := c.GetDeploymentAddresses(ctx, appID)
 	if err != nil {
-		return nil, "", 0, fmt.Errorf("failed to get deployment info: %w", err)
+		return nil, "", 0, false, fmt.Errorf("failed to get deployment info: %w", err)
 	}
 
 	deployments := resp.Deployments
 	notFound := resp.NotFound
 	votingSignPath := resp.VotingSignPath
 	requiredVotes := resp.RequiredVotes
+	enableVotingSign := resp.EnableVotingSign
 
 	result := make(map[string]*DeploymentTarget)
 
@@ -160,5 +161,5 @@ func (c *Client) GetDeploymentTargetsForVotingSign(appID string, timeout time.Du
 		log.Printf("⚠️  App IDs not found or not deployed: %v", notFound)
 	}
 
-	return result, votingSignPath, requiredVotes, nil
+	return result, votingSignPath, requiredVotes, enableVotingSign, nil
 }

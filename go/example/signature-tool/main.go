@@ -57,15 +57,14 @@ func main() {
 		frontendPath = "./frontend" // Default frontend path
 	}
 
-	// Initialize TEE client with custom voting handler
+	// Initialize TEE client
 	teeClient = client.NewClient(configAddr)
-	votingHandler := createVotingHandler(defaultAppID)
-	if err := teeClient.Init(votingHandler); err != nil {
+	if err := teeClient.Init(); err != nil {
 		log.Fatalf("Failed to initialize TEE client: %v", err)
 	}
 	defer teeClient.Close()
 
-	log.Printf("TEE client initialized successfully with custom voting handler for app ID: %s", defaultAppID)
+	log.Printf("TEE client initialized successfully for app ID: %s", defaultAppID)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)
@@ -106,39 +105,30 @@ func main() {
 		})
 	})
 
-	// Get public key by app ID
+	// Get public key (uses default app ID)
 	api.POST("/get-public-key", func(c *gin.Context) {
-		var req GetPublicKeyRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, GetPublicKeyResponse{
-				Success: false,
-				Error:   "Invalid request: " + err.Error(),
-			})
-			return
-		}
-
-		publicKey, protocol, curve, err := teeClient.GetPublicKeyByAppID(req.AppID)
+		publicKey, protocol, curve, err := teeClient.GetPublicKey()
 		if err != nil {
-			log.Printf("Failed to get public key for app ID %s: %v", req.AppID, err)
+			log.Printf("Failed to get public key: %v", err)
 			c.JSON(http.StatusInternalServerError, GetPublicKeyResponse{
 				Success: false,
-				AppID:   req.AppID,
+				AppID:   defaultAppID,
 				Error:   err.Error(),
 			})
 			return
 		}
 
-		log.Printf("Successfully retrieved public key for app ID %s", req.AppID)
+		log.Printf("Successfully retrieved public key for app ID %s", defaultAppID)
 		c.JSON(http.StatusOK, GetPublicKeyResponse{
 			Success:   true,
-			AppID:     req.AppID,
+			AppID:     defaultAppID,
 			PublicKey: publicKey,
 			Protocol:  protocol,
 			Curve:     curve,
 		})
 	})
 
-	// Sign message with app ID
+	// Sign message (uses default app ID)
 	api.POST("/sign-with-appid", func(c *gin.Context) {
 		var req SignWithAppIDRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -149,12 +139,8 @@ func main() {
 			return
 		}
 
-		// Use new Sign API with EnableVoting: false
-		signResult, err := teeClient.Sign(&client.SignRequest{
-			Message:      []byte(req.Message),
-			AppID:        req.AppID,
-			EnableVoting: false,
-		})
+		// Use Sign API (voting is automatically determined based on App ID configuration)
+		signResult, err := teeClient.Sign([]byte(req.Message))
 		if err != nil || !signResult.Success {
 			errorMsg := "Failed to sign message"
 			if err != nil {
@@ -162,27 +148,27 @@ func main() {
 			} else if signResult.Error != "" {
 				errorMsg = signResult.Error
 			}
-			log.Printf("Failed to sign message with app ID %s: %s", req.AppID, errorMsg)
+			log.Printf("Failed to sign message: %s", errorMsg)
 			c.JSON(http.StatusInternalServerError, SignWithAppIDResponse{
 				Success: false,
 				Message: req.Message,
-				AppID:   req.AppID,
+				AppID:   defaultAppID,
 				Error:   errorMsg,
 			})
 			return
 		}
 
 		signatureHex := hex.EncodeToString(signResult.Signature)
-		log.Printf("Successfully signed message with app ID %s", req.AppID)
+		log.Printf("Successfully signed message with app ID %s", defaultAppID)
 		c.JSON(http.StatusOK, SignWithAppIDResponse{
 			Success:   true,
 			Message:   req.Message,
-			AppID:     req.AppID,
+			AppID:     defaultAppID,
 			Signature: signatureHex,
 		})
 	})
 
-	// Verify signature with App ID
+	// Verify signature (uses default app ID)
 	api.POST("/verify-with-appid", func(c *gin.Context) {
 		var req VerifyWithAppIDRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -194,12 +180,12 @@ func main() {
 		}
 
 		// Get public key info (for response)
-		publicKey, protocol, curve, err := teeClient.GetPublicKeyByAppID(req.AppID)
+		publicKey, protocol, curve, err := teeClient.GetPublicKey()
 		if err != nil {
-			log.Printf("Failed to get public key for app ID %s: %v", req.AppID, err)
+			log.Printf("Failed to get public key: %v", err)
 			c.JSON(http.StatusInternalServerError, VerifyWithAppIDResponse{
 				Success: false,
-				AppID:   req.AppID,
+				AppID:   defaultAppID,
 				Error:   err.Error(),
 			})
 			return
@@ -216,25 +202,25 @@ func main() {
 		}
 
 		// Verify the signature using the SDK's Verify method
-		valid, err := teeClient.Verify([]byte(req.Message), signatureBytes, req.AppID)
+		valid, err := teeClient.Verify([]byte(req.Message), signatureBytes)
 		if err != nil {
 			log.Printf("Failed to verify signature: %v", err)
 			c.JSON(http.StatusInternalServerError, VerifyWithAppIDResponse{
 				Success: false,
 				Message: req.Message,
-				AppID:   req.AppID,
+				AppID:   defaultAppID,
 				Error:   err.Error(),
 			})
 			return
 		}
 
-		log.Printf("Signature verification completed for app ID %s: valid=%t", req.AppID, valid)
+		log.Printf("Signature verification completed for app ID %s: valid=%t", defaultAppID, valid)
 		c.JSON(http.StatusOK, VerifyWithAppIDResponse{
 			Success:   true,
 			Valid:     valid,
 			Message:   req.Message,
 			Signature: req.Signature,
-			AppID:     req.AppID,
+			AppID:     defaultAppID,
 			PublicKey: publicKey,
 			Protocol:  protocol,
 			Curve:     curve,
@@ -274,11 +260,8 @@ func main() {
 		// Restore request body for VotingSign to read
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
-		// Use new Sign API with EnableVoting: true
-		signResult, err := teeClient.Sign(&client.SignRequest{
-			Message:       messageBytes,
-			AppID:         req.SignerAppID,
-			EnableVoting:  true,
+		// Use Sign API (voting is automatically determined based on App ID configuration)
+		signResult, err := teeClient.Sign(messageBytes, &client.SignOptions{
 			LocalApproval: localApproval,
 			HTTPRequest:   c.Request,
 		})

@@ -2,9 +2,9 @@
 
 A comprehensive TEENet sdk library with multi-language support, distributed voting signature mechanism, and signature verification, including a complete local testing environment.
 
-> **🎉 New in v2.1**: Added signature verification support with `Verify()` method for both Go and TypeScript SDKs. See [Latest Updates](#-latest-updates-v21) for details.
-> 
-> **⚠️ Breaking Change in v2.0**: New unified `Sign()` API replaces `SignWithAppID` and `VotingSign` methods. Target app IDs and required votes are now automatically fetched from server configuration.
+> **🎉 New in v3.0**: Simplified API with default App ID support! No need to pass App ID in every method call. See [Latest Updates](#-latest-updates-v30) for details.
+>
+> **⚠️ Breaking Change in v3.0**: API simplified - `Sign()`, `Verify()`, and `GetPublicKey()` now use default App ID set during initialization.
 
 ## 🚀 Core Components
 
@@ -112,51 +112,51 @@ cd mock-server
 
 ### Core Methods
 
-#### Sign (Unified API)
+#### Sign (Simplified v3.0 API)
 ```go
-// Go
-result, err := client.Sign(request *SignRequest) (*SignResult, error)
+// Go - Simple signing (voting disabled)
+result, err := client.Sign(message []byte) (*SignResult, error)
+
+// Go - Voting signature (voting enabled automatically by AppID configuration)
+result, err := client.Sign(message []byte, &SignOptions{
+    LocalApproval: true,
+    HTTPRequest:   httpReq,
+}) (*SignResult, error)
 
 // TypeScript
-result = await client.sign(request: SignRequest): Promise<SignResult>
+result = await client.sign(message: Uint8Array, options?: SignOptions): Promise<SignResult>
 ```
 
-#### GetPublicKeyByAppID
+#### GetPublicKey (v3.0 - Uses Default AppID)
 ```go
-// Go
-publicKey, protocol, curve, err := client.GetPublicKeyByAppID(appID string)
+// Go - Uses default AppID set during initialization
+publicKey, protocol, curve, err := client.GetPublicKey()
 
 // TypeScript
-const { publicKey, protocol, curve } = await client.getPublicKeyByAppID(appID: string)
+const { publicKey, protocol, curve } = await client.getPublicKey()
 ```
 
-#### Verify
+#### Verify (v3.0 - Uses Default AppID)
 ```go
-// Go
-valid, err := client.Verify(message []byte, signature []byte, appID string) (bool, error)
+// Go - Uses default AppID set during initialization
+valid, err := client.Verify(message []byte, signature []byte) (bool, error)
 
 // TypeScript
-valid = await client.verify(message: Buffer, signature: Buffer, appID: string): Promise<boolean>
+valid = await client.verify(message: Buffer, signature: Buffer): Promise<boolean>
 ```
 
 ### Core Types
 
-#### SignRequest
+#### SignOptions (v3.0 - Simplified)
 ```go
 // Go
-type SignRequest struct {
-    Message       []byte        // Message to sign
-    AppID         string        // Application identifier
-    EnableVoting  bool          // Enable multi-party voting
+type SignOptions struct {
     LocalApproval bool          // Local voting decision (for voting)
     HTTPRequest   *http.Request // HTTP request context (for voting)
 }
 
 // TypeScript
-interface SignRequest {
-    message: Uint8Array;       // Message to sign
-    appID: string;             // Application identifier
-    enableVoting?: boolean;    // Enable multi-party voting
+interface SignOptions {
     localApproval?: boolean;   // Local voting decision
     httpRequest?: any;         // HTTP request object
 }
@@ -305,7 +305,7 @@ Current voting decision implementation:
 go get github.com/TEENet-io/teenet-sdk/go
 ```
 
-### Basic Usage
+### Basic Usage (v3.0)
 
 ```go
 package main
@@ -318,51 +318,60 @@ import (
     "log"
     "net/http"
     "strings"
-    
+    "time"
+
     client "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
-    // Create client
-    teeClient := client.NewClient("localhost:50052")
+    // Create client with custom options
+    opts := &client.ClientOptions{
+        CacheTTL:           5 * time.Minute,
+        MaxConcurrentVotes: 10,
+        FrostTimeout:       10 * time.Second,
+        ECDSATimeout:       20 * time.Second,
+    }
+    teeClient := client.NewClientWithOptions("localhost:50052", opts)
     defer teeClient.Close()
 
-    // Initialize client with custom voting handler (optional)
-    if err := teeClient.Init(nil); err != nil {
+    // Set default App ID before initialization
+    appID := "secure-messaging-app"
+    teeClient.SetDefaultAppID(appID)
+
+    // Or load from environment variable (APP_ID)
+    // teeClient.SetDefaultAppIDFromEnv()
+
+    if err := teeClient.Init(); err != nil {
         log.Fatalf("Initialization failed: %v", err)
     }
 
     fmt.Printf("Client connected, Node ID: %d\n", teeClient.GetNodeID())
+    fmt.Printf("Default App ID: %s\n", appID)
 
-    // Example 1: Simple signature using new Sign API
-    appID := "secure-messaging-app"
+    // Example 1: Simple signature (v3.0 - no AppID needed)
     message := []byte("Hello from AppID Service!")
-    
-    result, err := teeClient.Sign(&client.SignRequest{
-        Message: message,
-        AppID:   appID,
-        EnableVoting: false,
-    })
+
+    result, err := teeClient.Sign(message)
     if err != nil {
         log.Printf("Signing failed: %v", err)
     } else if result.Success {
         fmt.Printf("Signature: %x\n", result.Signature)
     }
 
-    // Example 2: Get public key by App ID
-    publicKey, protocol, curve, err := teeClient.GetPublicKeyByAppID(appID)
+    // Example 2: Get public key (v3.0 - uses default AppID)
+    publicKey, protocol, curve, err := teeClient.GetPublicKey()
     if err != nil {
         log.Printf("Failed to get public key: %v", err)
     } else {
-        fmt.Printf("Public key for App ID %s:\n", appID)
+        fmt.Printf("Public key:\n")
         fmt.Printf("  - Protocol: %s\n", protocol)
         fmt.Printf("  - Curve: %s\n", curve)
         fmt.Printf("  - Public Key: %s\n", publicKey)
     }
 
-    // Example 3: Verify signature
+    // Example 3: Verify signature (v3.0 - no AppID needed)
     if result.Success && result.Signature != nil {
-        valid, err := teeClient.Verify(message, result.Signature, appID)
+        valid, err := teeClient.Verify(message, result.Signature)
         if err != nil {
             log.Printf("Verification failed: %v", err)
         } else {
@@ -371,44 +380,40 @@ func main() {
     }
 }
 
-// Example 4: Voting signature in HTTP handler
+// Example 4: Voting signature in HTTP handler (v3.0)
 func handleVotingRequest(w http.ResponseWriter, r *http.Request) {
     var req struct {
-        Message     string `json:"message"`
-        SignerAppID string `json:"signer_app_id"`
+        Message string `json:"message"`
     }
     json.NewDecoder(r.Body).Decode(&req)
-    
+
     // Decode message
     messageBytes, _ := base64.StdEncoding.DecodeString(req.Message)
-    
+
     // Make local voting decision
     localApproval := strings.Contains(string(messageBytes), "test")
-    
-    // Use Sign API with voting enabled
-    result, err := teeClient.Sign(&client.SignRequest{
-        Message:       messageBytes,
-        AppID:         req.SignerAppID,
-        EnableVoting:  true,
+
+    // Use Sign API with voting options (voting auto-enabled by AppID config)
+    result, err := teeClient.Sign(messageBytes, &client.SignOptions{
         LocalApproval: localApproval,
         HTTPRequest:   r,  // Pass the incoming HTTP request
     })
-    
+
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    
+
     // Return results
     response := map[string]interface{}{
         "success": result.Success,
         "signature": hex.EncodeToString(result.Signature),
     }
-    
+
     if result.VotingInfo != nil {
         response["voting_info"] = result.VotingInfo
     }
-    
+
     json.NewEncoder(w).Encode(response)
 }
 ```
@@ -421,71 +426,76 @@ func handleVotingRequest(w http.ResponseWriter, r *http.Request) {
 npm install @teenet/teenet-sdk
 ```
 
-### Basic Usage
+### Basic Usage (v3.0)
 
 ```typescript
-import { Client, SignRequest } from '@teenet/teenet-sdk';
+import { Client, SignOptions } from '@teenet/teenet-sdk';
 
 async function main() {
-  // Create and initialize client
-  const client = new Client('localhost:50052');
-  await client.init();
-  
-  console.log(`Client connected, Node ID: ${client.getNodeId()}`);
-
-  // Example 1: Simple signature using new sign API
-  const appID = 'secure-messaging-app';
-  const message = new TextEncoder().encode('Hello from AppID Service!');
-  
-  const result = await client.sign({
-    message: message,
-    appID: appID,
-    enableVoting: false,
+  // Create client with custom options
+  const client = new Client('localhost:50052', {
+    cacheTTL: 5 * 60 * 1000,        // 5 minutes
+    maxConcurrentVotes: 10,
+    frostTimeout: 10 * 1000,        // 10 seconds
+    ecdsaTimeout: 20 * 1000,        // 20 seconds
   });
-  
+
+  // Set default App ID before initialization
+  const appID = 'secure-messaging-app';
+  client.setDefaultAppID(appID);
+
+  // Or load from environment variable (APP_ID)
+  // client.setDefaultAppIDFromEnv();
+
+  await client.init();
+
+  console.log(`Client connected, Node ID: ${client.getNodeId()}`);
+  console.log(`Default App ID: ${appID}`);
+
+  // Example 1: Simple signature (v3.0 - no AppID needed)
+  const message = new TextEncoder().encode('Hello from AppID Service!');
+
+  const result = await client.sign(message);
+
   if (result.success) {
     console.log(`Signature: ${Buffer.from(result.signature).toString('hex')}`);
   }
 
-  // Example 2: Get public key by App ID
-  const { publicKey, protocol, curve } = await client.getPublicKeyByAppID(appID);
-  console.log(`Public key for ${appID}:`);
+  // Example 2: Get public key (v3.0 - uses default AppID)
+  const { publicKey, protocol, curve } = await client.getPublicKey();
+  console.log('Public key:');
   console.log(`  - Protocol: ${protocol}`);
   console.log(`  - Curve: ${curve}`);
   console.log(`  - Public Key: ${publicKey}`);
 
-  // Example 3: Verify signature
+  // Example 3: Verify signature (v3.0 - no AppID needed)
   if (result.success && result.signature) {
-    const valid = await client.verify(message, result.signature, appID);
+    const valid = await client.verify(message, result.signature);
     console.log(`Signature valid: ${valid}`);
   }
-  
+
   await client.close();
 }
 
-// Example 4: Voting signature in Express handler
+// Example 4: Voting signature in Express handler (v3.0)
 app.post('/vote', async (req, res) => {
   // Extract message from incoming request
   const message = Buffer.from(req.body.message, 'base64');
-  const signerAppID = req.body.signer_app_id;
-  
+
   // Make local voting decision
   const messageStr = message.toString();
   const localApproval = messageStr.includes('test');
-  
-  // Use sign API with voting enabled
-  const result = await client.sign({
-    message: message,
-    appID: signerAppID,
-    enableVoting: true,
+
+  // Use sign API with voting options (voting auto-enabled by AppID config)
+  const result = await client.sign(message, {
     localApproval: localApproval,
     httpRequest: req,  // Pass the incoming Express request
   });
-  
+
   // Return results
   res.json({
     success: result.success,
-    signature: result.signature ? 
+    signature: result.signature ?
       Buffer.from(result.signature).toString('hex') : null,
     votingInfo: result.votingInfo
   });
@@ -549,7 +559,128 @@ main().catch(console.error);
 - **TEENet Signature Tool**: See [go/example/signature-tool/](go/example/signature-tool/) for detailed documentation
 - **Mock Server**: See [mock-server/README.md](mock-server/README.md) for detailed documentation
 
-## 🆕 Latest Updates (v2.1)
+## 🆕 Latest Updates (v3.0)
+
+### ⭐ Breaking Changes (v3.0)
+1. **Default AppID Support**: Simplified API with default AppID set during initialization
+   - **Before (v2.x)**:
+     ```go
+     result, err := client.Sign(&SignRequest{
+         Message: message,
+         AppID: appID,
+         EnableVoting: false,
+     })
+     publicKey, _, _, err := client.GetPublicKeyByAppID(appID)
+     valid, err := client.Verify(message, signature, appID)
+     ```
+   - **After (v3.0)**:
+     ```go
+     // Set default AppID once during initialization
+     client.SetDefaultAppID(appID)
+     client.Init()
+
+     // Use simplified methods without AppID parameter
+     result, err := client.Sign(message)
+     publicKey, _, _, err := client.GetPublicKey()
+     valid, err := client.Verify(message, signature)
+     ```
+
+2. **Simplified Sign Method**: Changed from struct parameter to message + optional options
+   - **Before (v2.x)**:
+     ```go
+     result, err := client.Sign(&SignRequest{
+         Message: message,
+         AppID: appID,
+         EnableVoting: true,
+         LocalApproval: localApproval,
+         HTTPRequest: req,
+     })
+     ```
+   - **After (v3.0)**:
+     ```go
+     // Simple signing
+     result, err := client.Sign(message)
+
+     // Voting signature
+     result, err := client.Sign(message, &SignOptions{
+         LocalApproval: localApproval,
+         HTTPRequest: req,
+     })
+     ```
+
+3. **Auto-detect Voting**: Removed `EnableVoting` field - voting is automatically determined by AppID configuration
+   - Voting is enabled/disabled based on server configuration for the AppID
+   - No need to manually specify voting flag
+
+4. **Simplified SignOptions**: Removed redundant fields
+   - Removed `VoteRequestData` and `Headers` (extracted automatically from HTTPRequest)
+   - Only `LocalApproval` and `HTTPRequest` are needed for voting
+
+### Migration Guide (v2.x → v3.0)
+
+**Step 1**: Set default AppID during initialization
+```go
+// v2.x - AppID passed to each method
+teeClient := client.NewClient("localhost:50052")
+teeClient.Init()
+
+// v3.0 - Set default AppID once
+teeClient := client.NewClient("localhost:50052")
+teeClient.SetDefaultAppID("secure-messaging-app")
+// Or use environment variable: teeClient.SetDefaultAppIDFromEnv()
+teeClient.Init()
+```
+
+**Step 2**: Update Sign calls
+```go
+// v2.x - Struct with all parameters
+result, err := teeClient.Sign(&client.SignRequest{
+    Message: message,
+    AppID: appID,
+    EnableVoting: false,
+})
+
+// v3.0 - Just message
+result, err := teeClient.Sign(message)
+```
+
+**Step 3**: Update voting Sign calls
+```go
+// v2.x - Full struct with EnableVoting
+result, err := teeClient.Sign(&client.SignRequest{
+    Message: messageBytes,
+    AppID: appID,
+    EnableVoting: true,
+    LocalApproval: localApproval,
+    HTTPRequest: r,
+})
+
+// v3.0 - Message + options (voting auto-detected)
+result, err := teeClient.Sign(messageBytes, &client.SignOptions{
+    LocalApproval: localApproval,
+    HTTPRequest: r,
+})
+```
+
+**Step 4**: Update GetPublicKey calls
+```go
+// v2.x
+publicKey, protocol, curve, err := teeClient.GetPublicKeyByAppID(appID)
+
+// v3.0
+publicKey, protocol, curve, err := teeClient.GetPublicKey()
+```
+
+**Step 5**: Update Verify calls
+```go
+// v2.x
+valid, err := teeClient.Verify(message, signature, appID)
+
+// v3.0
+valid, err := teeClient.Verify(message, signature)
+```
+
+## 🆕 Previous Updates (v2.1)
 
 ### ⭐ New Features (v2.1)
 1. **Signature Verification**: Added `Verify()` method to both Go and TypeScript SDKs
@@ -566,22 +697,9 @@ main().catch(console.error);
 ## 🆕 Previous Updates (v2.0)
 
 ### ⭐ Major API Changes
-1. **Unified Sign API**: New `Sign()` method replaces separate `SignWithAppID` and `VotingSign` methods
-   - **Before**: 
-     ```go
-     signature, err := client.SignWithAppID(message, appID)
-     votingResult, err := client.VotingSign(req, message, appID, localApproval)
-     ```
-   - **After**: 
-     ```go
-     result, err := client.Sign(&SignRequest{
-         Message: message,
-         AppID: appID,
-         EnableVoting: false, // or true for voting
-         LocalApproval: localApproval,
-         HTTPRequest: req,
-     })
-     ```
+1. **Unified Sign API**: New `Sign()` method replaced separate `SignWithAppID` and `VotingSign` methods
+   - Single method for both simple signing and voting signatures
+   - Consistent API across different signing scenarios
 
 2. **Automatic Server Configuration**: Target nodes and voting threshold fetched from server
    - No need to hardcode target App IDs in client code

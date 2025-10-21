@@ -11,14 +11,13 @@
 //
 // -----------------------------------------------------------------------------
 
-import { NodeConfig, ClientOptions, Constants, Protocol, Curve, VotingResult, VoteDetail, VotingHandler, VotingRequest, VotingResponse, SignRequest, SignResult, VotingInfo } from './types';
+import { NodeConfig, ClientOptions, Constants, Protocol, Curve, VotingResult, VoteDetail, VotingRequest, VotingResponse, SignRequest, SignResult, VotingInfo, SignOptions } from './types';
 import { ConfigClient } from './config-client';
 import { TaskClient } from './task-client';
 import { AppIDClient } from './appid-client';
 import { VotingClient } from './voting-client';
 import { verifySignature } from './verification';
 import * as tls from 'tls';
-import * as grpc from '@grpc/grpc-js';
 import { IncomingMessage } from 'http';
 
 export class Client {
@@ -28,128 +27,100 @@ export class Client {
   private nodeConfig: NodeConfig | null = null;
   private frostTimeout: number;
   private ecdsaTimeout: number;
-  private votingHandler: VotingHandler;
-  private votingServer: grpc.Server | null = null;
+
+  // Default App ID (optional, can be set from environment variable)
+  public defaultAppID: string = '';
+
+  // Caching
+  private publicKeyCache: Map<string, { publicKey: string; protocol: string; curve: string; timestamp: number }> = new Map();
+  private deploymentCache: Map<string, { targets: any; votingPath: string; requiredVotes: number; enableVotingSign: boolean; timestamp: number }> = new Map();
+  private cacheTTL: number;
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  // Concurrency control
+  private maxConcurrentVotes: number;
 
   constructor(configServerAddress: string, options?: Partial<ClientOptions>) {
     this.configClient = new ConfigClient(configServerAddress);
-    this.frostTimeout = options?.timeout || Constants.DEFAULT_CLIENT_TIMEOUT;
-    this.ecdsaTimeout = this.frostTimeout * 2;
-    
-    // Set default voting handler (auto-approve all votes)
-    this.votingHandler = this.createDefaultVotingHandler();
+    this.frostTimeout = options?.frostTimeout || options?.timeout || Constants.DEFAULT_CLIENT_TIMEOUT;
+    this.ecdsaTimeout = options?.ecdsaTimeout || this.frostTimeout * 2;
+    this.cacheTTL = options?.cacheTTL || 5 * 60 * 1000; // Default 5 minutes
+    this.maxConcurrentVotes = options?.maxConcurrentVotes || 10;
   }
 
-  // Create default voting handler that auto-approves all voting requests
-  private createDefaultVotingHandler(): VotingHandler {
-    return async (request: VotingRequest): Promise<VotingResponse> => {
-      // Simulate processing delay
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Auto-approve all voting requests by default
-      console.log(`✅ [DEFAULT] Auto-approving voting request for task: ${request.task_id}`);
-
-      return {
-        success: true,
-        task_id: request.task_id,
-      };
-    };
+  // Set default App ID
+  setDefaultAppID(appID: string): void {
+    this.defaultAppID = appID;
   }
 
-  // Set custom voting handler and restart voting service if running
-  setVotingHandler(handler: VotingHandler): void {
-    this.votingHandler = handler;
-
-    // If voting service is already running, restart it with the new handler
-    if (this.votingServer) {
-      console.log('🔄 Restarting voting service with new handler...');
-      this.restartVotingService();
+  // Set default App ID from environment variable
+  setDefaultAppIDFromEnv(): void {
+    const appID = process.env.APP_ID;
+    if (appID) {
+      this.defaultAppID = appID;
     }
   }
 
-  async init(votingHandler?: VotingHandler): Promise<void> {
+  async init(): Promise<void> {
     // 1. Fetch configuration
     const nodeConfig = await this.configClient.getConfig(this.frostTimeout);
     this.nodeConfig = nodeConfig;
 
     // 2. Create task client
     this.taskClient = new TaskClient(nodeConfig);
-    
+
     // 3. Connect to TEE server
     await this.taskClient.connect(this.frostTimeout);
 
     // 4. Create AppID client
     this.appIDClient = new AppIDClient(nodeConfig.appNodeAddr);
-    
+
     // 5. Create TLS configuration for App node
     const appTLSConfig = this.createAppTLSConfig();
-    
+
     // 6. Connect to user management system
     await this.appIDClient.connect(appTLSConfig);
 
-    // 7. Set voting handler and auto-start voting service
-    if (votingHandler) {
-      this.votingHandler = votingHandler;
-      console.log('🗳️  Using custom voting handler provided in init()');
-    } else {
-      console.log('🗳️  Using default auto-approve voting handler');
+    // 7. Initialize default App ID from environment variable if set
+    if (process.env.APP_ID && !this.defaultAppID) {
+      this.setDefaultAppID(process.env.APP_ID);
+      console.log(`🔑 Default App ID initialized from environment: ${this.defaultAppID}`);
     }
 
-    try {
-      this.votingServer = await VotingClient.startVotingService(this.votingHandler);
-      console.log('🗳️  Voting service auto-started during initialization');
-    } catch (error) {
-      console.warn(`⚠️  Warning: Failed to start voting service: ${error}`);
-      // Don't fail initialization if voting service fails to start
-    }
+    // 8. Start cache cleanup timer
+    this.startCacheCleanup();
 
     console.log(`✅ Client initialized successfully, node ID: ${nodeConfig.nodeId}`);
   }
 
-  private async restartVotingService(): Promise<void> {
-    if (this.votingServer) {
-      // Quick shutdown without waiting
-      setImmediate(() => this.votingServer?.forceShutdown());
-      this.votingServer = null;
-    }
+  private startCacheCleanup(): void {
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
 
-    try {
-      this.votingServer = await VotingClient.startVotingService(this.votingHandler);
-    } catch (error) {
-      console.warn(`⚠️  Warning: Failed to restart voting service: ${error}`);
-    }
+      // Clean expired public key cache entries
+      for (const [key, value] of this.publicKeyCache.entries()) {
+        if (now - value.timestamp > this.cacheTTL) {
+          this.publicKeyCache.delete(key);
+        }
+      }
+
+      // Clean expired deployment cache entries
+      for (const [key, value] of this.deploymentCache.entries()) {
+        if (now - value.timestamp > this.cacheTTL) {
+          this.deploymentCache.delete(key);
+        }
+      }
+    }, 60000); // Run every minute
   }
 
   async close(): Promise<void> {
-    console.log('🛑 Stopping voting service...');
-    
-    // Gracefully stop voting service
-    if (this.votingServer) {
-      return new Promise<void>((resolve) => {
-        console.log('🔄 Attempting graceful shutdown...');
-        this.votingServer!.tryShutdown(() => {
-          console.log('✅ Voting service stopped gracefully');
-          this.votingServer = null;
-          
-          // Close other clients
-          console.log('🔄 Closing task client...');
-          if (this.taskClient) {
-            this.taskClient.close();
-            this.taskClient = null;
-          }
-          console.log('🔄 Closing appID client...');
-          if (this.appIDClient) {
-            this.appIDClient.close();
-            this.appIDClient = null;
-          }
-          console.log('✅ All clients closed');
-          
-          resolve();
-        });
-      });
+    // Stop cache cleanup timer
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
     }
 
-    // If no voting server, just close other clients
+    // Close clients
     if (this.taskClient) {
       await this.taskClient.close();
       this.taskClient = null;
@@ -158,6 +129,8 @@ export class Client {
       this.appIDClient.close();
       this.appIDClient = null;
     }
+
+    console.log('✅ All clients closed');
   }
 
 
@@ -189,12 +162,47 @@ export class Client {
     };
   }
 
-  // Get public key by app ID from user management system
+  // Get public key using default App ID (v3.0 API)
+  async getPublicKey(): Promise<{publickey: string, protocol: string, curve: string}> {
+    if (!this.defaultAppID) {
+      throw new Error('default App ID is not set');
+    }
+    return this.getPublicKeyInfo(this.defaultAppID);
+  }
+
+  // Get public key by app ID from user management system (kept for backward compatibility)
   async getPublicKeyByAppID(appId: string): Promise<{publickey: string, protocol: string, curve: string}> {
+    return this.getPublicKeyInfo(appId);
+  }
+
+  // Internal method to get public key with caching
+  private async getPublicKeyInfo(appId: string): Promise<{publickey: string, protocol: string, curve: string}> {
     if (!this.appIDClient) {
       throw new Error('AppID client not initialized');
     }
-    return this.appIDClient.getPublicKeyByAppID(appId);
+
+    // Check cache first
+    const cached = this.publicKeyCache.get(appId);
+    if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+      return {
+        publickey: cached.publicKey,
+        protocol: cached.protocol,
+        curve: cached.curve
+      };
+    }
+
+    // Fetch from server
+    const result = await this.appIDClient.getPublicKeyByAppID(appId);
+
+    // Update cache
+    this.publicKeyCache.set(appId, {
+      publicKey: result.publickey,
+      protocol: result.protocol,
+      curve: result.curve,
+      timestamp: Date.now()
+    });
+
+    return result;
   }
 
 
@@ -226,22 +234,22 @@ export class Client {
     }
   }
 
-  // Sign with AppID (combines getPublicKeyByAppID and taskClient.sign)
-  async signWithAppID(message: Uint8Array, appId: string): Promise<Uint8Array> {
+  // Sign with AppID (internal method)
+  private async signWithAppID(message: Uint8Array, appId: string): Promise<Uint8Array> {
     if (!this.taskClient) {
       throw new Error('client not initialized');
     }
 
     // Get public key from user management system
-    const { publickey, protocol, curve } = await this.getPublicKeyByAppID(appId);
+    const { publickey, protocol, curve } = await this.getPublicKeyInfo(appId);
 
     // Parse protocol and curve
     const protocolNum = this.parseProtocol(protocol);
     const curveNum = this.parseCurve(curve);
 
     // Decode public key from hex (remove 0x prefix if present)
-    const publicKeyHex = publickey.startsWith('0x') || publickey.startsWith('0X') 
-      ? publickey.slice(2) 
+    const publicKeyHex = publickey.startsWith('0x') || publickey.startsWith('0X')
+      ? publickey.slice(2)
       : publickey;
     const publicKeyBuffer = Buffer.from(publicKeyHex, 'hex');
 
@@ -250,16 +258,62 @@ export class Client {
     return this.taskClient.sign(message, new Uint8Array(publicKeyBuffer), protocolNum, curveNum, timeout);
   }
 
-  // Sign method that matches Go's Sign method signature
-  async sign(req: SignRequest): Promise<SignResult> {
-    if (!req.message || !req.appID) {
-      throw new Error('message and appID are required');
+  // Get deployment targets with caching
+  private async getDeploymentTargets(appId: string): Promise<{ targets: any; votingPath: string; requiredVotes: number; enableVotingSign: boolean }> {
+    if (!this.appIDClient) {
+      throw new Error('AppID client not initialized');
     }
 
+    // Check cache first
+    const cached = this.deploymentCache.get(appId);
+    if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+      return {
+        targets: cached.targets,
+        votingPath: cached.votingPath,
+        requiredVotes: cached.requiredVotes,
+        enableVotingSign: cached.enableVotingSign
+      };
+    }
+
+    // Fetch from server
+    const result = await this.appIDClient.getDeploymentTargetsForVotingSign(appId, this.frostTimeout);
+
+    // Check if voting is enabled based on deployment targets
+    const enableVotingSign = Object.keys(result.deploymentTargets).length > 0 && result.requiredVotes > 0;
+
+    // Update cache
+    this.deploymentCache.set(appId, {
+      targets: result.deploymentTargets,
+      votingPath: result.votingSignPath,
+      requiredVotes: result.requiredVotes,
+      enableVotingSign: enableVotingSign,
+      timestamp: Date.now()
+    });
+
+    return {
+      targets: result.deploymentTargets,
+      votingPath: result.votingSignPath,
+      requiredVotes: result.requiredVotes,
+      enableVotingSign: enableVotingSign
+    };
+  }
+
+  // Sign method - v3.0 API
+  async sign(message: Uint8Array, options?: SignOptions): Promise<SignResult> {
+    if (!this.defaultAppID) {
+      throw new Error('default App ID is not set');
+    }
+
+    const appID = this.defaultAppID;
+    const opt = options || {};
+
+    // Check if voting is enabled for this AppID
+    const { targets, votingPath, requiredVotes, enableVotingSign } = await this.getDeploymentTargets(appID);
+
     // If voting is not enabled, perform regular signing
-    if (!req.enableVoting) {
+    if (!enableVotingSign) {
       try {
-        const signature = await this.signWithAppID(req.message, req.appID);
+        const signature = await this.signWithAppID(message, appID);
         return {
           signature,
           success: true
@@ -274,24 +328,29 @@ export class Client {
 
     // Voting is enabled, perform voting sign
     try {
-      // If httpRequest is provided, use votingSign method that accepts it
-      let votingResult: VotingResult;
-      if (req.httpRequest) {
-        votingResult = await this.votingSign(
-          req.httpRequest,
-          req.message,
-          req.appID,
-          req.localApproval || false
-        );
-      } else {
-        votingResult = await this.votingSignWithHeaders(
-          req.message,
-          req.appID,
-          req.localApproval || false,
-          req.voteRequestData,
-          req.headers
-        );
+      let voteRequestData: Uint8Array | undefined;
+      let headers: { [key: string]: string } | undefined;
+
+      // Extract headers and request body from HTTP request if provided
+      if (opt.httpRequest) {
+        headers = this.extractHeadersFromRequest(opt.httpRequest);
+
+        // Read request body if available
+        if ((opt.httpRequest as any).body) {
+          const bodyStr = typeof (opt.httpRequest as any).body === 'string'
+            ? (opt.httpRequest as any).body
+            : JSON.stringify((opt.httpRequest as any).body);
+          voteRequestData = new TextEncoder().encode(bodyStr);
+        }
       }
+
+      const votingResult = await this.votingSignWithHeaders(
+        message,
+        appID,
+        opt.localApproval || false,
+        voteRequestData,
+        headers
+      );
 
       // Convert VotingResult to SignResult
       const result: SignResult = {
@@ -514,28 +573,42 @@ export class Client {
   }
 
   /**
+   * Verifies a signature against a message using the public key associated with the default app ID (v3.0 API)
+   * @param message - The original message that was signed
+   * @param signature - The signature to verify
+   * @returns true if the signature is valid, false otherwise
+   */
+  async verify(message: Buffer, signature: Buffer): Promise<boolean> {
+    if (!this.defaultAppID) {
+      throw new Error('default App ID is not set');
+    }
+    return this.verifyWithAppID(message, signature, this.defaultAppID);
+  }
+
+  /**
    * Verifies a signature against a message using the public key associated with the given app ID
+   * (kept for backward compatibility)
    * @param message - The original message that was signed
    * @param signature - The signature to verify
    * @param appID - The app ID whose public key will be used for verification
    * @returns true if the signature is valid, false otherwise
    */
-  async verify(message: Buffer, signature: Buffer, appID: string): Promise<boolean> {
+  async verifyWithAppID(message: Buffer, signature: Buffer, appID: string): Promise<boolean> {
     if (!this.appIDClient) {
       throw new Error('Client not initialized');
     }
 
     try {
       // Get public key from user management system
-      const { publickey, protocol, curve } = await this.getPublicKeyByAppID(appID);
+      const { publickey, protocol, curve } = await this.getPublicKeyInfo(appID);
 
       // Parse protocol and curve
       const protocolNum = this.parseProtocol(protocol);
       const curveNum = this.parseCurve(curve);
 
       // Decode public key from hex (remove 0x prefix if present)
-      const publicKeyHex = publickey.startsWith('0x') || publickey.startsWith('0X') 
-        ? publickey.slice(2) 
+      const publicKeyHex = publickey.startsWith('0x') || publickey.startsWith('0X')
+        ? publickey.slice(2)
         : publickey;
       const publicKeyBuffer = Buffer.from(publicKeyHex, 'hex');
 

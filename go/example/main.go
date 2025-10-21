@@ -31,22 +31,35 @@ func main() {
 	// Configuration
 	configServerAddr := "localhost:50052" // TEE config server address
 
-	fmt.Println("=== TEE DAO Key Management Client with AppID Service Integration ===")
+	fmt.Println("=== TEE DAO Key Management Client with Optimizations ===")
 
-	// Create client
-	teeClient := client.NewClient(configServerAddr)
+	// Create client with custom options
+	opts := &client.ClientOptions{
+		CacheTTL:           5 * time.Minute, // Cache public keys and deployments for 5 minutes
+		MaxConcurrentVotes: 10,              // Allow up to 10 concurrent voting requests
+		FrostTimeout:       10 * time.Second,
+		ECDSATimeout:       20 * time.Second,
+	}
+	teeClient := client.NewClientWithOptions(configServerAddr, opts)
 	defer teeClient.Close()
 
-	if err := teeClient.Init(nil); err != nil {
+	// Set default App ID before initialization
+	appID := "secure-messaging-app"
+	teeClient.SetDefaultAppID(appID)
+
+	if err := teeClient.Init(); err != nil {
 		log.Fatalf("Client initialization failed: %v", err)
 	}
 
-	fmt.Println("Client initialized successfully")
+	fmt.Println("Client initialized successfully with optimizations:")
+	fmt.Printf("  - Default App ID: %s\n", appID)
+	fmt.Printf("  - Public key cache TTL: %v\n", opts.CacheTTL)
+	fmt.Printf("  - Max concurrent votes: %d\n", opts.MaxConcurrentVotes)
+	fmt.Printf("  - TEE node failover: enabled\n")
 
-	// Example: Get public key by app ID
-	fmt.Println("\n1. Get public key by app ID")
-	appID := "secure-messaging-app"
-	publicKey, protocol, curve, err := teeClient.GetPublicKeyByAppID(appID)
+	// Example: Get public key
+	fmt.Println("\n1. Get public key")
+	publicKey, protocol, curve, err := teeClient.GetPublicKey()
 	if err != nil {
 		log.Printf("Failed to get public key by app ID: %v", err)
 	} else {
@@ -60,11 +73,7 @@ func main() {
 	fmt.Println("\n2. Sign message")
 	message := []byte("Hello from AppID Service!")
 
-	signReq := &client.SignRequest{
-		Message: message,
-		AppID:   appID,
-	}
-	signResult, err := teeClient.Sign(signReq)
+	signResult, err := teeClient.Sign(message)
 	if err != nil {
 		log.Printf("Signing failed: %v", err)
 	} else {
@@ -111,15 +120,10 @@ func main() {
 	fmt.Printf("  - Local Approval: %t\n", localApproval)
 
 	// Sign with voting enabled
-	votingSignReq := &client.SignRequest{
-		Message:       votingMessage,
-		AppID:         appID,
-		EnableVoting:  true,
+	votingSignResult, err := teeClient.Sign(votingMessage, &client.SignOptions{
 		LocalApproval: localApproval,
 		HTTPRequest:   httpReq,
-	}
-
-	votingSignResult, err := teeClient.Sign(votingSignReq)
+	})
 	if err != nil {
 		log.Printf("Voting signature failed: %v", err)
 	} else {
@@ -151,7 +155,7 @@ func main() {
 	fmt.Println("\n4. Verify signature")
 	if signResult != nil && signResult.Signature != nil {
 		// Verify the signature we just created
-		isValid, err := teeClient.Verify(message, signResult.Signature, appID)
+		isValid, err := teeClient.Verify(message, signResult.Signature)
 		if err != nil {
 			log.Printf("Verification failed: %v", err)
 		} else {
@@ -164,7 +168,7 @@ func main() {
 
 		// Test with wrong message
 		wrongMessage := []byte("Wrong message")
-		isValid, err = teeClient.Verify(wrongMessage, signResult.Signature, appID)
+		isValid, err = teeClient.Verify(wrongMessage, signResult.Signature)
 		if err != nil {
 			log.Printf("Verification with wrong message failed: %v", err)
 		} else {
@@ -176,7 +180,7 @@ func main() {
 	fmt.Println("\n5. Verify voting signature")
 	if votingSignResult != nil && votingSignResult.Signature != nil {
 		// Verify the voting signature
-		isValid, err := teeClient.Verify(votingMessage, votingSignResult.Signature, appID)
+		isValid, err := teeClient.Verify(votingMessage, votingSignResult.Signature)
 		if err != nil {
 			log.Printf("Voting signature verification failed: %v", err)
 		} else {
@@ -190,13 +194,17 @@ func main() {
 
 	// Example: Test 5 concurrent signatures
 	fmt.Println("\n6. Test 5 concurrent signatures")
-	testConcurrentSignatures(teeClient, appID)
+	testConcurrentSignatures(teeClient)
+
+	// Display metrics
+	fmt.Println("\n7. Client Performance Metrics")
+	displayMetrics(teeClient)
 
 	fmt.Println("\n=== Example completed ===")
 }
 
 // testConcurrentSignatures tests 5 concurrent signature operations
-func testConcurrentSignatures(teeClient *client.Client, appID string) {
+func testConcurrentSignatures(teeClient *client.Client) {
 	const numSignatures = 5
 	var wg sync.WaitGroup
 
@@ -220,16 +228,47 @@ func testConcurrentSignatures(teeClient *client.Client, appID string) {
 			defer wg.Done()
 
 			// Create unique message for each signature
-			message := []byte(fmt.Sprintf("Concurrent message #%d at %s", id+1, time.Now().Format("15:04:05.000")))
+			message := []byte(fmt.Sprintf("Concurrent test message #%d at %s", id+1, time.Now().Format("15:04:05.000")))
 
-			signReq := &client.SignRequest{
-				Message: message,
-				AppID:   appID,
+			// Create HTTP request body for voting (if voting is enabled for this AppID)
+			requestData := map[string]interface{}{
+				"message":       base64.StdEncoding.EncodeToString(message),
+				"signer_app_id": teeClient.DefaultAppID,
 			}
+
+			requestBody, err := json.Marshal(requestData)
+			if err != nil {
+				results <- signResult{
+					id:       id + 1,
+					success:  false,
+					err:      fmt.Errorf("failed to create request body: %w", err),
+					duration: 0,
+				}
+				return
+			}
+
+			// Create a mock HTTP request
+			httpReq, err := http.NewRequest("POST", "/vote", bytes.NewBuffer(requestBody))
+			if err != nil {
+				results <- signResult{
+					id:       id + 1,
+					success:  false,
+					err:      fmt.Errorf("failed to create HTTP request: %w", err),
+					duration: 0,
+				}
+				return
+			}
+			httpReq.Header.Set("Content-Type", "application/json")
+
+			// Make vote decision: approve if message contains "test"
+			localApproval := strings.Contains(strings.ToLower(string(message)), "test")
 
 			// Time the signature operation
 			opStart := time.Now()
-			result, err := teeClient.Sign(signReq)
+			result, err := teeClient.Sign(message, &client.SignOptions{
+				LocalApproval: localApproval,
+				HTTPRequest:   httpReq,
+			})
 			duration := time.Since(opStart)
 
 			// Send result to channel
@@ -303,4 +342,42 @@ func testConcurrentSignatures(teeClient *client.Client, appID string) {
 		// to verify it later. For this example, we're just showing the structure.
 		fmt.Println("(Verification requires storing message-signature pairs)")
 	}
+}
+
+// displayMetrics shows client performance metrics
+func displayMetrics(teeClient *client.Client) {
+	metrics := teeClient.GetMetrics()
+
+	fmt.Println("Performance Metrics:")
+	fmt.Println("------------------------------")
+	fmt.Printf("Sign Operations:\n")
+	fmt.Printf("  Total: %d\n", metrics.SignCount.Load())
+	fmt.Printf("  Errors: %d\n", metrics.SignErrors.Load())
+	if metrics.SignCount.Load() > 0 {
+		avgSignTime := time.Duration(metrics.TotalSignDuration.Load() / metrics.SignCount.Load())
+		fmt.Printf("  Avg Duration: %v\n", avgSignTime)
+	}
+
+	fmt.Printf("\nVoting Operations:\n")
+	fmt.Printf("  Total: %d\n", metrics.VoteCount.Load())
+	fmt.Printf("  Errors: %d\n", metrics.VoteErrors.Load())
+	if metrics.VoteCount.Load() > 0 {
+		avgVoteTime := time.Duration(metrics.TotalVoteDuration.Load() / metrics.VoteCount.Load())
+		fmt.Printf("  Avg Duration: %v\n", avgVoteTime)
+	}
+
+	fmt.Printf("\nCache Performance:\n")
+	totalCacheOps := metrics.CacheHits.Load() + metrics.CacheMisses.Load()
+	if totalCacheOps > 0 {
+		hitRate := float64(metrics.CacheHits.Load()) / float64(totalCacheOps) * 100
+		fmt.Printf("  Hits: %d\n", metrics.CacheHits.Load())
+		fmt.Printf("  Misses: %d\n", metrics.CacheMisses.Load())
+		fmt.Printf("  Hit Rate: %.2f%%\n", hitRate)
+	} else {
+		fmt.Printf("  No cache operations yet\n")
+	}
+
+	fmt.Printf("\nFailover:\n")
+	fmt.Printf("  Failover Count: %d\n", metrics.FailoverCount.Load())
+	fmt.Println("------------------------------")
 }

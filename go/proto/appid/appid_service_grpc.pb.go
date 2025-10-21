@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.5.0
-// source: proto/appid/appid_service.proto
+// source: appid_service.proto
 
 package appid
 
@@ -165,5 +165,5 @@ var AppIDService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/appid/appid_service.proto",
+	Metadata: "appid_service.proto",
 }

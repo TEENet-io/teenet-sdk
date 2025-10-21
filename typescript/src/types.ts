@@ -22,16 +22,27 @@ export interface NodeConfig {
 }
 
 export interface ClientOptions {
-  configServerAddress: string;
-  timeout?: number;
+  configServerAddress?: string;
+  cacheTTL?: number;           // Cache TTL in milliseconds
+  maxConcurrentVotes?: number; // Max concurrent voting requests
+  frostTimeout?: number;       // Timeout for FROST operations (ms)
+  ecdsaTimeout?: number;       // Timeout for ECDSA operations (ms)
+  timeout?: number;            // General timeout (deprecated, use frostTimeout)
 }
 
-// SignRequest matches Go's SignRequest struct
+// SignOptions for v3.0 API (simplified - removed appID, enableVoting, voteRequestData, headers)
+export interface SignOptions {
+  localApproval?: boolean;   // Local approval status for voting
+  httpRequest?: any;         // Original HTTP request (for voting)
+}
+
+// SignRequest - DEPRECATED in v3.0, kept for backward compatibility
+// Use Sign(message, options?) instead
 export interface SignRequest {
   message: Uint8Array;      // Message to sign
   appID: string;            // App ID for signing
   enableVoting?: boolean;    // Whether to enable voting process
-  
+
   // Voting-specific fields (only used when enableVoting is true)
   localApproval?: boolean;   // Local approval status for voting
   voteRequestData?: Uint8Array; // Vote request body data

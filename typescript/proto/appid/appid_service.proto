@@ -38,6 +38,7 @@ message GetDeploymentAddressesResponse {
   repeated string not_found = 2;                // App IDs that were not found or not deployed
   string voting_sign_path = 3;                  // Shared VotingSign API path for all instances
   int32 required_votes = 4;                     // Shared required votes for all instances
+  bool enable_voting_sign = 5;                  // Whether voting sign is enabled for this project
 }
 
 

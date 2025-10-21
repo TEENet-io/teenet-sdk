@@ -11,50 +11,61 @@
 //
 // -----------------------------------------------------------------------------
 
-import { Client, SignRequest, SignResult } from './index';
+import { Client, SignOptions, SignResult } from './index';
 // @ts-ignore
 import * as wtfnode from 'wtfnode';
 
 async function main() {
   // Configuration
   const configServerAddr = 'localhost:50052'; // TEE config server address
-  
-  console.log('=== TEE DAO Key Management Client with AppID Service Integration ===');
 
-  // Create client
-  const teeClient = new Client(configServerAddr);
+  console.log('=== TEE DAO Key Management Client with Optimizations (v3.0) ===');
+
+  // Create client with custom options
+  const teeClient = new Client(configServerAddr, {
+    cacheTTL: 5 * 60 * 1000,        // Cache public keys and deployments for 5 minutes
+    maxConcurrentVotes: 10,          // Allow up to 10 concurrent voting requests
+    frostTimeout: 10 * 1000,         // 10 seconds
+    ecdsaTimeout: 20 * 1000,         // 20 seconds
+  });
 
   try {
-    // Initialize client with default voting handler (auto-approve)
-    await teeClient.init();
-    console.log('Client initialized successfully');
+    // Set default App ID before initialization
+    const appID = 'secure-messaging-app';
+    teeClient.setDefaultAppID(appID);
 
-    // Example: Get public key by app ID
-    console.log('\n1. Get public key by app ID');
-    const appID = 'secure-messaging-app'; // Replace with actual app ID
-    
+    // Or load from environment variable (APP_ID)
+    // teeClient.setDefaultAppIDFromEnv();
+
+    // Initialize client
+    await teeClient.init();
+
+    console.log('Client initialized successfully with optimizations:');
+    console.log(`  - Default App ID: ${appID}`);
+    console.log(`  - Public key cache TTL: 5 minutes`);
+    console.log(`  - Max concurrent votes: 10`);
+    console.log(`  - TEE node failover: enabled`);
+
+    // Example 1: Get public key (v3.0 - no AppID parameter needed)
+    console.log('\n1. Get public key');
+
     try {
-      const { publickey, protocol, curve } = await teeClient.getPublicKeyByAppID(appID);
+      const { publickey, protocol, curve } = await teeClient.getPublicKey();
       console.log(`Public key for app ID ${appID}:`);
       console.log(`  - Protocol: ${protocol}`);
       console.log(`  - Curve: ${curve}`);
       console.log(`  - Public Key: ${publickey}`);
     } catch (error) {
-      console.error(`Failed to get public key by app ID: ${error}`);
+      console.error(`Failed to get public key: ${error}`);
     }
 
-    // Example: Sign message using Sign method
+    // Example 2: Sign message (v3.0 - simplified API)
     console.log('\n2. Sign message');
     const message = new TextEncoder().encode('Hello from AppID Service!');
 
-    const signReq: SignRequest = {
-      message: message,
-      appID: appID,
-      enableVoting: false
-    };
-
+    let signResult: SignResult | undefined;
     try {
-      const signResult = await teeClient.sign(signReq);
+      signResult = await teeClient.sign(message);
       if (signResult.success && signResult.signature) {
         console.log('Signing successful!');
         console.log(`Message: ${new TextDecoder().decode(message)}`);
@@ -70,14 +81,14 @@ async function main() {
       console.error(`Signing failed: ${error}`);
     }
 
-    // Example: Multi-party voting signature
+    // Example 3: Multi-party voting signature (v3.0)
     console.log('\n3. Multi-party voting signature example');
     const votingMessage = new TextEncoder().encode('test message for multi-party voting'); // Contains "test" to trigger approval
 
     console.log('Voting request:');
     console.log(`  - Message: ${new TextDecoder().decode(votingMessage)}`);
     console.log(`  - Signer App ID: ${appID}`);
-    console.log(`  - Voting Enabled: true`);
+    console.log(`  - Voting Enabled: auto-detected from AppID configuration`);
 
     // Create HTTP request body similar to signature-tool
     const requestData = {
@@ -85,8 +96,6 @@ async function main() {
       signer_app_id: appID,
       is_forwarded: false
     };
-
-    const requestBody = Buffer.from(JSON.stringify(requestData));
 
     // Create a mock HTTP request like signature-tool does
     const { IncomingMessage } = require('http');
@@ -103,38 +112,35 @@ async function main() {
     const localApproval = new TextDecoder().decode(votingMessage).toLowerCase().includes('test');
     console.log(`  - Local Approval: ${localApproval}`);
 
-    // Sign with voting enabled
-    const votingSignReq: SignRequest = {
-      message: votingMessage,
-      appID: appID,
-      enableVoting: true,
+    // Sign with voting options (v3.0 - voting auto-enabled by AppID config)
+    const votingOptions: SignOptions = {
       localApproval: localApproval,
       httpRequest: httpReq
     };
 
     let votingSignResult: SignResult | undefined;
     try {
-      votingSignResult = await teeClient.sign(votingSignReq);
+      votingSignResult = await teeClient.sign(votingMessage, votingOptions);
       if (votingSignResult.success) {
         console.log('\nVoting signature completed!');
         console.log(`Success: ${votingSignResult.success}`);
         if (votingSignResult.signature) {
           console.log(`Signature: ${Buffer.from(votingSignResult.signature).toString('hex')}`);
         }
-        
+
         // Display voting information if available
         if (votingSignResult.votingInfo) {
           console.log('\nVoting Details:');
           console.log(`  - Total Targets: ${votingSignResult.votingInfo.totalTargets}`);
           console.log(`  - Successful Votes: ${votingSignResult.votingInfo.successfulVotes}`);
           console.log(`  - Required Votes: ${votingSignResult.votingInfo.requiredVotes}`);
-          
+
           console.log('\nIndividual Votes:');
           votingSignResult.votingInfo.voteDetails.forEach((vote: any, i: number) => {
             console.log(`  ${i + 1}. Client ${vote.clientId}: Success=${vote.success}`);
           });
         }
-        
+
         if (votingSignResult.error) {
           console.log(`Error: ${votingSignResult.error}`);
         }
@@ -145,53 +151,41 @@ async function main() {
       console.error(`Voting signature failed: ${error}`);
     }
 
-    // Example: Verify signature
+    // Example 4: Verify signature (v3.0 - no AppID parameter needed)
     console.log('\n4. Verify signature');
-    try {
-      // First, let's sign a message to get a signature to verify
-      const verifyTestMessage = Buffer.from('Test message for verification');
-      const verifySignReq: SignRequest = {
-        message: verifyTestMessage,
-        appID: appID,
-        enableVoting: false
-      };
-      
-      const verifySignResult = await teeClient.sign(verifySignReq);
-      if (verifySignResult.success && verifySignResult.signature) {
-        // Now verify the signature we just created
+    if (signResult && signResult.success && signResult.signature) {
+      try {
+        // Verify the signature we created in Example 2
         const isValid = await teeClient.verify(
-          verifyTestMessage, 
-          Buffer.from(verifySignResult.signature), 
-          appID
+          Buffer.from(message),
+          Buffer.from(signResult.signature)
         );
         console.log(`Signature verification result: ${isValid}`);
-        console.log(`  - Message: ${verifyTestMessage.toString()}`);
-        console.log(`  - Signature: ${Buffer.from(verifySignResult.signature).toString('hex')}`);
+        console.log(`  - Message: ${new TextDecoder().decode(message)}`);
+        console.log(`  - Signature: ${Buffer.from(signResult.signature).toString('hex')}`);
         console.log(`  - App ID: ${appID}`);
         console.log(`  - Valid: ${isValid}`);
 
         // Test with wrong message
         const wrongMessage = Buffer.from('Wrong message');
         const isValidWrong = await teeClient.verify(
-          wrongMessage, 
-          Buffer.from(verifySignResult.signature), 
-          appID
+          wrongMessage,
+          Buffer.from(signResult.signature)
         );
         console.log(`\nVerification with wrong message: ${isValidWrong} (expected false)`);
+      } catch (error) {
+        console.error(`Verification failed: ${error}`);
       }
-    } catch (error) {
-      console.error(`Verification failed: ${error}`);
     }
 
-    // Example: Verify voting signature
+    // Example 5: Verify voting signature (v3.0)
     console.log('\n5. Verify voting signature');
     if (votingSignResult && votingSignResult.signature) {
       try {
-        // Verify the voting signature from section 3
+        // Verify the voting signature from Example 3
         const isValid = await teeClient.verify(
-          Buffer.from(votingMessage), 
-          Buffer.from(votingSignResult.signature), 
-          appID
+          Buffer.from(votingMessage),
+          Buffer.from(votingSignResult.signature)
         );
         console.log(`Voting signature verification result: ${isValid}`);
         console.log(`  - Message: ${new TextDecoder().decode(votingMessage)}`);
