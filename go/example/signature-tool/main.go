@@ -34,12 +34,6 @@ var teeClient *client.Client
 var defaultAppID string
 
 func main() {
-	// Get configuration from environment variables
-	configAddr := os.Getenv("TEE_CONFIG_ADDR")
-	if configAddr == "" {
-		configAddr = "localhost:50052" // Default TEE configuration server address
-	}
-
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080" // Default port
@@ -58,7 +52,7 @@ func main() {
 	}
 
 	// Initialize TEE client
-	teeClient = client.NewClient(configAddr)
+	teeClient = client.NewClient()
 	if err := teeClient.Init(); err != nil {
 		log.Fatalf("Failed to initialize TEE client: %v", err)
 	}
@@ -365,7 +359,6 @@ func main() {
 	})
 
 	log.Printf("Starting TEENet Signature Tool on port %s...", port)
-	log.Printf("TEE Configuration Server: %s", configAddr)
 	log.Printf("Default App ID: %s", defaultAppID)
 	log.Printf("Frontend Path: %s", frontendPath)
 	log.Printf("Web interface available at: http://localhost:%s", port)

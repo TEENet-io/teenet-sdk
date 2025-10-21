@@ -8,11 +8,11 @@ import (
 )
 
 func main() {
-	// Create and initialize client
+	// Create client (reads TEE_CONFIG_ADDR and APP_ID from env vars)
+	// TEE_CONFIG_ADDR defaults to localhost:50052
+	// APP_ID is required (set via: APP_ID=ethereum-wallet-app go run example-user-program.go)
 	teeClient := client.NewClient()
 	defer teeClient.Close()
-
-	teeClient.SetDefaultAppID("ethereum-wallet-app") // if environment variable APP_ID is set, no need to set this
 
 	// Initialize client
 	if err := teeClient.Init(); err != nil {

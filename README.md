@@ -44,11 +44,11 @@ A comprehensive TEENet sdk library with multi-language support, distributed voti
 - **TLS Security**: Secure communication using mutual TLS authentication
 
 ### Mock Server Features
-- **Semantic App IDs**: 
+- **Semantic App IDs**:
   - `secure-messaging-app` (Schnorr + ED25519)
   - `financial-trading-platform` (ECDSA + SECP256R1)
   - `digital-identity-service` (Schnorr + SECP256K1)
-  - `bitcoin-wallet-app` (ECDSA + SECP256K1)
+  - `ethereum-wallet-app` (ECDSA + SECP256K1 - Ethereum-compatible)
 - **Deterministic Testing**: Reproducible key generation for testing
 - **Complete Environment**: Config server, DAO server, app node
 
@@ -80,32 +80,19 @@ import (
 )
 
 func main() {
-    // Read from environment variables (with defaults)
-    configAddr := os.Getenv("TEE_CONFIG_ADDR")
-    if configAddr == "" {
-        configAddr = "localhost:50052" // default
-    }
-
-    appID := os.Getenv("APP_ID")
-    if appID == "" {
-        appID = "ethereum-wallet-app" // default
-    }
-
-    // Create client (uses default options)
-    teeClient := client.NewClient(configAddr)
+    // Create client (config address from TEE_CONFIG_ADDR env var, defaults to localhost:50052)
+    teeClient := client.NewClient()
     defer teeClient.Close()
 
-    // Set App ID and initialize
-    teeClient.SetDefaultAppID(appID)
+    // Initialize (App ID will be read from APP_ID env var - required)
     if err := teeClient.Init(); err != nil {
         log.Fatal(err)
     }
 
-    fmt.Printf("✅ Connected to: %s\n", configAddr)
-    fmt.Printf("✅ Using App ID: %s\n", appID)
+    fmt.Println("✅ Client initialized successfully")
 
     // Sign a message
-    message := []byte("Hello, TEENet!")
+    message := []byte("Hello, TEE DAO!")
     result, _ := teeClient.Sign(message)
     fmt.Printf("✅ Signature: %x\n", result.Signature)
 
@@ -120,17 +107,13 @@ func main() {
 import { Client } from '@teenet/teenet-sdk';
 
 async function main() {
-  // Read App ID from environment variable (with default)
-  const appID = process.env.APP_ID || 'ethereum-wallet-app';
-
-  // Create client (config address from TEE_CONFIG_ADDR or defaults to localhost:50052)
+  // Create client (config address from TEE_CONFIG_ADDR env var, defaults to localhost:50052)
   const teeClient = new Client();
-  teeClient.setDefaultAppID(appID);
+
+  // Initialize (App ID will be read from APP_ID env var - required)
   await teeClient.init();
 
-  const configAddr = process.env.TEE_CONFIG_ADDR || 'localhost:50052';
-  console.log(`✅ Connected to: ${configAddr}`);
-  console.log(`✅ Using App ID: ${appID}`);
+  console.log('✅ Client initialized successfully');
 
   // Sign a message
   const message = Buffer.from('Hello, TEE DAO!');
@@ -148,29 +131,32 @@ main().catch(console.error);
 ```
 
 **Run with environment variables:**
+
+Both Go and TypeScript clients automatically read configuration from environment variables:
+- `TEE_CONFIG_ADDR` - Config server address (default: `localhost:50052`)
+- `APP_ID` - Default App ID (required, no default)
+
 ```bash
 # Go
-# Default (localhost)
-go run main.go
-
-# Custom config
-export TEE_CONFIG_ADDR=localhost:50052
+# Set required APP_ID environment variable
 export APP_ID=ethereum-wallet-app
 go run main.go
 
 # Or inline
+APP_ID=ethereum-wallet-app go run main.go
+
+# Custom config server address
 TEE_CONFIG_ADDR=localhost:50052 APP_ID=secure-messaging-app go run main.go
 
 # TypeScript
-# Default (localhost)
-npm run example
-
-# Custom config
-export TEE_CONFIG_ADDR=localhost:50052
+# Set required APP_ID environment variable
 export APP_ID=ethereum-wallet-app
 npm run example
 
 # Or inline
+APP_ID=ethereum-wallet-app npm run example
+
+# Custom config server address
 TEE_CONFIG_ADDR=localhost:50052 APP_ID=secure-messaging-app npm run example
 ```
 
@@ -455,11 +441,13 @@ import (
 
 func main() {
     // Simple usage - Create client with default options
-    teeClient := client.NewClient("localhost:50052")
+    // Config address from TEE_CONFIG_ADDR env var (default: localhost:50052)
+    // App ID from APP_ID env var (required)
+    teeClient := client.NewClient()
     defer teeClient.Close()
 
-    // Set default App ID before initialization
-    teeClient.SetDefaultAppID("secure-messaging-app")
+    // Optional: Set default App ID programmatically (if not using APP_ID env var)
+    // teeClient.SetDefaultAppID("secure-messaging-app")
 
     if err := teeClient.Init(); err != nil {
         log.Fatalf("Initialization failed: %v", err)
@@ -473,7 +461,7 @@ func main() {
         FrostTimeout:       10 * time.Second,
         ECDSATimeout:       20 * time.Second,
     }
-    teeClient := client.NewClientWithOptions("localhost:50052", opts)
+    teeClient := client.NewClientWithOptions(opts)
     */
 
     fmt.Printf("✅ Client initialized, Node ID: %d\n", teeClient.GetNodeID())
@@ -563,24 +551,21 @@ import { Client, SignOptions } from '@teenet/teenet-sdk';
 
 async function main() {
   // Create client with custom options
-  const client = new Client('localhost:50052', {
+  // Config address from TEE_CONFIG_ADDR env var (default: localhost:50052)
+  // App ID from APP_ID env var (required)
+  const client = new Client({
     cacheTTL: 5 * 60 * 1000,        // 5 minutes
     maxConcurrentVotes: 10,
     frostTimeout: 10 * 1000,        // 10 seconds
     ecdsaTimeout: 20 * 1000,        // 20 seconds
   });
 
-  // Set default App ID before initialization
-  const appID = 'secure-messaging-app';
-  client.setDefaultAppID(appID);
-
-  // Or load from environment variable (APP_ID)
-  // client.setDefaultAppIDFromEnv();
+  // Optional: Set default App ID programmatically (if not using APP_ID env var)
+  // client.setDefaultAppID('secure-messaging-app');
 
   await client.init();
 
   console.log(`Client connected, Node ID: ${client.getNodeId()}`);
-  console.log(`Default App ID: ${appID}`);
 
   // Example 1: Simple signature (v3.0 - no AppID needed)
   const message = new TextEncoder().encode('Hello from AppID Service!');
@@ -748,17 +733,18 @@ main().catch(console.error);
 
 ### Migration Guide (v2.x → v3.0)
 
-**Step 1**: Set default AppID during initialization
+**Step 1**: Update client creation
 ```go
-// v2.x - AppID passed to each method
+// v2.x - Server address passed to constructor, AppID passed to each method
 teeClient := client.NewClient("localhost:50052")
 teeClient.Init()
 
-// v3.0 - Set default AppID once
-teeClient := client.NewClient("localhost:50052")
-teeClient.SetDefaultAppID("secure-messaging-app")
-// Or use environment variable: teeClient.SetDefaultAppIDFromEnv()
+// v3.0 - No parameters needed (reads TEE_CONFIG_ADDR and APP_ID from env vars)
+teeClient := client.NewClient()
 teeClient.Init()
+
+// Optional: Set default AppID programmatically (if not using APP_ID env var)
+// teeClient.SetDefaultAppID("secure-messaging-app")
 ```
 
 **Step 2**: Update Sign calls

@@ -31,33 +31,20 @@ package main
 import (
     "fmt"
     "log"
-    "os"
     client "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
-    // Read from environment variables (with defaults)
-    configAddr := os.Getenv("TEE_CONFIG_ADDR")
-    if configAddr == "" {
-        configAddr = "localhost:50052"
-    }
-
-    appID := os.Getenv("APP_ID")
-    if appID == "" {
-        appID = "ethereum-wallet-app"
-    }
-
-    // Create and initialize client
-    teeClient := client.NewClient(configAddr)
+    // Create client (reads TEE_CONFIG_ADDR and APP_ID from env vars)
+    // TEE_CONFIG_ADDR defaults to localhost:50052
+    // APP_ID is required (no default)
+    teeClient := client.NewClient()
     defer teeClient.Close()
 
-    teeClient.SetDefaultAppID(appID)
+    // Initialize client
     if err := teeClient.Init(); err != nil {
         log.Fatal(err)
     }
-
-    fmt.Printf("✅ Connected to: %s\n", configAddr)
-    fmt.Printf("✅ Using App ID: %s\n", appID)
 
     // Sign a message
     message := []byte("Hello, TEE DAO!")
@@ -76,7 +63,14 @@ func main() {
 
 **Run the example:**
 ```bash
-go run example-user-program.go
+# Set required APP_ID environment variable
+APP_ID=ethereum-wallet-app go run example-user-program.go
+
+# Or with different App ID
+APP_ID=secure-messaging-app go run example-user-program.go
+
+# Custom config server address
+TEE_CONFIG_ADDR=localhost:50052 APP_ID=ethereum-wallet-app go run example-user-program.go
 ```
 
 **Test all App IDs:**
@@ -184,28 +178,26 @@ import (
 
 func main() {
     // Create client with custom options
+    // TEE_CONFIG_ADDR env var (default: localhost:50052)
+    // APP_ID env var (required)
     opts := &client.ClientOptions{
         CacheTTL:           5 * time.Minute,
         MaxConcurrentVotes: 10,
         FrostTimeout:       10 * time.Second,
         ECDSATimeout:       20 * time.Second,
     }
-    teeClient := client.NewClientWithOptions("localhost:50052", opts)
+    teeClient := client.NewClientWithOptions(opts)
     defer teeClient.Close()
 
-    // Set default App ID before initialization
-    appID := "secure-messaging-app"
-    teeClient.SetDefaultAppID(appID)
-
-    // Or load from environment variable (APP_ID)
-    // teeClient.SetDefaultAppIDFromEnv()
+    // Optional: Set default App ID programmatically (if not using APP_ID env var)
+    // teeClient.SetDefaultAppID("secure-messaging-app")
 
     // Initialize client
     if err := teeClient.Init(); err != nil {
         log.Fatal(err)
     }
 
-    fmt.Printf("Client initialized for app: %s\n", appID)
+    fmt.Println("Client initialized successfully")
 
     // Simple signature (v3.0 - no AppID parameter needed)
     message := []byte("Hello TEE DAO!")
