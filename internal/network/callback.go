@@ -25,6 +25,11 @@ import (
 	"time"
 )
 
+const (
+	// DefaultCallbackPort is the fixed port for callback server
+	DefaultCallbackPort = 19080
+)
+
 // CallbackPayload is the structure sent by consensus nodes to callback URLs.
 // This is exported so it can be used by the main SDK package.
 type CallbackPayload struct {
@@ -34,12 +39,11 @@ type CallbackPayload struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// CallbackServer manages a temporary HTTP server for receiving callbacks
+// CallbackServer manages a fixed-port HTTP server for receiving callbacks
 type CallbackServer struct {
 	server   *http.Server
 	listener net.Listener
-	port     int
-	host     string // External IP address for callback URL
+	port     int // Fixed to DefaultCallbackPort
 
 	// Callback channels keyed by hash
 	callbacks sync.Map // map[string]chan *CallbackPayload
@@ -49,38 +53,18 @@ type CallbackServer struct {
 	shutdown chan struct{}
 }
 
-// getOutboundIP gets the preferred outbound IP of this machine
-func getOutboundIP() (string, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String(), nil
-}
-
-// newCallbackServer creates a new callback server on a random available port
+// NewCallbackServer creates a new callback server on the fixed port 19080
 func NewCallbackServer() (*CallbackServer, error) {
-	// Get external IP for callback URL
-	host, err := getOutboundIP()
+	// Listen on fixed port 19080, all interfaces (0.0.0.0) to accept external connections
+	addr := fmt.Sprintf("0.0.0.0:%d", DefaultCallbackPort)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get outbound IP: %w", err)
+		return nil, fmt.Errorf("failed to listen on port %d: %w (port may be in use by another application)", DefaultCallbackPort, err)
 	}
-
-	// Listen on all interfaces (0.0.0.0) to accept external connections
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create listener: %w", err)
-	}
-
-	port := listener.Addr().(*net.TCPAddr).Port
 
 	cs := &CallbackServer{
 		listener: listener,
-		port:     port,
-		host:     host,
+		port:     DefaultCallbackPort,
 		shutdown: make(chan struct{}),
 	}
 
@@ -150,11 +134,6 @@ func (cs *CallbackServer) RegisterCallback(hash string) chan *CallbackPayload {
 // unregisterCallback removes a callback channel
 func (cs *CallbackServer) UnregisterCallback(hash string) {
 	cs.callbacks.Delete(hash)
-}
-
-// getCallbackURL returns the callback URL for a specific hash
-func (cs *CallbackServer) GetCallbackURL(hash string) string {
-	return fmt.Sprintf("http://%s:%d/callback/%s", cs.host, cs.port, hash)
 }
 
 // handleCallback handles incoming callback requests

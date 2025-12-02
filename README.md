@@ -110,12 +110,75 @@ SDK 2 → Submit vote → app-comm-consensus (cache: 2/2 votes) → Threshold me
 ```
 
 Each SDK:
-1. Creates temporary HTTP callback server on random port
-2. Submits signing request with callback URL
+1. Starts fixed-port HTTP callback server on port 19080 (at Client initialization)
+2. Submits signing request with app_id (consensus service queries container IP)
 3. Waits for either:
    - Immediate response (direct signing)
-   - Callback notification (voting mode after threshold met)
+   - Callback notification to `http://{container_ip}:19080/callback/{hash}` (voting mode)
    - Timeout (default 60 seconds)
+4. Reuses the same callback server for all signing operations
+
+## Network Requirements
+
+TEENet SDK uses fixed port **19080** to receive callback notifications from the consensus service.
+
+### Firewall Configuration
+
+Ensure that port 19080 is accessible from the consensus service:
+
+```bash
+# Linux iptables
+sudo iptables -A INPUT -p tcp --dport 19080 -j ACCEPT
+
+# firewalld (RHEL/CentOS/Fedora)
+sudo firewall-cmd --permanent --add-port=19080/tcp
+sudo firewall-cmd --reload
+
+# UFW (Ubuntu/Debian)
+sudo ufw allow 19080/tcp
+```
+
+### Docker Deployment
+
+When running in Docker, expose port 19080:
+
+```yaml
+# docker-compose.yml
+services:
+  your-app:
+    image: your-app:latest
+    ports:
+      - "19080:19080"  # Callback server port
+```
+
+```bash
+# Docker CLI
+docker run -p 19080:19080 your-app:latest
+```
+
+### Kubernetes Deployment
+
+Ensure the Service exposes port 19080:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: your-app
+spec:
+  selector:
+    app: your-app
+  ports:
+    - name: callback
+      port: 19080
+      targetPort: 19080
+      protocol: TCP
+```
+
+**Important Notes:**
+- Only one SDK client instance can run per machine (port 19080 is exclusive)
+- The consensus service must be able to reach your container/host on port 19080
+- Port conflicts will prevent the callback server from starting (check logs for errors)
 
 ## Configuration
 

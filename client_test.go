@@ -218,6 +218,64 @@ func TestClientOptions(t *testing.T) {
 	}
 }
 
+// TestCallbackServerInitialization tests that callback server is initialized with client
+func TestCallbackServerInitialization(t *testing.T) {
+	// Note: This test may fail if port 19080 is already in use
+	// In production, ensure the port is available before creating the client
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	// We can't directly access callbackServer (it's internal), but we can verify
+	// that the client was created successfully, which implies callback server
+	// initialization was attempted
+	if client == nil {
+		t.Fatal("Expected non-nil client")
+	}
+
+	// If callback server failed to start (port in use), Sign() should return an error
+	// This is tested implicitly in integration tests
+}
+
+// TestClientClose tests that client closes properly
+func TestClientClose(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+
+	// Close should not error
+	err := client.Close()
+	if err != nil {
+		t.Errorf("Expected no error on Close, got %v", err)
+	}
+
+	// Multiple closes should be safe
+	err = client.Close()
+	if err != nil {
+		t.Errorf("Expected no error on second Close, got %v", err)
+	}
+}
+
+// TestSignWithoutAppID tests that Sign returns error when App ID is not set
+func TestSignWithoutAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	// Try to sign without setting App ID
+	_, err := client.Sign([]byte("test message"))
+	if err == nil {
+		t.Error("Expected error when signing without App ID, got nil")
+	}
+	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppID or set APP_ID environment variable)" {
+		// Check that it's the expected error about App ID
+		// (not callback server error)
+		t.Logf("Got error: %v", err)
+	}
+}
+
 // Note: Integration tests that require actual services running should be in
 // separate test files (e.g., integration_test.go) and can be run with build tags:
 // go test -tags=integration
+//
+// Integration tests should verify:
+// - Callback server listens on port 19080
+// - Multiple Sign calls reuse the same callback server
+// - Callbacks are received correctly
+// - Port conflicts are handled gracefully

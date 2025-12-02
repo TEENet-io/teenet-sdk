@@ -43,7 +43,7 @@ type submitRequestPayload struct {
 	AppID       string `json:"app_id"`
 	Message     []byte `json:"message"`      // Raw message bytes (JSON auto-encodes to base64)
 	RequestorID string `json:"requestor_id"`
-	CallbackURL string `json:"callback_url,omitempty"`
+	// Note: callback_url is no longer sent - consensus service queries container IP via app_id
 }
 
 // submitRequestResponse is the response from submitting a signature request
@@ -69,12 +69,13 @@ type publicKeyResponse struct {
 }
 
 // SubmitRequest submits a signature request to the consensus module.
-func (c *HTTPClient) SubmitRequest(appID string, message []byte, requestorID, callbackURL string) (*submitRequestResponse, error) {
+// The consensus service will query the container IP via app_id and construct
+// the callback URL as: http://{container_ip}:19080/callback/{hash}
+func (c *HTTPClient) SubmitRequest(appID string, message []byte, requestorID string) (*submitRequestResponse, error) {
 	payload := submitRequestPayload{
 		AppID:       appID,
 		Message:     message,
 		RequestorID: requestorID,
-		CallbackURL: callbackURL,
 	}
 
 	body, err := json.Marshal(payload)

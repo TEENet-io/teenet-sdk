@@ -62,14 +62,15 @@ import (
 // such as the default App ID and timeout settings.
 //
 // The Client is safe for concurrent use, though typically one client per application
-// is sufficient. Each signing operation creates its own temporary callback server
-// when needed for voting scenarios.
+// is sufficient. A fixed-port callback server (port 19080) is created when the Client
+// is initialized and reused for all signing operations.
 type Client struct {
-	httpClient      *network.HTTPClient // HTTP client for consensus service communication
-	consensusURL    string              // Base URL of the consensus service
-	defaultAppID    string              // Default application ID for operations
-	requestTimeout  time.Duration       // Timeout for HTTP requests (default: 30s)
-	callbackTimeout time.Duration       // Timeout for waiting on voting callbacks (default: 60s)
+	httpClient      *network.HTTPClient     // HTTP client for consensus service communication
+	consensusURL    string                  // Base URL of the consensus service
+	defaultAppID    string                  // Default application ID for operations
+	requestTimeout  time.Duration           // Timeout for HTTP requests (default: 30s)
+	callbackTimeout time.Duration           // Timeout for waiting on voting callbacks (default: 60s)
+	callbackServer  *network.CallbackServer // Fixed-port callback server for receiving signatures
 }
 
 // NewClient creates a new SDK client with default settings.
@@ -135,11 +136,28 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 		Timeout: requestTimeout,
 	}
 
+	// Create and start callback server
+	callbackServer, err := network.NewCallbackServer()
+	if err != nil {
+		log.Printf("Warning: Failed to create callback server on port 19080: %v", err)
+		log.Printf("Signing operations will fail until the port is available")
+		// Don't return error - allow client creation to proceed
+		// Sign() will return error if callback server is nil
+	} else {
+		if err := callbackServer.Start(); err != nil {
+			log.Printf("Warning: Failed to start callback server: %v", err)
+			callbackServer = nil
+		} else {
+			log.Printf("Callback server started successfully on port 19080")
+		}
+	}
+
 	return &Client{
 		httpClient:      network.NewHTTPClient(consensusURL, stdHTTPClient),
 		consensusURL:    consensusURL,
 		requestTimeout:  requestTimeout,
 		callbackTimeout: callbackTimeout,
+		callbackServer:  callbackServer,
 	}
 }
 
@@ -229,19 +247,22 @@ func (c *Client) GetDefaultAppID() string {
 
 // Close gracefully shuts down the client and releases resources.
 //
-// For this HTTP-based client, Close() doesn't strictly need to be called, but
-// it's good practice to defer it for consistency with other SDK patterns and
-// potential future resource management.
+// This method stops the callback server and releases any other resources held
+// by the client. It should always be called when the client is no longer needed.
 //
 // Returns:
-//   - Always returns nil
+//   - Always returns nil (errors are logged as warnings)
 //
 // Example:
 //
 //	client := types.NewClient("http://localhost:8089")
 //	defer client.Close()
 func (c *Client) Close() error {
-	// Nothing to clean up for this simple HTTP client
+	if c.callbackServer != nil {
+		if err := c.callbackServer.Stop(); err != nil {
+			log.Printf("Warning: Failed to stop callback server: %v", err)
+		}
+	}
 	log.Printf("SDK client closed")
 	return nil
 }

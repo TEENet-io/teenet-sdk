@@ -15,14 +15,13 @@
 package client
 
 import (
-	"github.com/TEENet-io/teenet-sdk/internal/types"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"time"
 
-	"github.com/TEENet-io/teenet-sdk/internal/network"
+	"github.com/TEENet-io/teenet-sdk/internal/types"
 	"github.com/TEENet-io/teenet-sdk/internal/util"
 )
 
@@ -44,13 +43,13 @@ func min(a, b int) int {
 //     is returned immediately after the consensus service processes it.
 //
 //   - Threshold Voting: If the app requires M-of-N approval, this method will wait
-//     for sufficient votes before returning. A temporary callback server is created
-//     to receive the final signature once the threshold is reached.
+//     for sufficient votes before returning. The client's fixed-port callback server
+//     (port 19080) receives the final signature once the threshold is reached.
 //
 // The method performs these steps:
 //  1. Computes SHA256 hash of the message for tracking
-//  2. Creates a temporary callback server on a random port
-//  3. Submits the signing request to the consensus service
+//  2. Registers a callback handler for this message hash
+//  3. Submits the signing request to the consensus service (with app_id only)
 //  4. Waits for either immediate response or voting callback (up to CallbackTimeout)
 //  5. Returns the signature or error
 //
@@ -73,8 +72,8 @@ func min(a, b int) int {
 //
 // Error Conditions:
 //   - Default App ID not set
+//   - Callback server not available (port 19080 may be in use)
 //   - Network errors communicating with consensus service
-//   - Callback server creation failures
 //   - Voting timeout exceeded
 //   - Insufficient votes received
 //
@@ -104,6 +103,11 @@ func (c *Client) Sign(message []byte, opt ...*types.SignOptions) (*types.SignRes
 		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_ID environment variable)")
 	}
 
+	// Check if callback server is available
+	if c.callbackServer == nil {
+		return nil, fmt.Errorf("callback server not available (port 19080 may be in use by another application)")
+	}
+
 	// Use defaultAppID as the requestor identity (voter identity)
 	requestorID := c.defaultAppID
 
@@ -114,27 +118,14 @@ func (c *Client) Sign(message []byte, opt ...*types.SignOptions) (*types.SignRes
 	log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s",
 		len(message), messageHash[:20]+"...", c.defaultAppID)
 
-	// Create and start callback server
-	callbackServer, err := network.NewCallbackServer()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create callback server: %w", err)
-	}
-
-	if err := callbackServer.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start callback server: %w", err)
-	}
-	defer callbackServer.Stop()
-
 	// Register callback for this message hash
-	callbackChan := callbackServer.RegisterCallback(messageHash)
-	defer callbackServer.UnregisterCallback(messageHash)
+	callbackChan := c.callbackServer.RegisterCallback(messageHash)
+	defer c.callbackServer.UnregisterCallback(messageHash)
 
-	// Get callback URL
-	callbackURL := callbackServer.GetCallbackURL(messageHash)
-
-	// Submit request with callback URL (send raw message bytes)
-	log.Printf("Submitting request to %s with callback %s", c.consensusURL, callbackURL)
-	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, requestorID, callbackURL)
+	// Submit request without callback URL (consensus service will query container IP via app_id)
+	// Service will construct callback URL as: http://{container_ip}:19080/callback/{hash}
+	log.Printf("Submitting request to %s (callback on fixed port 19080)", c.consensusURL)
+	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, requestorID)
 	if err != nil {
 		return &types.SignResult{
 			Success: false,

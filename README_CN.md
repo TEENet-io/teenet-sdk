@@ -39,6 +39,41 @@ valid, err := client.Verify([]byte("Hello, TEENet!"), result.Signature)
 fmt.Printf("签名有效: %v\n", valid)
 ```
 
+## 网络要求
+
+TEENet SDK 使用固定端口 **19080** 接收来自共识服务的回调通知。
+
+### 防火墙配置
+
+确保端口 19080 可以被共识服务访问：
+
+```bash
+# Linux iptables
+sudo iptables -A INPUT -p tcp --dport 19080 -j ACCEPT
+
+# firewalld (RHEL/CentOS/Fedora)
+sudo firewall-cmd --permanent --add-port=19080/tcp
+sudo firewall-cmd --reload
+
+# UFW (Ubuntu/Debian)
+sudo ufw allow 19080/tcp
+```
+
+### Docker 部署
+
+```yaml
+# docker-compose.yml
+services:
+  your-app:
+    ports:
+      - "19080:19080"  # 回调服务器端口
+```
+
+**重要提示:**
+- 每台机器只能运行一个 SDK 客户端实例（端口 19080 独占）
+- 共识服务必须能够访问容器/主机的 19080 端口
+- 端口冲突会导致回调服务器无法启动（检查日志获取错误信息）
+
 查看详细的英文文档: [README.md](README.md)
 
 ## 项目结构
