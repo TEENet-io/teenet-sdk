@@ -40,10 +40,8 @@ func NewHTTPClient(baseURL string, client *http.Client) *HTTPClient {
 
 // submitRequestPayload is the request body for submitting a signature request
 type submitRequestPayload struct {
-	AppID       string `json:"app_id"`
-	Message     []byte `json:"message"`      // Raw message bytes (JSON auto-encodes to base64)
-	RequestorID string `json:"requestor_id"`
-	// Note: callback_url is no longer sent - consensus service queries container IP via app_id
+	AppInstanceID string `json:"app_instance_id"`
+	Message       []byte `json:"message"` // Raw message bytes (JSON auto-encodes to base64)
 }
 
 // submitRequestResponse is the response from submitting a signature request
@@ -69,13 +67,10 @@ type publicKeyResponse struct {
 }
 
 // SubmitRequest submits a signature request to the consensus module.
-// The consensus service will query the container IP via app_id and construct
-// the callback URL as: http://{container_ip}:19080/callback/{hash}
-func (c *HTTPClient) SubmitRequest(appID string, message []byte, requestorID string) (*submitRequestResponse, error) {
+func (c *HTTPClient) SubmitRequest(appID string, message []byte) (*submitRequestResponse, error) {
 	payload := submitRequestPayload{
-		AppID:       appID,
-		Message:     message,
-		RequestorID: requestorID,
+		AppInstanceID: appID,
+		Message:       message,
 	}
 
 	body, err := json.Marshal(payload)

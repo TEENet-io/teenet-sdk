@@ -105,7 +105,7 @@ func NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client {
 
 // Init initializes the client by attempting to load configuration from the environment.
 //
-// This method tries to read the APP_ID environment variable and set it as the
+// This method tries to read the APP_INSTANCE_ID environment variable and set it as the
 // default App ID. If the environment variable is not set, a warning is logged
 // but no error is returned.
 //
@@ -115,7 +115,7 @@ func NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client {
 // Example:
 //
 //	client := sdk.NewClient("http://localhost:8089")
-//	client.Init() // Reads APP_ID from environment
+//	client.Init() // Reads APP_INSTANCE_ID from environment
 //	defer client.Close()
 func (c *Client) Init() error {
 	return c.impl.Init()
@@ -136,15 +136,15 @@ func (c *Client) SetDefaultAppID(appID string) {
 	c.impl.SetDefaultAppID(appID)
 }
 
-// SetDefaultAppIDFromEnv loads the default App ID from the APP_ID environment variable.
+// SetDefaultAppIDFromEnv loads the default App ID from the APP_INSTANCE_ID environment variable.
 //
 // Returns:
-//   - Error if the APP_ID environment variable is not set or empty
+//   - Error if the APP_INSTANCE_ID environment variable is not set or empty
 //
 // Example:
 //
 //	if err := client.SetDefaultAppIDFromEnv(); err != nil {
-//	    log.Fatal("APP_ID not set in environment")
+//	    log.Fatal("APP_INSTANCE_ID not set in environment")
 //	}
 func (c *Client) SetDefaultAppIDFromEnv() error {
 	return c.impl.SetDefaultAppIDFromEnv()

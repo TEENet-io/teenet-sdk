@@ -182,8 +182,8 @@ func (c *Client) Init() error {
 	// Try to read default App ID from environment
 	if c.defaultAppID == "" {
 		if err := c.SetDefaultAppIDFromEnv(); err != nil {
-			// Not an error if APP_ID env var is not set
-			log.Printf("APP_ID environment variable not set, you can set it later with SetDefaultAppID()")
+			// Not an error if APP_INSTANCE_ID env var is not set
+			log.Printf("APP_INSTANCE_ID environment variable not set, you can set it later with SetDefaultAppID()")
 		}
 	}
 
@@ -222,9 +222,9 @@ func (c *Client) SetDefaultAppID(appID string) {
 //	    log.Fatal("APP_ID not set in environment")
 //	}
 func (c *Client) SetDefaultAppIDFromEnv() error {
-	appID := os.Getenv("APP_ID")
+	appID := os.Getenv("APP_INSTANCE_ID")
 	if appID == "" {
-		return fmt.Errorf("APP_ID environment variable is not set")
+		return fmt.Errorf("APP_INSTANCE_ID environment variable is not set")
 	}
 	c.SetDefaultAppID(appID)
 	return nil

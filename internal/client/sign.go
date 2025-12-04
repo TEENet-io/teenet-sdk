@@ -49,8 +49,8 @@ func min(a, b int) int {
 // The method performs these steps:
 //  1. Computes SHA256 hash of the message for tracking
 //  2. Registers a callback handler for this message hash
-//  3. Submits the signing request to the consensus service (with app_id only)
-//  4. Waits for either immediate response or voting callback (up to CallbackTimeout)
+//  3. Submits the signing request to the consensus service
+//  4. Waits for either immediate response or voting result (up to CallbackTimeout)
 //  5. Returns the signature or error
 //
 // Parameters:
@@ -100,16 +100,13 @@ func min(a, b int) int {
 func (c *Client) Sign(message []byte, opt ...*types.SignOptions) (*types.SignResult, error) {
 	// Check if default App ID is set
 	if c.defaultAppID == "" {
-		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_ID environment variable)")
+		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)")
 	}
 
 	// Check if callback server is available
 	if c.callbackServer == nil {
 		return nil, fmt.Errorf("callback server not available (port 19080 may be in use by another application)")
 	}
-
-	// Use defaultAppID as the requestor identity (voter identity)
-	requestorID := c.defaultAppID
 
 	// Calculate message hash for callback tracking (SHA256)
 	hash := sha256.Sum256(message)
@@ -122,10 +119,8 @@ func (c *Client) Sign(message []byte, opt ...*types.SignOptions) (*types.SignRes
 	callbackChan := c.callbackServer.RegisterCallback(messageHash)
 	defer c.callbackServer.UnregisterCallback(messageHash)
 
-	// Submit request without callback URL (consensus service will query container IP via app_id)
-	// Service will construct callback URL as: http://{container_ip}:19080/callback/{hash}
-	log.Printf("Submitting request to %s (callback on fixed port 19080)", c.consensusURL)
-	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, requestorID)
+	log.Printf("Submitting request to %s", c.consensusURL)
+	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message)
 	if err != nil {
 		return &types.SignResult{
 			Success: false,
