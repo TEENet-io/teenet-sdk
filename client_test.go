@@ -11,7 +11,6 @@
 //
 // -----------------------------------------------------------------------------
 
-
 package sdk
 
 import (
@@ -79,29 +78,6 @@ func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
 	}
 }
 
-// TestHashMessage tests message hashing
-func TestHashMessage(t *testing.T) {
-	message := []byte("test message")
-	hash := util.HashMessage(message)
-
-	// Should start with 0x
-	if len(hash) < 2 || hash[:2] != "0x" {
-		t.Errorf("Expected hash to start with '0x', got '%s'", hash)
-	}
-
-	// Should be consistent
-	hash2 := util.HashMessage(message)
-	if hash != hash2 {
-		t.Errorf("Hash not consistent: '%s' != '%s'", hash, hash2)
-	}
-
-	// Different messages should produce different hashes
-	hash3 := util.HashMessage([]byte("different message"))
-	if hash == hash3 {
-		t.Error("Different messages produced same hash")
-	}
-}
-
 // TestDecodeHexSignature tests signature decoding
 func TestDecodeHexSignature(t *testing.T) {
 	// Test with 0x prefix
@@ -128,75 +104,6 @@ func TestDecodeHexSignature(t *testing.T) {
 	_, err = util.DecodeHexSignature("0xgggg")
 	if err == nil {
 		t.Error("Expected error for invalid hex, got nil")
-	}
-}
-
-// TestParseProtocol tests protocol parsing
-func TestParseProtocol(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected uint32
-		hasError bool
-	}{
-		{"ECDSA", ProtocolECDSA, false},
-		{"ecdsa", ProtocolECDSA, false},
-		{"Schnorr", ProtocolSchnorr, false},
-		{"schnorr", ProtocolSchnorr, false},
-		{"SCHNORR", ProtocolSchnorr, false},
-		{"invalid", 0, true},
-		{"", 0, true},
-	}
-
-	for _, tt := range tests {
-		result, err := ParseProtocol(tt.input)
-		if tt.hasError {
-			if err == nil {
-				t.Errorf("Expected error for input '%s', got nil", tt.input)
-			}
-		} else {
-			if err != nil {
-				t.Errorf("Expected no error for input '%s', got %v", tt.input, err)
-			}
-			if result != tt.expected {
-				t.Errorf("For input '%s', expected %d, got %d", tt.input, tt.expected, result)
-			}
-		}
-	}
-}
-
-// TestParseCurve tests curve parsing
-func TestParseCurve(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected uint32
-		hasError bool
-	}{
-		{"ED25519", CurveED25519, false},
-		{"ed25519", CurveED25519, false},
-		{"SECP256K1", CurveSECP256K1, false},
-		{"secp256k1", CurveSECP256K1, false},
-		{"SECP256R1", CurveSECP256R1, false},
-		{"secp256r1", CurveSECP256R1, false},
-		{"P256", CurveSECP256R1, false},
-		{"p256", CurveSECP256R1, false},
-		{"invalid", 0, true},
-		{"", 0, true},
-	}
-
-	for _, tt := range tests {
-		result, err := ParseCurve(tt.input)
-		if tt.hasError {
-			if err == nil {
-				t.Errorf("Expected error for input '%s', got nil", tt.input)
-			}
-		} else {
-			if err != nil {
-				t.Errorf("Expected no error for input '%s', got %v", tt.input, err)
-			}
-			if result != tt.expected {
-				t.Errorf("For input '%s', expected %d, got %d", tt.input, tt.expected, result)
-			}
-		}
 	}
 }
 

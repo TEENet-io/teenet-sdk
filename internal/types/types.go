@@ -35,17 +35,6 @@ type ClientOptions struct {
 	CallbackTimeout time.Duration
 }
 
-// SignOptions contains optional parameters for sign operations.
-//
-// Currently reserved for future extensions. Pass nil or empty options
-// to use default behavior.
-type SignOptions struct {
-	// Reserved for future options such as:
-	// - Custom callback URLs
-	// - Vote timeout overrides
-	// - Metadata attachment
-}
-
 // SignResult contains the result of a sign operation.
 //
 // This structure is returned by the Sign method and contains either
@@ -101,3 +90,125 @@ type VotingInfo struct {
 //
 // This is a re-export of network.CallbackPayload for public API compatibility.
 type CallbackPayload = network.CallbackPayload
+
+// GenerateKeyOptions contains optional parameters for key generation operations.
+//
+// This structure allows customization of the key generation process,
+// such as specifying the cryptographic protocol and curve.
+type GenerateKeyOptions struct {
+	// Name is the human-readable name for the generated key.
+	// This will be used to identify the key in the user management system.
+	Name string
+
+	// Curve specifies the elliptic curve to use.
+	// Supported values: "ed25519", "secp256k1", "secp256r1"
+	// Default is "secp256k1" if not specified.
+	Curve string
+
+	// Protocol specifies the signing protocol to use.
+	// Supported values: "schnorr", "ecdsa"
+	// Default is "schnorr" if not specified.
+	Protocol string
+}
+
+// GenerateKeyResult contains the result of a key generation operation.
+//
+// This structure is returned by the GenerateKey method and contains
+// the newly generated public key information.
+type GenerateKeyResult struct {
+	// Success indicates whether the key generation succeeded.
+	Success bool `json:"success"`
+
+	// Message contains a success or error message.
+	Message string `json:"message"`
+
+	// PublicKey contains the generated public key information.
+	// This field is nil if Success is false.
+	PublicKey *PublicKeyInfo `json:"public_key,omitempty"`
+}
+
+// PublicKeyInfo contains detailed information about a generated public key.
+type PublicKeyInfo struct {
+	// ID is the unique identifier for this key in the database.
+	ID uint32 `json:"id"`
+
+	// Name is the human-readable name of the key.
+	Name string `json:"name"`
+
+	// KeyData is the hex-encoded public key data.
+	KeyData string `json:"key_data"`
+
+	// Curve is the elliptic curve used (e.g., "secp256k1", "ed25519").
+	Curve string `json:"curve"`
+
+	// Protocol is the signing protocol (e.g., "schnorr", "ecdsa").
+	Protocol string `json:"protocol"`
+
+	// Threshold is the DKG threshold value (for threshold signatures).
+	Threshold uint32 `json:"threshold,omitempty"`
+
+	// ParticipantCount is the number of participants in the DKG.
+	ParticipantCount uint32 `json:"participant_count,omitempty"`
+
+	// MaxParticipantCount is the maximum number of participants.
+	MaxParticipantCount uint32 `json:"max_participant_count,omitempty"`
+
+	// ApplicationID is the ID of the application this key belongs to.
+	ApplicationID uint32 `json:"application_id"`
+
+	// CreatedByInstanceID is the app_instance_id that generated this key.
+	CreatedByInstanceID string `json:"created_by_instance_id"`
+}
+
+// APIKeyResult contains the result of a GetAPIKey operation.
+//
+// This structure is returned by the GetAPIKey method and contains
+// the retrieved API key value and metadata.
+type APIKeyResult struct {
+	// Success indicates whether the API key retrieval succeeded.
+	Success bool `json:"success"`
+
+	// Error contains the error message if Success is false.
+	Error string `json:"error,omitempty"`
+
+	// AppInstanceID is the application instance ID.
+	AppInstanceID string `json:"app_instance_id"`
+
+	// Name is the name of the API key.
+	Name string `json:"name"`
+
+	// APIKey is the retrieved API key value.
+	// This field is empty if Success is false.
+	APIKey string `json:"api_key,omitempty"`
+}
+
+// APISignResult contains the result of a SignWithAPISecret operation.
+//
+// This structure is returned by the SignWithAPISecret method and contains
+// the HMAC-SHA256 signature and metadata.
+type APISignResult struct {
+	// Success indicates whether the signing operation succeeded.
+	Success bool `json:"success"`
+
+	// Error contains the error message if Success is false.
+	Error string `json:"error,omitempty"`
+
+	// AppInstanceID is the application instance ID.
+	AppInstanceID string `json:"app_instance_id"`
+
+	// Name is the name of the API key/secret used for signing.
+	Name string `json:"name"`
+
+	// Signature is the hex-encoded HMAC-SHA256 signature.
+	// This field is empty if Success is false.
+	Signature string `json:"signature,omitempty"`
+
+	// SignatureHex is an alias for Signature (for compatibility).
+	SignatureHex string `json:"signature_hex,omitempty"`
+
+	// Algorithm is the signing algorithm used (always "HMAC-SHA256").
+	Algorithm string `json:"algorithm,omitempty"`
+
+	// MessageLength is the length of the input message in bytes.
+	MessageLength int `json:"message_length"`
+}

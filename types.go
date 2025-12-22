@@ -21,24 +21,27 @@ import (
 // Re-export all types from internal/types for public API.
 
 type (
-	ClientOptions   = types.ClientOptions
-	SignOptions     = types.SignOptions
-	SignResult      = types.SignResult
-	VotingInfo      = types.VotingInfo
-	CallbackPayload = types.CallbackPayload
+	ClientOptions     = types.ClientOptions
+	SignResult        = types.SignResult
+	VotingInfo        = types.VotingInfo
+	CallbackPayload   = types.CallbackPayload
+	GenerateKeyResult = types.GenerateKeyResult
+	PublicKeyInfo     = types.PublicKeyInfo
+	APIKeyResult      = types.APIKeyResult
+	APISignResult     = types.APISignResult
 )
 
 // Re-export constants from internal/crypto.
+
+// Protocol constants
 const (
 	ProtocolECDSA   = crypto.ProtocolECDSA
 	ProtocolSchnorr = crypto.ProtocolSchnorr
-	CurveED25519    = crypto.CurveED25519
-	CurveSECP256K1  = crypto.CurveSECP256K1
-	CurveSECP256R1  = crypto.CurveSECP256R1
 )
 
-// Re-export functions from internal/crypto.
-var (
-	ParseProtocol = crypto.ParseProtocol
-	ParseCurve    = crypto.ParseCurve
+// Curve constants
+const (
+	CurveED25519   = crypto.CurveED25519
+	CurveSECP256K1 = crypto.CurveSECP256K1
+	CurveSECP256R1 = crypto.CurveSECP256R1
 )

@@ -99,18 +99,44 @@ func (c *Client) Verify(message, signature []byte) (bool, error) {
 		return false, fmt.Errorf("failed to decode public key: %w", err)
 	}
 
-	// Parse protocol and curve strings to constants
-	protocol, err := crypto.ParseProtocol(protocolStr)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse protocol: %w", err)
-	}
-
-	curve, err := crypto.ParseCurve(curveStr)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse curve: %w", err)
-	}
-
 	// Verify the signature using the appropriate algorithm
 	// Note: VerifySignature will hash the message internally
+	return crypto.VerifySignature(message, publicKey, signature, protocolStr, curveStr)
+}
+
+// VerifyWithPublicKey verifies a cryptographic signature against a message using a specific public key.
+//
+// This method verifies the signature using the provided public key, protocol, and curve.
+// The verification is performed locally without contacting the consensus service.
+//
+// Parameters:
+//   - message: The original message that was signed (raw bytes)
+//   - signature: The signature to verify (raw bytes, not hex-encoded)
+//   - publicKey: The public key to use for verification (raw bytes)
+//   - protocol: The signature protocol (e.g., "ecdsa", "schnorr")
+//   - curve: The elliptic curve (e.g., "secp256k1", "ed25519", "secp256r1")
+//
+// Returns:
+//   - bool: true if the signature is valid, false otherwise
+//   - error: Error if verification cannot be performed
+//
+// Supported combinations:
+//   - ED25519 + EdDSA
+//   - SECP256K1 + ECDSA
+//   - SECP256K1 + Schnorr
+//   - SECP256R1 + ECDSA
+//   - SECP256R1 + Schnorr
+//
+// Example:
+//
+//	publicKey := []byte{...} // raw public key bytes
+//	valid, err := client.VerifyWithPublicKey(message, signature, publicKey, "schnorr", "ed25519")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	if valid {
+//	    fmt.Println("Signature is valid")
+//	}
+func (c *Client) VerifyWithPublicKey(message, signature, publicKey []byte, protocol, curve string) (bool, error) {
 	return crypto.VerifySignature(message, publicKey, signature, protocol, curve)
 }

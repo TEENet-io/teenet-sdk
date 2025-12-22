@@ -55,7 +55,7 @@ func min(a, b int) int {
 //
 // Parameters:
 //   - message: The raw bytes to sign (will be hashed with SHA256 internally)
-//   - opt: Optional signing options (currently unused, reserved for future features)
+//   - publicKey: Optional public key bytes to use for signing. If not provided, uses default key.
 //
 // Returns:
 //   - SignResult: Contains the signature bytes and success status
@@ -97,7 +97,7 @@ func min(a, b int) int {
 //	        result.VotingInfo.CurrentVotes,
 //	        result.VotingInfo.RequiredVotes)
 //	}
-func (c *Client) Sign(message []byte, opt ...*types.SignOptions) (*types.SignResult, error) {
+func (c *Client) Sign(message []byte, publicKey ...[]byte) (*types.SignResult, error) {
 	// Check if default App ID is set
 	if c.defaultAppID == "" {
 		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)")
@@ -112,15 +112,23 @@ func (c *Client) Sign(message []byte, opt ...*types.SignOptions) (*types.SignRes
 	hash := sha256.Sum256(message)
 	messageHash := "0x" + hex.EncodeToString(hash[:])
 
-	log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s",
-		len(message), messageHash[:20]+"...", c.defaultAppID)
+	// Extract public key from optional parameter if provided
+	var pubKey []byte
+	if len(publicKey) > 0 && len(publicKey[0]) > 0 {
+		pubKey = publicKey[0]
+		log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s, with provided public key (%d bytes)",
+			len(message), messageHash[:20]+"...", c.defaultAppID, len(pubKey))
+	} else {
+		log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s (using default key)",
+			len(message), messageHash[:20]+"...", c.defaultAppID)
+	}
 
 	// Register callback for this message hash
 	callbackChan := c.callbackServer.RegisterCallback(messageHash)
 	defer c.callbackServer.UnregisterCallback(messageHash)
 
 	log.Printf("Submitting request to %s", c.consensusURL)
-	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message)
+	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, pubKey)
 	if err != nil {
 		return &types.SignResult{
 			Success: false,

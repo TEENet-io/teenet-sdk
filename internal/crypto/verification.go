@@ -29,6 +29,20 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// Protocol constants
+const (
+	ProtocolECDSA   = "ecdsa"
+	ProtocolSchnorr = "schnorr"
+)
+
+// Curve constants
+const (
+	CurveED25519   = "ed25519"
+	CurveSECP256K1 = "secp256k1"
+	CurveSECP256R1 = "secp256r1"
+	CurveP256      = "p256"
+)
+
 // ECDSASignature represents an ECDSA signature in ASN.1 format
 type ECDSASignature struct {
 	R *big.Int
@@ -40,17 +54,35 @@ type ECDSASignature struct {
 // - ED25519 with EdDSA (protocol parameter ignored for ED25519)
 // - SECP256K1 with ECDSA or Schnorr protocols (using btcec)
 // - SECP256R1 with ECDSA or Schnorr protocols
-func VerifySignature(message, publicKey, signature []byte, protocol, curve uint32) (bool, error) {
+func VerifySignature(message, publicKey, signature []byte, protocolStr, curveStr string) (bool, error) {
+	// Normalize to lowercase for case-insensitive comparison
+	protocol := normalizeString(protocolStr)
+	curve := normalizeString(curveStr)
+
 	switch curve {
 	case CurveED25519:
 		return verifyED25519(message, publicKey, signature)
 	case CurveSECP256K1:
 		return verifySecp256k1(message, publicKey, signature, protocol)
-	case CurveSECP256R1:
+	case CurveSECP256R1, CurveP256:
 		return verifySecp256r1(message, publicKey, signature, protocol)
 	default:
-		return false, fmt.Errorf("unsupported curve: %d", curve)
+		return false, fmt.Errorf("unsupported curve: %s (supported: %s, %s, %s)", curveStr, CurveED25519, CurveSECP256K1, CurveSECP256R1)
 	}
+}
+
+// normalizeString converts a string to lowercase for case-insensitive comparison
+func normalizeString(s string) string {
+	// Simple lowercase conversion for ASCII strings
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		result[i] = c
+	}
+	return string(result)
 }
 
 // verifyED25519 verifies ED25519 signatures
@@ -68,7 +100,7 @@ func verifyED25519(message, publicKey, signature []byte) (bool, error) {
 }
 
 // verifySecp256k1 verifies signatures on secp256k1 curve using btcec
-func verifySecp256k1(message, publicKeyBytes, signature []byte, protocol uint32) (bool, error) {
+func verifySecp256k1(message, publicKeyBytes, signature []byte, protocol string) (bool, error) {
 	// Parse the public key using btcec
 	pubKey, err := btcec.ParsePubKey(publicKeyBytes)
 	if err != nil {
@@ -95,7 +127,7 @@ func verifySecp256k1(message, publicKeyBytes, signature []byte, protocol uint32)
 	case ProtocolSchnorr:
 		return verifySecp256k1Schnorr(message, pubKey, signature)
 	default:
-		return false, fmt.Errorf("unsupported protocol for secp256k1: %d", protocol)
+		return false, fmt.Errorf("unsupported protocol for secp256k1: %s (supported: %s, %s)", protocol, ProtocolECDSA, ProtocolSchnorr)
 	}
 }
 
@@ -173,7 +205,7 @@ func verifySecp256k1Schnorr(message []byte, pubKey *btcec.PublicKey, signature [
 
 
 // verifySecp256r1 verifies signatures on secp256r1 curve (NIST P-256)
-func verifySecp256r1(message, publicKeyBytes, signature []byte, protocol uint32) (bool, error) {
+func verifySecp256r1(message, publicKeyBytes, signature []byte, protocol string) (bool, error) {
 	// Parse public key for secp256r1 (P-256)
 	x, y, err := parseSecp256r1PublicKey(publicKeyBytes)
 	if err != nil {
@@ -197,7 +229,7 @@ func verifySecp256r1(message, publicKeyBytes, signature []byte, protocol uint32)
 	case ProtocolSchnorr:
 		return verifyP256Schnorr(message, publicKey, signature)
 	default:
-		return false, fmt.Errorf("unsupported protocol for secp256r1: %d", protocol)
+		return false, fmt.Errorf("unsupported protocol for secp256r1: %s (supported: %s, %s)", protocol, ProtocolECDSA, ProtocolSchnorr)
 	}
 }
 

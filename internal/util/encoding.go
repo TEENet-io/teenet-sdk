@@ -15,30 +15,8 @@
 package util
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 )
-
-// HashMessage generates a SHA256 hash of the message with 0x prefix.
-//
-// This function is used internally to compute message hashes for tracking
-// signing requests and callbacks. The hash is returned as a hex string with
-// the "0x" prefix to match the format expected by the consensus service.
-//
-// Parameters:
-//   - message: The raw message bytes to hash
-//
-// Returns:
-//   - A hex-encoded SHA256 hash with "0x" prefix (66 characters total)
-//
-// Example:
-//
-//	hash := HashMessage([]byte("hello"))
-//	// Returns: "0x2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-func HashMessage(message []byte) string {
-	hash := sha256.Sum256(message)
-	return "0x" + hex.EncodeToString(hash[:])
-}
 
 // DecodeHexSignature decodes a hex-encoded string to raw bytes.
 //

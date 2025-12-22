@@ -165,21 +165,27 @@ func (c *Client) GetDefaultAppID() string {
 //
 // Parameters:
 //   - message: The raw bytes to sign
-//   - opt: Optional signing options (currently unused)
+//   - publicKey: Optional public key bytes. If not provided, uses the default key.
 //
 // Returns:
 //   - SignResult: Contains the signature bytes and success status
 //   - error: Non-nil if the signing operation failed
 //
-// Example:
+// Example (using default key):
 //
 //	result, err := client.Sign([]byte("important message"))
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("Signature: %x\n", result.Signature)
-func (c *Client) Sign(message []byte, opt ...*SignOptions) (*SignResult, error) {
-	return c.impl.Sign(message, opt...)
+//
+// Example (using specific generated key):
+//
+//	keyResult, _ := client.GenerateSchnorrKey("my-key", sdk.CurveSECP256K1)
+//	pubKeyBytes, _ := hex.DecodeString(strings.TrimPrefix(keyResult.PublicKey.KeyData, "0x"))
+//	result, err := client.Sign([]byte("important message"), pubKeyBytes)
+func (c *Client) Sign(message []byte, publicKey ...[]byte) (*SignResult, error) {
+	return c.impl.Sign(message, publicKey...)
 }
 
 // GetPublicKey retrieves the public key information for the default App ID.
@@ -226,6 +232,36 @@ func (c *Client) Verify(message, signature []byte) (bool, error) {
 	return c.impl.Verify(message, signature)
 }
 
+// VerifyWithPublicKey verifies a cryptographic signature against a message using a specific public key.
+//
+// This method verifies the signature using the provided public key, protocol, and curve.
+// The verification is performed locally without contacting the consensus service.
+//
+// Parameters:
+//   - message: The original message that was signed (raw bytes)
+//   - signature: The signature to verify (raw bytes)
+//   - publicKey: The public key to use for verification (raw bytes)
+//   - protocol: The signature protocol (e.g., "ecdsa", "schnorr")
+//   - curve: The elliptic curve (e.g., "secp256k1", "ed25519", "secp256r1")
+//
+// Returns:
+//   - bool: true if the signature is valid
+//   - error: Error if verification cannot be performed
+//
+// Example:
+//
+//	// Verify signature with Schnorr ED25519
+//	valid, err := client.VerifyWithPublicKey(message, signature, publicKeyBytes, sdk.ProtocolSchnorr, sdk.CurveED25519)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Verify signature with ECDSA secp256k1
+//	valid, err := client.VerifyWithPublicKey(message, signature, publicKeyBytes, sdk.ProtocolECDSA, sdk.CurveSECP256K1)
+func (c *Client) VerifyWithPublicKey(message, signature, publicKey []byte, protocol, curve string) (bool, error) {
+	return c.impl.VerifyWithPublicKey(message, signature, publicKey, protocol, curve)
+}
+
 // Close gracefully shuts down the client and releases resources.
 //
 // Returns:
@@ -256,3 +292,116 @@ func (c *Client) GetRequestTimeout() time.Duration {
 func (c *Client) GetCallbackTimeout() time.Duration {
 	return c.impl.GetCallbackTimeout()
 }
+
+// GenerateSchnorrKey generates a new Schnorr signature key for the application.
+//
+// This method generates a key using the Schnorr signature protocol, which supports
+// multiple elliptic curves. The key is generated via TEE consensus and stored in
+// the user management system, associated with the current application.
+//
+// Supported curves:
+//   - "ed25519": Edwards curve (recommended for EdDSA-style Schnorr)
+//   - "secp256k1": Bitcoin/Ethereum curve
+//   - "secp256r1": NIST P-256 curve
+//
+// Parameters:
+//   - curve: Elliptic curve to use (see supported curves above)
+//
+// Returns:
+//   - GenerateKeyResult: Contains the generated public key information
+//   - error: Non-nil if key generation fails
+//
+// Example:
+//
+//	result, err := client.GenerateSchnorrKey("secp256k1")
+//	if err != nil || !result.Success {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
+//	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
+func (c *Client) GenerateSchnorrKey(curve string) (*GenerateKeyResult, error) {
+	return c.impl.GenerateSchnorrKey(curve)
+}
+
+// GenerateECDSAKey generates a new ECDSA signature key for the application.
+//
+// This method generates a key using the ECDSA (Elliptic Curve Digital Signature Algorithm)
+// protocol. The key is generated via TEE consensus and stored in the user management system,
+// associated with the current application.
+//
+// Supported curves:
+//   - "secp256k1": Bitcoin/Ethereum curve (recommended for blockchain applications)
+//   - "secp256r1": NIST P-256 curve (recommended for general use)
+//
+// Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey for ed25519)
+//
+// Parameters:
+//   - curve: Elliptic curve to use (see supported curves above)
+//
+// Returns:
+//   - GenerateKeyResult: Contains the generated public key information
+//   - error: Non-nil if key generation fails
+//
+// Example:
+//
+//	result, err := client.GenerateECDSAKey("secp256k1")
+//	if err != nil || !result.Success {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
+//	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
+func (c *Client) GenerateECDSAKey(curve string) (*GenerateKeyResult, error) {
+	return c.impl.GenerateECDSAKey(curve)
+}
+
+// GetAPIKey retrieves an API key value by name from the consensus service.
+//
+// This method queries the consensus service to retrieve an API key that was previously
+// stored in the TEE (Trusted Execution Environment). The API key must have been created
+// with an API key value (not just a secret) for this operation to succeed.
+//
+// Parameters:
+//   - name: The name of the API key to retrieve
+//
+// Returns:
+//   - APIKeyResult: Contains the retrieved API key value and metadata
+//   - error: Non-nil if the retrieval fails
+//
+// Example:
+//
+//	result, err := client.GetAPIKey("my-api-key")
+//	if err != nil || !result.Success {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("API Key: %s\n", result.APIKey)
+func (c *Client) GetAPIKey(name string) (*APIKeyResult, error) {
+	return c.impl.GetAPIKey(name)
+}
+
+// SignWithAPISecret signs a message using an API secret stored in the TEE.
+//
+// This method signs a message using HMAC-SHA256 with an API secret that was previously
+// stored in the TEE. The API secret never leaves the TEE, ensuring secure signing operations.
+// The API key must have been created with an API secret (not just an API key) for this
+// operation to succeed.
+//
+// Parameters:
+//   - name: The name of the API key/secret to use for signing
+//   - message: The message bytes to sign
+//
+// Returns:
+//   - APISignResult: Contains the HMAC-SHA256 signature and metadata
+//   - error: Non-nil if the signing operation fails
+//
+// Example:
+//
+//	result, err := client.SignWithAPISecret("my-api-key", []byte("important message"))
+//	if err != nil || !result.Success {
+//	    log.Fatal(err)
+//	}
+//	fmt.Printf("Signature: %s\n", result.Signature)
+func (c *Client) SignWithAPISecret(name string, message []byte) (*APISignResult, error) {
+	return c.impl.SignWithAPISecret(name, message)
+}
+
+// 加个删除
