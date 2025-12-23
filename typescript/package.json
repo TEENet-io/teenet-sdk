@@ -1,0 +1,40 @@
+{
+  "name": "@teenet/sdk",
+  "version": "1.0.0",
+  "description": "TEENet SDK for TypeScript/JavaScript - Cryptographic signing services via TEE consensus",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint src --ext .ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "teenet",
+    "tee",
+    "cryptography",
+    "signing",
+    "ecdsa",
+    "schnorr",
+    "ed25519",
+    "secp256k1"
+  ],
+  "author": "TEENet Technology (Hong Kong) Limited",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@noble/curves": "^1.4.0",
+    "@noble/hashes": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

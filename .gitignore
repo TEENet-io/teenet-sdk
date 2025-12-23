@@ -42,3 +42,6 @@ temp/
 
 .claude
 teenet-sdk
+typescript/dist/
+typescript/examples/typescript-test/node_modules/
+typescript/node_modules/
