@@ -47,10 +47,10 @@ func TestSetDefaultAppID(t *testing.T) {
 
 // TestSetDefaultAppIDFromEnv tests loading App ID from environment
 func TestSetDefaultAppIDFromEnv(t *testing.T) {
-	// Set environment variable
+	// Set environment variable (uses APP_INSTANCE_ID, not APP_ID)
 	testAppID := "env-test-app-id"
-	os.Setenv("APP_ID", testAppID)
-	defer os.Unsetenv("APP_ID")
+	os.Setenv("APP_INSTANCE_ID", testAppID)
+	defer os.Unsetenv("APP_INSTANCE_ID")
 
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
@@ -67,7 +67,7 @@ func TestSetDefaultAppIDFromEnv(t *testing.T) {
 
 // TestSetDefaultAppIDFromEnv_NotSet tests error when env var not set
 func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
-	os.Unsetenv("APP_ID")
+	os.Unsetenv("APP_INSTANCE_ID")
 
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
@@ -174,6 +174,175 @@ func TestSignWithoutAppID(t *testing.T) {
 		// Check that it's the expected error about App ID
 		// (not callback server error)
 		t.Logf("Got error: %v", err)
+	}
+}
+
+// TestInit tests client initialization
+func TestInit(t *testing.T) {
+	os.Setenv("APP_INSTANCE_ID", "init-test-id")
+	defer os.Unsetenv("APP_INSTANCE_ID")
+
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	err := client.Init()
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if client.GetDefaultAppID() != "init-test-id" {
+		t.Errorf("Expected 'init-test-id', got '%s'", client.GetDefaultAppID())
+	}
+}
+
+// TestInit_NoEnvVar tests Init when env var is not set
+func TestInit_NoEnvVar(t *testing.T) {
+	os.Unsetenv("APP_INSTANCE_ID")
+
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	// Init should not fail even without env var
+	err := client.Init()
+	if err != nil {
+		t.Errorf("Init should not fail: %v", err)
+	}
+}
+
+// TestVerifyWithPublicKey tests signature verification with provided public key
+func TestVerifyWithPublicKey(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	// This tests the public API wrapper
+	// The actual crypto is tested in internal/crypto tests
+
+	// Test with wrong key size (ED25519 expects 32-byte key, give 16)
+	_, err := client.VerifyWithPublicKey(
+		[]byte("message"),
+		make([]byte, 64), // signature (correct size for ED25519)
+		make([]byte, 16), // public key (wrong size - should be 32)
+		ProtocolSchnorr,
+		CurveED25519,
+	)
+	if err == nil {
+		t.Error("Expected error for wrong key size")
+	}
+
+	// Test with valid sizes but invalid signature (should return false, not error)
+	valid, err := client.VerifyWithPublicKey(
+		[]byte("message"),
+		make([]byte, 64), // signature (all zeros = invalid)
+		make([]byte, 32), // public key (correct size)
+		ProtocolSchnorr,
+		CurveED25519,
+	)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if valid {
+		t.Error("Expected invalid signature")
+	}
+}
+
+// TestConstants tests that constants are exported correctly
+func TestConstants(t *testing.T) {
+	// Protocol constants
+	if ProtocolECDSA != "ecdsa" {
+		t.Errorf("Expected ProtocolECDSA 'ecdsa', got '%s'", ProtocolECDSA)
+	}
+	if ProtocolSchnorr != "schnorr" {
+		t.Errorf("Expected ProtocolSchnorr 'schnorr', got '%s'", ProtocolSchnorr)
+	}
+
+	// Curve constants
+	if CurveED25519 != "ed25519" {
+		t.Errorf("Expected CurveED25519 'ed25519', got '%s'", CurveED25519)
+	}
+	if CurveSECP256K1 != "secp256k1" {
+		t.Errorf("Expected CurveSECP256K1 'secp256k1', got '%s'", CurveSECP256K1)
+	}
+	if CurveSECP256R1 != "secp256r1" {
+		t.Errorf("Expected CurveSECP256R1 'secp256r1', got '%s'", CurveSECP256R1)
+	}
+}
+
+// TestClientOptions_NilOptions tests NewClientWithOptions with nil options
+func TestClientOptions_NilOptions(t *testing.T) {
+	client := NewClientWithOptions("http://localhost:8080", nil)
+	defer client.Close()
+
+	// Should use defaults
+	if client.GetRequestTimeout() == 0 {
+		t.Error("Expected non-zero default request timeout")
+	}
+	if client.GetCallbackTimeout() == 0 {
+		t.Error("Expected non-zero default callback timeout")
+	}
+}
+
+// TestGenerateSchnorrKey_NoAppID tests GenerateSchnorrKey without App ID
+func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	_, err := client.GenerateSchnorrKey(CurveSECP256K1)
+	if err == nil {
+		t.Error("Expected error when no App ID set")
+	}
+}
+
+// TestGenerateECDSAKey_NoAppID tests GenerateECDSAKey without App ID
+func TestGenerateECDSAKey_NoAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	_, err := client.GenerateECDSAKey(CurveSECP256K1)
+	if err == nil {
+		t.Error("Expected error when no App ID set")
+	}
+}
+
+// TestGetAPIKey_NoAppID tests GetAPIKey without App ID
+func TestGetAPIKey_NoAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	_, err := client.GetAPIKey("test-key")
+	if err == nil {
+		t.Error("Expected error when no App ID set")
+	}
+}
+
+// TestSignWithAPISecret_NoAppID tests SignWithAPISecret without App ID
+func TestSignWithAPISecret_NoAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	_, err := client.SignWithAPISecret("test-secret", []byte("message"))
+	if err == nil {
+		t.Error("Expected error when no App ID set")
+	}
+}
+
+// TestGetPublicKey_NoAppID tests GetPublicKey without App ID
+func TestGetPublicKey_NoAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	_, _, _, err := client.GetPublicKey()
+	if err == nil {
+		t.Error("Expected error when no App ID set")
+	}
+}
+
+// TestVerify_NoAppID tests Verify without App ID
+func TestVerify_NoAppID(t *testing.T) {
+	client := NewClient("http://localhost:8080")
+	defer client.Close()
+
+	_, err := client.Verify([]byte("message"), []byte("signature"))
+	if err == nil {
+		t.Error("Expected error when no App ID set")
 	}
 }
 
