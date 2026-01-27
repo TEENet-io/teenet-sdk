@@ -1,0 +1,372 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+//
+// This software and its associated documentation files (the "Software") are
+// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
+// Unauthorized copying of this file, via any medium, is strictly prohibited.
+//
+// No license, express or implied, is hereby granted, except by written agreement
+// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
+// is a violation of applicable laws.
+//
+// -----------------------------------------------------------------------------
+
+// Example: Generate cryptographic keys using TEENet SDK
+//
+// This example demonstrates how to generate Schnorr and ECDSA keys for your
+// application using the TEENet SDK. Generated keys are stored in the user
+// management system and can be used for signing operations.
+//
+// Usage:
+//   export APP_INSTANCE_ID="your-app-instance-id"
+//   go run main.go
+
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	sdk "github.com/TEENet-io/teenet-sdk/go"
+)
+
+func main() {
+	// Get consensus URL from environment or use default
+	consensusURL := os.Getenv("CONSENSUS_URL")
+	if consensusURL == "" {
+		consensusURL = "http://localhost:8089" // Default for local development
+	}
+
+	// Get app ID from environment
+	appID := os.Getenv("APP_INSTANCE_ID")
+	if appID == "" {
+		log.Fatal("APP_INSTANCE_ID environment variable is required")
+	}
+
+	// Create SDK client with extended timeout for key generation
+	// ECDSA key generation requires multi-party DKG which can take 1-2 minutes
+	opts := &sdk.ClientOptions{
+		RequestTimeout:  120 * time.Second, // 2 minutes for key generation
+		CallbackTimeout: 180 * time.Second, // 3 minutes for callbacks
+	}
+	client := sdk.NewClientWithOptions(consensusURL, opts)
+	defer client.Close()
+
+	client.SetDefaultAppID(appID)
+
+	// Initialize client (loads APP_INSTANCE_ID from environment)
+	if err := client.Init(); err != nil {
+		log.Fatal("Failed to initialize client:", err)
+	}
+
+	fmt.Println("=== TEENet Key Generation and Signing Example ===")
+	fmt.Printf("Consensus URL: %s\n", consensusURL)
+	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppID())
+
+	// Example 1: Generate a Schnorr key with ed25519 curve
+	fmt.Println("\n📝 Generating Schnorr key (ed25519)...")
+	schnorrResult, err := client.GenerateSchnorrKey(sdk.CurveED25519)
+	if err != nil {
+		log.Fatal("Failed to generate ed25519 key:", err)
+	}
+
+	if !schnorrResult.Success {
+		log.Fatal("ed25519 key generation failed:", schnorrResult.Message)
+	}
+
+	fmt.Println("✅ Schnorr key generated successfully!")
+	printKeyInfo(schnorrResult.PublicKey)
+
+	// Example 2: Generate an ECDSA key with secp256k1 curve
+	fmt.Println("\n📝 Generating ECDSA key (secp256k1)...")
+	ecdsaResult, err := client.GenerateECDSAKey(sdk.CurveSECP256K1)
+	if err != nil {
+		log.Fatal("Failed to generate ECDSA key:", err)
+	}
+
+	if !ecdsaResult.Success {
+		log.Fatal("ECDSA key generation failed:", ecdsaResult.Message)
+	}
+
+	fmt.Println("✅ ECDSA key generated successfully!")
+	printKeyInfo(ecdsaResult.PublicKey)
+
+	fmt.Println("\n🎉 All keys generated successfully!")
+
+	// Test message for signing
+	message := []byte("Hello, TEENet!")
+	fmt.Printf("\n📄 Test message: %s\n", string(message))
+
+	// ========================================================================
+	// Example 3: Sign with Schnorr key and verify
+	// ========================================================================
+	fmt.Println("\n" + repeat("=", 70))
+	fmt.Println("🔐 Schnorr Signature Test (ED25519)")
+	fmt.Println(repeat("=", 70))
+
+	schnorrPubKey := hexToBytes(schnorrResult.PublicKey.KeyData)
+
+	fmt.Println("\n📝 Signing with Schnorr key...")
+	schnorrSig, err := client.Sign(message, schnorrPubKey)
+	if err != nil {
+		fmt.Printf("❌ Schnorr signing failed: %v\n", err)
+	} else if !schnorrSig.Success {
+		fmt.Printf("❌ Schnorr signing failed: %s\n", schnorrSig.Error)
+	} else {
+		fmt.Printf("✅ Schnorr signature generated successfully!\n")
+		fmt.Printf("   Signature length: %d bytes\n", len(schnorrSig.Signature))
+		fmt.Printf("   Signature (hex): %x...\n", schnorrSig.Signature[:min(32, len(schnorrSig.Signature))])
+
+		// Verify Schnorr signature using SDK
+		fmt.Println("\n🔍 Verifying Schnorr signature...")
+		valid, err := client.VerifyWithPublicKey(message, schnorrSig.Signature, schnorrPubKey, sdk.ProtocolSchnorr, sdk.CurveED25519)
+		if err != nil {
+			fmt.Printf("❌ Schnorr signature verification error: %v\n", err)
+		} else if valid {
+			fmt.Println("✅ Schnorr signature verification PASSED!")
+		} else {
+			fmt.Println("❌ Schnorr signature verification FAILED!")
+		}
+	}
+
+	// ========================================================================
+	// Example 4: Sign with ECDSA key and verify
+	// ========================================================================
+	fmt.Println("\n" + repeat("=", 70))
+	fmt.Println("🔐 ECDSA Signature Test (secp256k1)")
+	fmt.Println(repeat("=", 70))
+
+	ecdsaPubKey := hexToBytes(ecdsaResult.PublicKey.KeyData)
+
+	fmt.Println("\n📝 Signing with ECDSA key...")
+	ecdsaSig, err := client.Sign(message, ecdsaPubKey)
+	if err != nil {
+		fmt.Printf("❌ ECDSA signing failed: %v\n", err)
+	} else if !ecdsaSig.Success {
+		fmt.Printf("❌ ECDSA signing failed: %s\n", ecdsaSig.Error)
+	} else {
+		fmt.Printf("✅ ECDSA signature generated successfully!\n")
+		fmt.Printf("   Signature length: %d bytes\n", len(ecdsaSig.Signature))
+		fmt.Printf("   Signature (hex): %x...\n", ecdsaSig.Signature[:min(32, len(ecdsaSig.Signature))])
+
+		// Verify ECDSA signature using SDK
+		fmt.Println("\n🔍 Verifying ECDSA signature...")
+		valid, err := client.VerifyWithPublicKey(message, ecdsaSig.Signature, ecdsaPubKey, sdk.ProtocolECDSA, sdk.CurveSECP256K1)
+		if err != nil {
+			fmt.Printf("❌ ECDSA signature verification error: %v\n", err)
+		} else if valid {
+			fmt.Println("✅ ECDSA signature verification PASSED!")
+		} else {
+			fmt.Println("❌ ECDSA signature verification FAILED!")
+		}
+	}
+
+	fmt.Println("\n" + repeat("=", 70))
+	fmt.Println("🎉 All signing and verification tests completed!")
+	fmt.Println(repeat("=", 70))
+
+	// ========================================================================
+	// Example 5: Test cross-app signing (using key from one app to sign for another)
+	// ========================================================================
+	fmt.Println("\n" + repeat("=", 70))
+	fmt.Println("🔐 Cross-App Signing Test")
+	fmt.Println(repeat("=", 70))
+	fmt.Println("\nThis test attempts to use a key generated by one app")
+	fmt.Println("to sign data for a different app.")
+
+	// Save the current app's key info
+	firstAppID := client.GetDefaultAppID()
+	firstAppKey := hexToBytes(schnorrResult.PublicKey.KeyData)
+
+	fmt.Printf("\n📋 Original App ID: %s\n", firstAppID)
+	fmt.Printf("   Key ID: %d\n", schnorrResult.PublicKey.ID)
+	fmt.Printf("   Public Key: %s\n", truncate(schnorrResult.PublicKey.KeyData, 40))
+
+	// Switch to a different app ID for cross-app testing
+	// Get from environment or use placeholder
+	secondAppID := os.Getenv("SECOND_APP_INSTANCE_ID")
+	if secondAppID == "" {
+		fmt.Println("⚠️  SECOND_APP_INSTANCE_ID not set, skipping cross-app test")
+		fmt.Println("   Set SECOND_APP_INSTANCE_ID to test cross-app signing")
+		return
+	}
+	client.SetDefaultAppID(secondAppID)
+
+	fmt.Printf("\n🔄 Switching to different App ID: %s\n", secondAppID)
+	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
+
+	testMessage := []byte("Cross-app signing test message")
+	crossAppSig, err := client.Sign(testMessage, firstAppKey)
+
+	if err != nil {
+		fmt.Printf("❌ Cross-app signing FAILED (Error): %v\n", err)
+		fmt.Println("\n⚠️  ISSUE REPRODUCED!")
+		fmt.Printf("   Key created by App ID: %s\n", firstAppID)
+		fmt.Printf("   Attempted to sign for App ID: %s\n", secondAppID)
+		fmt.Println("\n💡 Explanation:")
+		fmt.Println("   Keys are scoped to the application that created them.")
+		fmt.Println("   A key generated by one app cannot be used to sign for another app.")
+		fmt.Println("\n💡 Solution:")
+		fmt.Println("   Each application should generate and use its own keys.")
+	} else if !crossAppSig.Success {
+		fmt.Printf("❌ Cross-app signing FAILED: %s\n", crossAppSig.Error)
+		fmt.Println("\n⚠️  ISSUE REPRODUCED!")
+		fmt.Printf("   Key created by App ID: %s\n", firstAppID)
+		fmt.Printf("   Attempted to sign for App ID: %s\n", secondAppID)
+		fmt.Println("\n💡 Explanation:")
+		fmt.Println("   Keys are scoped to the application that created them.")
+		fmt.Println("   A key generated by one app cannot be used to sign for another app.")
+		fmt.Println("\n💡 Solution:")
+		fmt.Println("   Each application should generate and use its own keys.")
+	} else {
+		fmt.Println("✅ Cross-app signing succeeded!")
+		fmt.Printf("   Signature length: %d bytes\n", len(crossAppSig.Signature))
+
+		// Verify the signature
+		valid, err := client.VerifyWithPublicKey(
+			testMessage,
+			crossAppSig.Signature,
+			firstAppKey,
+			sdk.ProtocolSchnorr,
+			sdk.CurveED25519,
+		)
+
+		if err != nil {
+			fmt.Printf("❌ Verification error: %v\n", err)
+		} else if valid {
+			fmt.Println("✅ Signature verification PASSED!")
+			fmt.Println("\n✅ Cross-app signing is supported!")
+		} else {
+			fmt.Println("❌ Signature verification FAILED!")
+		}
+	}
+
+	// ========================================================================
+	// Test with third app ID
+	// ========================================================================
+	thirdAppID := os.Getenv("THIRD_APP_INSTANCE_ID")
+	if thirdAppID == "" {
+		fmt.Println("⚠️  THIRD_APP_INSTANCE_ID not set, skipping third app test")
+		// Restore original app ID
+		client.SetDefaultAppID(firstAppID)
+		fmt.Println("\n" + repeat("=", 70))
+		fmt.Println("Cross-app signing test completed!")
+		fmt.Println(repeat("=", 70))
+		return
+	}
+	client.SetDefaultAppID(thirdAppID)
+
+	fmt.Printf("\n🔄 Switching to third App ID: %s\n", thirdAppID)
+	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
+
+	crossAppSig3, err := client.Sign(testMessage, firstAppKey)
+
+	if err != nil {
+		fmt.Printf("❌ Cross-app signing FAILED (Error): %v\n", err)
+		fmt.Println("\n⚠️  ISSUE REPRODUCED!")
+		fmt.Printf("   Key created by App ID: %s\n", firstAppID)
+		fmt.Printf("   Attempted to sign for App ID: %s\n", thirdAppID)
+		fmt.Println("\n💡 Explanation:")
+		fmt.Println("   Keys are scoped to the application that created them.")
+		fmt.Println("   A key generated by one app cannot be used to sign for another app.")
+		fmt.Println("\n💡 Solution:")
+		fmt.Println("   Each application should generate and use its own keys.")
+	} else if !crossAppSig3.Success {
+		fmt.Printf("❌ Cross-app signing FAILED: %s\n", crossAppSig3.Error)
+		fmt.Println("\n⚠️  ISSUE REPRODUCED!")
+		fmt.Printf("   Key created by App ID: %s\n", firstAppID)
+		fmt.Printf("   Attempted to sign for App ID: %s\n", thirdAppID)
+		fmt.Println("\n💡 Explanation:")
+		fmt.Println("   Keys are scoped to the application that created them.")
+		fmt.Println("   A key generated by one app cannot be used to sign for another app.")
+		fmt.Println("\n💡 Solution:")
+		fmt.Println("   Each application should generate and use its own keys.")
+	} else {
+		fmt.Println("✅ Cross-app signing succeeded!")
+		fmt.Printf("   Signature length: %d bytes\n", len(crossAppSig3.Signature))
+
+		// Verify the signature
+		valid, err := client.VerifyWithPublicKey(
+			testMessage,
+			crossAppSig3.Signature,
+			firstAppKey,
+			sdk.ProtocolSchnorr,
+			sdk.CurveED25519,
+		)
+
+		if err != nil {
+			fmt.Printf("❌ Verification error: %v\n", err)
+		} else if valid {
+			fmt.Println("✅ Signature verification PASSED!")
+			fmt.Println("\n✅ Cross-app signing is supported!")
+		} else {
+			fmt.Println("❌ Signature verification FAILED!")
+		}
+	}
+
+	// Restore original app ID
+	client.SetDefaultAppID(firstAppID)
+
+	fmt.Println("\n" + repeat("=", 70))
+	fmt.Println("Cross-app signing test completed!")
+	fmt.Println(repeat("=", 70))
+}
+
+// printKeyInfo prints formatted key information
+func printKeyInfo(key *sdk.PublicKeyInfo) {
+	fmt.Printf("  Key ID: %d\n", key.ID)
+	if key.Name != "" {
+		fmt.Printf("  Name: %s\n", key.Name)
+	}
+	fmt.Printf("  Protocol: %s\n", key.Protocol)
+	fmt.Printf("  Curve: %s\n", key.Curve)
+	fmt.Printf("  Public Key: %s\n", truncate(key.KeyData, 40))
+	fmt.Printf("  Application ID: %d\n", key.ApplicationID)
+	fmt.Printf("  Created by Instance: %s\n", key.CreatedByInstanceID)
+
+	// Print DKG parameters if available
+	if key.Threshold > 0 {
+		fmt.Printf("  DKG Threshold: %d of %d participants\n", key.Threshold, key.MaxParticipantCount)
+	}
+}
+
+// truncate truncates a string for display
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// hexToBytes converts hex string to bytes
+func hexToBytes(hexStr string) []byte {
+	// Remove 0x prefix if present
+	if len(hexStr) > 2 && hexStr[:2] == "0x" {
+		hexStr = hexStr[2:]
+	}
+
+	bytes := make([]byte, len(hexStr)/2)
+	for i := 0; i < len(bytes); i++ {
+		fmt.Sscanf(hexStr[i*2:i*2+2], "%02x", &bytes[i])
+	}
+	return bytes
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// repeat repeats a string n times (helper for formatting)
+func repeat(s string, n int) string {
+	result := ""
+	for i := 0; i < n; i++ {
+		result += s
+	}
+	return result
+}

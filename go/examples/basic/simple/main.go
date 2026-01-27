@@ -1,0 +1,113 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+//
+// This software and its associated documentation files (the "Software") are
+// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
+// Unauthorized copying of this file, via any medium, is strictly prohibited.
+//
+// No license, express or implied, is hereby granted, except by written agreement
+// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
+// is a violation of applicable laws.
+//
+// -----------------------------------------------------------------------------
+
+// Package main demonstrates basic signing and verification with TEENet SDK.
+//
+// This example shows:
+//   - Creating a client and setting the app ID
+//   - Getting public key information
+//   - Signing a message
+//   - Verifying the signature
+//
+// Usage:
+//
+//	go run examples/basic/simple/main.go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	sdk "github.com/TEENet-io/teenet-sdk/go"
+	"github.com/ethereum/go-ethereum/crypto"
+)
+
+func main() {
+	// Get configuration from environment or use placeholder values
+	consensusURL := os.Getenv("CONSENSUS_URL")
+	if consensusURL == "" {
+		consensusURL = "http://localhost:8089" // Default for local development
+	}
+
+	appID := os.Getenv("APP_INSTANCE_ID")
+	if appID == "" {
+		log.Fatal("APP_INSTANCE_ID environment variable is required")
+	}
+
+	fmt.Println("TEENet SDK Simple Example")
+	fmt.Println("=========================")
+	fmt.Printf("Consensus URL: %s\n", consensusURL)
+	fmt.Printf("App ID: %s\n\n", appID)
+
+	// Create SDK client
+	client := sdk.NewClient(consensusURL)
+	defer client.Close()
+
+	client.SetDefaultAppID(appID)
+
+	// Get public key information
+	fmt.Println("1. Get Public Key")
+	fmt.Println("-----------------")
+	pubKey, protocol, curve, err := client.GetPublicKey()
+	if err != nil {
+		log.Fatalf("Failed to get public key: %v", err)
+	}
+	fmt.Printf("Public Key: %s\n", pubKey)
+	fmt.Printf("Protocol: %s\n", protocol)
+	fmt.Printf("Curve: %s\n\n", curve)
+
+	// Sign a message
+	fmt.Println("2. Sign Message")
+	fmt.Println("---------------")
+	message := []byte("Hello TEENet! " + time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Printf("Message: %s\n", string(message))
+
+	hashedMessage := crypto.Keccak256(message)
+	result, err := client.Sign(hashedMessage)
+	if err != nil {
+		log.Fatalf("Failed to sign message: %v", err)
+	}
+
+	if !result.Success {
+		log.Fatalf("Sign failed: %s", result.Error)
+	}
+
+	fmt.Printf("Signature: %x\n", result.Signature)
+	if result.VotingInfo != nil {
+		fmt.Printf("Voting: %d/%d (%s)\n",
+			result.VotingInfo.CurrentVotes,
+			result.VotingInfo.RequiredVotes,
+			result.VotingInfo.Status)
+	}
+	fmt.Println()
+
+	// Verify the signature
+	fmt.Println("3. Verify Signature")
+	fmt.Println("-------------------")
+	valid, err := client.Verify(message, result.Signature)
+	if err != nil {
+		log.Fatalf("Failed to verify signature: %v", err)
+	}
+
+	if valid {
+		fmt.Println("Signature is VALID")
+	} else {
+		fmt.Println("Signature is INVALID")
+	}
+
+	fmt.Println()
+	fmt.Println("=========================")
+	fmt.Println("Simple example completed!")
+}

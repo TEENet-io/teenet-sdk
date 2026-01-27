@@ -1,0 +1,25 @@
+# Git files
+.git
+.gitignore
+
+# Build artifacts
+voting-demo
+*.exe
+*.out
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+
+# Scripts
+start-example.sh

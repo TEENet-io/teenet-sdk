@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEENet Voting Demo</title>
+    <style>
+        /* Critical CSS to prevent FOUC */
+        body {
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        body.loaded {
+            opacity: 1;
+        }
+    </style>
+    <script>
+        // Set CSS path dynamically based on current URL (synchronously)
+        (function() {
+            const currentPath = window.location.pathname;
+            const cssPath = currentPath.endsWith('/') ? currentPath + 'styles.css' : currentPath + '/styles.css';
+            // Write the link tag directly to ensure it blocks rendering
+            document.write('<link rel="stylesheet" href="' + cssPath + '">');
+        })();
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🗳️ TEENet Voting Demo Application</h1>
+
+        <div class="app-info">
+            <strong>App ID:</strong> <code id="appId">Loading...</code>
+        </div>
+
+        <!-- Direct Sign and Verify Section -->
+        <div class="section">
+            <h2>🔐 Direct Sign & Verify</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; overflow: hidden;">
+                <div style="min-width: 0; overflow: hidden;">
+                    <h3>Sign Message</h3>
+                    <div class="form-group">
+                        <label for="signMessage">Message to Sign:</label>
+                        <textarea
+                            id="signMessage"
+                            rows="3"
+                            placeholder="Enter message to sign directly"
+                        ></textarea>
+                    </div>
+                    <button onclick="directSign()">🔐 Sign Message</button>
+                    <div id="signResult" class="result-content" style="display: none;"></div>
+                </div>
+
+                <div style="min-width: 0; overflow: hidden;">
+                    <h3>Verify Signature</h3>
+                    <div class="form-group">
+                        <label for="directVerifyMessage">Message:</label>
+                        <textarea
+                            id="directVerifyMessage"
+                            rows="2"
+                            placeholder="Enter the message"
+                        ></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="directVerifySignature">Signature (Hex):</label>
+                        <textarea
+                            id="directVerifySignature"
+                            rows="2"
+                            placeholder="Enter hex-encoded signature"
+                        ></textarea>
+                    </div>
+                    <button onclick="directVerify()">✅ Verify Signature</button>
+                    <div id="directVerifyResult" class="result-content" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Voting Section -->
+        <div class="section">
+            <h2>🗳️ Multi-Party Voting Sign</h2>
+            <div class="form-group">
+                <label for="message">Message to Vote:</label>
+                <textarea
+                    id="message"
+                    rows="3"
+                    placeholder="Enter message for multi-party voting, e.g., Hello, TEENet!"
+                ></textarea>
+            </div>
+            <button id="voteBtn" onclick="vote()">
+                🗳️ Submit My Vote
+            </button>
+
+            <!-- Voting Status -->
+            <div style="margin-top: 20px;">
+                <h3>📊 Voting Status</h3>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="status-label">My App Status:</span>
+                        <span id="appStatus" class="status-value">⬜ Not Voted</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Voting Progress:</span>
+                        <span id="progress" class="status-value">-/-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Voting Result -->
+            <div id="result" class="result-content" style="margin-top: 15px;">
+                <p class="waiting-text">Waiting for vote...</p>
+            </div>
+        </div>
+
+        <!-- Verify Voting Signature Section -->
+        <div class="section">
+            <h2>✅ Verify Signature</h2>
+            <div class="form-group">
+                <label for="verifyMessage">Message:</label>
+                <textarea
+                    id="verifyMessage"
+                    rows="3"
+                    placeholder="Enter the message that was signed"
+                ></textarea>
+            </div>
+            <div class="form-group">
+                <label for="verifySignature">Signature (Hex):</label>
+                <textarea
+                    id="verifySignature"
+                    rows="2"
+                    placeholder="Enter hex-encoded signature to verify"
+                ></textarea>
+            </div>
+            <button onclick="verifySignature()">
+                🔍 Verify Signature
+            </button>
+            <div id="verifyResult" class="result-content"></div>
+        </div>
+
+        <!-- API Key Section -->
+        <div class="section">
+            <h2>🔑 API Key Operations</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; overflow: hidden;">
+                <div style="min-width: 0; overflow: hidden;">
+                    <h3>Get API Key</h3>
+                    <div class="form-group">
+                        <label for="getApiKeyName">API Key Name:</label>
+                        <input
+                            type="text"
+                            id="getApiKeyName"
+                            placeholder="e.g., test"
+                            style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 14px; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 4px; width: 100%; box-sizing: border-box; transition: all 0.3s;"
+                            onfocus="this.style.borderColor='#1890ff'; this.style.boxShadow='0 0 0 2px rgba(24, 144, 255, 0.1)';"
+                            onblur="this.style.borderColor='#d9d9d9'; this.style.boxShadow='none';"
+                        />
+                    </div>
+                    <button onclick="getAPIKey()">🔑 Get API Key</button>
+                    <div id="getApiKeyResult" class="result-content" style="display: none;"></div>
+                </div>
+
+                <div style="min-width: 0; overflow: hidden;">
+                    <h3>Sign with API Secret</h3>
+                    <div class="form-group">
+                        <label for="signApiKeyName">API Key Name:</label>
+                        <input
+                            type="text"
+                            id="signApiKeyName"
+                            placeholder="e.g., test"
+                            style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 14px; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 4px; width: 100%; box-sizing: border-box; transition: all 0.3s;"
+                            onfocus="this.style.borderColor='#1890ff'; this.style.boxShadow='0 0 0 2px rgba(24, 144, 255, 0.1)';"
+                            onblur="this.style.borderColor='#d9d9d9'; this.style.boxShadow='none';"
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label for="signApiKeyMessage">Message:</label>
+                        <textarea
+                            id="signApiKeyMessage"
+                            rows="2"
+                            placeholder="Message to sign with API secret"
+                        ></textarea>
+                    </div>
+                    <button onclick="signWithAPISecret()">🔐 Sign with Secret</button>
+                    <div id="signApiKeyResult" class="result-content" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Powered by <a href="https://teenet.io" target="_blank">TEENet</a> Technology</p>
+        </footer>
+    </div>
+
+    <script>
+        // Show body once CSS is loaded
+        window.addEventListener('load', function() {
+            document.body.classList.add('loaded');
+        });
+
+        // Also show after a short delay as fallback
+        setTimeout(function() {
+            document.body.classList.add('loaded');
+        }, 100);
+
+        // Initialize app and load APP_ID
+        console.log('Inline script executing');
+
+        const currentPath = window.location.pathname;
+
+        // Load APP_ID from config API
+        async function loadConfig() {
+            try {
+                const apiBase = currentPath.endsWith('/') ? currentPath + 'api' : currentPath + '/api';
+                console.log('API base:', apiBase);
+
+                const response = await fetch(apiBase + '/config');
+                const config = await response.json();
+                console.log('Config response:', config);
+
+                document.getElementById('appId').textContent = config.app_instance_id || 'Unknown';
+
+                // Store APP_ID globally for use in app.js
+                window.LOADED_APP_ID = config.app_instance_id;
+            } catch (error) {
+                console.error('Config load failed:', error);
+                document.getElementById('appId').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Run config load after page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadConfig);
+        } else {
+            loadConfig();
+        }
+
+        // Load app.js dynamically based on current URL
+        const jsPath = currentPath.endsWith('/') ? currentPath + 'app.js' : currentPath + '/app.js';
+        console.log('Loading JavaScript from:', jsPath);
+        const script = document.createElement('script');
+        script.src = jsPath;
+        script.onload = function() { console.log('JavaScript loaded successfully'); };
+        script.onerror = function() { console.error('Failed to load JavaScript from:', jsPath); };
+        document.head.appendChild(script);
+    </script>
+</body>
+</html>
