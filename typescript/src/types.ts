@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -38,21 +38,97 @@ export type CurveType = (typeof Curve)[keyof typeof Curve];
 export interface ClientOptions {
   /** Request timeout in milliseconds (default: 30000) */
   requestTimeout?: number;
-  /** Callback timeout in milliseconds (default: 60000) */
-  callbackTimeout?: number;
+  /** Max wait in sign() when voting is pending (default: 10000) */
+  pendingWaitTimeout?: number;
+  /** Enable verbose sign/polling debug logs (default: false) */
+  debug?: boolean;
 }
+
+export const ErrorCode = {
+  INVALID_INPUT: 'INVALID_INPUT',
+  SIGN_REQUEST_FAILED: 'SIGN_REQUEST_FAILED',
+  SIGN_REQUEST_REJECTED: 'SIGN_REQUEST_REJECTED',
+  SIGNATURE_DECODE_FAILED: 'SIGNATURE_DECODE_FAILED',
+  UNEXPECTED_STATUS: 'UNEXPECTED_STATUS',
+  MISSING_HASH: 'MISSING_HASH',
+  STATUS_QUERY_FAILED: 'STATUS_QUERY_FAILED',
+  THRESHOLD_TIMEOUT: 'THRESHOLD_TIMEOUT',
+  SIGN_FAILED: 'SIGN_FAILED',
+} as const;
+
+export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 /**
  * Result of a signing operation
  */
 export interface SignResult {
-  /** Whether the operation succeeded */
+  /** Whether signing completed successfully */
   success: boolean;
   /** The signature bytes as a Buffer */
   signature: Buffer;
   /** Error message if the operation failed */
   error?: string;
+  /** Stable machine-readable error code if the operation failed */
+  errorCode?: ErrorCodeType;
+  /** Voting metadata when threshold signing is used */
+  votingInfo?: VotingInfo;
 }
+
+/**
+ * Voting metadata for threshold signing
+ */
+export interface VotingInfo {
+  /** Whether voting is required */
+  needsVoting: boolean;
+  /** Current number of votes */
+  currentVotes: number;
+  /** Required votes to reach threshold */
+  requiredVotes: number;
+  /** Status: pending, signed, failed */
+  status: string;
+  /** Message hash */
+  hash: string;
+}
+
+/**
+ * Status of a voting request from consensus cache
+ */
+export interface VoteStatus {
+  /** Whether entry was found */
+  found: boolean;
+  /** Message hash */
+  hash: string;
+  /** Status: pending, signed, failed */
+  status: string;
+  /** Current number of votes */
+  currentVotes: number;
+  /** Required votes */
+  requiredVotes: number;
+  /** Signature bytes if signed */
+  signature?: Buffer;
+  /** Error message if any */
+  errorMessage?: string;
+}
+
+/**
+ * Result of a passkey approval API operation
+ */
+export interface ApprovalResult {
+  /** Whether HTTP status is 2xx */
+  success: boolean;
+  /** Raw HTTP status code */
+  statusCode: number;
+  /** Parsed JSON response body */
+  data?: Record<string, unknown>;
+  /** Error message if operation failed */
+  error?: string;
+}
+
+/**
+ * Provider used by high-level passkey helpers to obtain a WebAuthn credential.
+ * The caller decides how to run WebAuthn (for example in browser via navigator.credentials.get).
+ */
+export type PasskeyCredentialProvider = (options: unknown) => Promise<unknown>;
 
 /**
  * Public key information returned from key generation

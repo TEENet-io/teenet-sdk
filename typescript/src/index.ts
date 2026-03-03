@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -24,6 +24,10 @@ export {
   Curve,
   ClientOptions,
   SignResult,
+  VotingInfo,
+  VoteStatus,
+  ApprovalResult,
+  PasskeyCredentialProvider,
   GenerateKeyResult,
   PublicKeyInfo,
   APIKeyResult,
@@ -31,5 +35,7 @@ export {
   PublicKeyResponse,
   ProtocolType,
   CurveType,
+  ErrorCode,
+  ErrorCodeType,
 } from './types';
 export { verifySignature, verifyHMACSHA256 } from './crypto';

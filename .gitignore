@@ -45,3 +45,4 @@ teenet-sdk
 typescript/dist/
 typescript/examples/typescript-test/node_modules/
 typescript/node_modules/
+typescript/examples/passkey-web-demo/node_modules/

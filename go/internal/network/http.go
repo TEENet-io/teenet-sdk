@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -41,7 +41,7 @@ func NewHTTPClient(baseURL string, client *http.Client) *HTTPClient {
 // submitRequestPayload is the request body for submitting a signature request
 type submitRequestPayload struct {
 	AppInstanceID string `json:"app_instance_id"`
-	Message       []byte `json:"message"`             // Raw message bytes (JSON auto-encodes to base64)
+	Message       []byte `json:"message"`              // Raw message bytes (JSON auto-encodes to base64)
 	PublicKey     []byte `json:"public_key,omitempty"` // Optional: raw public key bytes to use for signing
 }
 
@@ -49,12 +49,33 @@ type submitRequestPayload struct {
 type submitRequestResponse struct {
 	Success       bool   `json:"success"`
 	Message       string `json:"message"`
-	Hash          string `json:"hash"`           // Hash returned by server
-	Status        string `json:"status"`         // pending/signed/failed
+	Hash          string `json:"hash"`   // Hash returned by server
+	Status        string `json:"status"` // pending/signed/failed
 	Signature     string `json:"signature,omitempty"`
 	CurrentVotes  int    `json:"current_votes,omitempty"`
 	RequiredVotes int    `json:"required_votes,omitempty"`
 	NeedsVoting   bool   `json:"needs_voting"`
+}
+
+// cacheDetailResponse is the response from fetching cache status for a hash
+type cacheDetailResponse struct {
+	Success bool        `json:"success"`
+	Found   bool        `json:"found"`
+	Entry   *cacheEntry `json:"entry,omitempty"`
+	Message string      `json:"message,omitempty"`
+}
+
+type cacheEntry struct {
+	Hash          string                   `json:"hash"`
+	Status        string                   `json:"status"`
+	Signature     string                   `json:"signature,omitempty"`
+	RequiredVotes int                      `json:"required_votes"`
+	Requests      map[string]*cacheRequest `json:"requests,omitempty"`
+	ErrorMessage  string                   `json:"error_message,omitempty"`
+}
+
+type cacheRequest struct {
+	Approved bool `json:"approved"`
 }
 
 // publicKeyResponse is the response from getting public key
@@ -99,6 +120,22 @@ func (c *HTTPClient) SubmitRequest(appID string, message []byte, publicKey []byt
 	return &result, nil
 }
 
+// GetCacheDetail retrieves the cache entry for a specific hash.
+func (c *HTTPClient) GetCacheDetail(hash string) (*cacheDetailResponse, error) {
+	resp, err := c.client.Get(c.baseURL + "/api/cache/" + hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cache entry: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result cacheDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // GetPublicKey retrieves public key information for an App ID.
 func (c *HTTPClient) GetPublicKey(appID string) (publicKey, protocol, curve string, err error) {
 	resp, err := c.client.Get(c.baseURL + "/api/publickey/" + appID)
@@ -128,9 +165,9 @@ type generateKeyPayload struct {
 
 // generateKeyResponse is the response from generating a key
 type generateKeyResponse struct {
-	Success   bool                `json:"success"`
-	Message   string              `json:"message"`
-	PublicKey *GeneratedKeyInfo   `json:"public_key,omitempty"`
+	Success   bool              `json:"success"`
+	Message   string            `json:"message"`
+	PublicKey *GeneratedKeyInfo `json:"public_key,omitempty"`
 }
 
 // GeneratedKeyInfo contains the public key information returned from key generation
@@ -218,7 +255,6 @@ type apiSignResponse struct {
 	AppInstanceID string `json:"app_instance_id"`
 	Name          string `json:"name"`
 	Signature     string `json:"signature,omitempty"`
-	SignatureHex  string `json:"signature_hex,omitempty"`
 	Algorithm     string `json:"algorithm,omitempty"`
 	MessageLength int    `json:"message_length"`
 }
@@ -308,4 +344,87 @@ func (c *HTTPClient) VerifyWithAPISecret(appID, name string, message, signature 
 	}
 
 	return &result, nil
+}
+
+// approvalBridgeResponse is a generic parsed response from passkey approval endpoints.
+type approvalBridgeResponse struct {
+	StatusCode int
+	Data       map[string]interface{}
+}
+
+func (c *HTTPClient) doApprovalRequest(method, path string, approvalToken string, payload []byte) (*approvalBridgeResponse, error) {
+	urlStr := c.baseURL + path
+	var body *bytes.Reader
+	if len(payload) > 0 {
+		body = bytes.NewReader(payload)
+	} else {
+		body = bytes.NewReader(nil)
+	}
+
+	req, err := http.NewRequest(method, urlStr, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build approval request: %w", err)
+	}
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if approvalToken != "" {
+		req.Header.Set("Authorization", "Bearer "+approvalToken)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("approval request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	decoded := map[string]interface{}{}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("failed to decode approval response: %w", err)
+	}
+
+	return &approvalBridgeResponse{
+		StatusCode: resp.StatusCode,
+		Data:       decoded,
+	}, nil
+}
+
+func (c *HTTPClient) doAuthRequest(method, path string, payload []byte) (*approvalBridgeResponse, error) {
+	return c.doApprovalRequest(method, path, "", payload)
+}
+
+func (c *HTTPClient) PasskeyLoginOptions() (*approvalBridgeResponse, error) {
+	return c.doAuthRequest(http.MethodGet, "/api/auth/passkey/options", nil)
+}
+
+func (c *HTTPClient) PasskeyLoginVerify(payload []byte) (*approvalBridgeResponse, error) {
+	return c.doAuthRequest(http.MethodPost, "/api/auth/passkey/verify", payload)
+}
+
+func (c *HTTPClient) ApprovalPending(approvalToken string) (*approvalBridgeResponse, error) {
+	return c.doApprovalRequest(http.MethodGet, "/api/approvals/pending", approvalToken, nil)
+}
+
+func (c *HTTPClient) ApprovalRequestInit(payload []byte, approvalToken string) (*approvalBridgeResponse, error) {
+	return c.doApprovalRequest(http.MethodPost, "/api/approvals/request/init", approvalToken, payload)
+}
+
+func (c *HTTPClient) ApprovalRequestChallenge(requestID uint64, approvalToken string) (*approvalBridgeResponse, error) {
+	path := fmt.Sprintf("/api/approvals/request/%d/challenge", requestID)
+	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
+}
+
+func (c *HTTPClient) ApprovalRequestConfirm(requestID uint64, payload []byte, approvalToken string) (*approvalBridgeResponse, error) {
+	path := fmt.Sprintf("/api/approvals/request/%d/confirm", requestID)
+	return c.doApprovalRequest(http.MethodPost, path, approvalToken, payload)
+}
+
+func (c *HTTPClient) ApprovalActionChallenge(taskID uint64, approvalToken string) (*approvalBridgeResponse, error) {
+	path := fmt.Sprintf("/api/approvals/%d/challenge", taskID)
+	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
+}
+
+func (c *HTTPClient) ApprovalAction(taskID uint64, payload []byte, approvalToken string) (*approvalBridgeResponse, error) {
+	path := fmt.Sprintf("/api/approvals/%d/action", taskID)
+	return c.doApprovalRequest(http.MethodPost, path, approvalToken, payload)
 }

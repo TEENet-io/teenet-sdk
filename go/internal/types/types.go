@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -11,29 +11,41 @@
 //
 // -----------------------------------------------------------------------------
 
-
 package types
 
 import (
 	"time"
-
-	"github.com/TEENet-io/teenet-sdk/go/internal/network"
 )
 
 // ClientOptions holds optional configuration for the Client.
 //
-// These options allow customization of timeout behaviors for both
-// HTTP requests and callback waiting periods.
+// These options allow customization of timeout behaviors.
 type ClientOptions struct {
 	// RequestTimeout specifies the timeout for HTTP requests to the consensus service.
 	// Default is 30 seconds if not specified.
 	RequestTimeout time.Duration
 
-	// CallbackTimeout specifies how long to wait for voting callbacks.
-	// This should be set longer than expected voting duration.
-	// Default is 60 seconds if not specified.
-	CallbackTimeout time.Duration
+	// PendingWaitTimeout specifies how long Sign waits for voting completion
+	// after receiving a pending response.
+	// Default is 10 seconds if not specified.
+	PendingWaitTimeout time.Duration
+
+	// Debug enables verbose SDK logs for sign and polling trace.
+	// Default is false.
+	Debug bool
 }
+
+const (
+	ErrorCodeInvalidInput        = "INVALID_INPUT"
+	ErrorCodeSignRequestFailed   = "SIGN_REQUEST_FAILED"
+	ErrorCodeSignRequestRejected = "SIGN_REQUEST_REJECTED"
+	ErrorCodeSignatureDecode     = "SIGNATURE_DECODE_FAILED"
+	ErrorCodeUnexpectedStatus    = "UNEXPECTED_STATUS"
+	ErrorCodeMissingHash         = "MISSING_HASH"
+	ErrorCodeStatusQueryFailed   = "STATUS_QUERY_FAILED"
+	ErrorCodeSignFailed          = "SIGN_FAILED"
+	ErrorCodeThresholdTimeout    = "THRESHOLD_TIMEOUT"
+)
 
 // SignResult contains the result of a sign operation.
 //
@@ -46,11 +58,14 @@ type SignResult struct {
 	// For Schnorr, it's 64 bytes. For EdDSA, it's 64 bytes.
 	Signature []byte `json:"signature,omitempty"`
 
-	// Success indicates whether the signing operation succeeded.
+	// Success indicates whether signing completed successfully.
 	Success bool `json:"success"`
 
 	// Error contains the error message if Success is false.
 	Error string `json:"error,omitempty"`
+
+	// ErrorCode contains a stable machine-readable error code when Success is false.
+	ErrorCode string `json:"error_code,omitempty"`
 
 	// VotingInfo contains additional information when M-of-N voting was used.
 	// This field is nil for direct (non-voting) signatures.
@@ -75,21 +90,31 @@ type VotingInfo struct {
 	RequiredVotes int `json:"required_votes"`
 
 	// Status indicates the current state of the voting process.
-	// Possible values: "pending", "signed", "error"
+	// Possible values: "pending", "signed", "failed"
 	Status string `json:"status"`
 
 	// Hash is the message hash (0x-prefixed hex) used for tracking this request.
 	Hash string `json:"hash"`
 }
 
-// CallbackPayload is the structure sent by consensus nodes to callback URLs.
-//
-// When a voting operation completes, the consensus service sends this
-// payload to the callback URL that was registered with the sign request.
-// This is an internal structure used by the callback server.
-//
-// This is a re-export of network.CallbackPayload for public API compatibility.
-type CallbackPayload = network.CallbackPayload
+// VoteStatus contains the current status of a voting request.
+type VoteStatus struct {
+	Found         bool   `json:"found"`
+	Hash          string `json:"hash"`
+	Status        string `json:"status"`
+	CurrentVotes  int    `json:"current_votes"`
+	RequiredVotes int    `json:"required_votes"`
+	Signature     []byte `json:"signature,omitempty"`
+	ErrorMessage  string `json:"error_message,omitempty"`
+}
+
+// ApprovalResult is a generic response wrapper for passkey approval APIs.
+type ApprovalResult struct {
+	Success    bool                   `json:"success"`
+	StatusCode int                    `json:"status_code"`
+	Data       map[string]interface{} `json:"data,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+}
 
 // GenerateKeyOptions contains optional parameters for key generation operations.
 //
@@ -202,9 +227,6 @@ type APISignResult struct {
 	// Signature is the hex-encoded HMAC-SHA256 signature.
 	// This field is empty if Success is false.
 	Signature string `json:"signature,omitempty"`
-
-	// SignatureHex is an alias for Signature (for compatibility).
-	SignatureHex string `json:"signature_hex,omitempty"`
 
 	// Algorithm is the signing algorithm used (always "HMAC-SHA256").
 	Algorithm string `json:"algorithm,omitempty"`

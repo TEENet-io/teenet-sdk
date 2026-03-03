@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 // -----------------------------------------------------------------------------
 
 package client
@@ -33,15 +33,16 @@ func TestNewClient(t *testing.T) {
 	if client.requestTimeout != 30*time.Second {
 		t.Errorf("Expected default requestTimeout 30s, got %v", client.requestTimeout)
 	}
-	if client.callbackTimeout != 60*time.Second {
-		t.Errorf("Expected default callbackTimeout 60s, got %v", client.callbackTimeout)
+	if client.pendingWaitTimeout != 10*time.Second {
+		t.Errorf("Expected default pendingWaitTimeout 10s, got %v", client.pendingWaitTimeout)
 	}
 }
 
 func TestNewClientWithOptions(t *testing.T) {
 	opts := &types.ClientOptions{
-		RequestTimeout:  45 * time.Second,
-		CallbackTimeout: 120 * time.Second,
+		RequestTimeout:     45 * time.Second,
+		PendingWaitTimeout: 3 * time.Second,
+		Debug:              true,
 	}
 	client := NewClientWithOptions("http://localhost:8080", opts)
 	if client == nil {
@@ -52,8 +53,11 @@ func TestNewClientWithOptions(t *testing.T) {
 	if client.requestTimeout != 45*time.Second {
 		t.Errorf("Expected requestTimeout 45s, got %v", client.requestTimeout)
 	}
-	if client.callbackTimeout != 120*time.Second {
-		t.Errorf("Expected callbackTimeout 120s, got %v", client.callbackTimeout)
+	if client.pendingWaitTimeout != 3*time.Second {
+		t.Errorf("Expected pendingWaitTimeout 3s, got %v", client.pendingWaitTimeout)
+	}
+	if !client.debug {
+		t.Errorf("Expected debug true, got false")
 	}
 }
 
@@ -157,13 +161,13 @@ func TestGetRequestTimeout(t *testing.T) {
 	}
 }
 
-func TestGetCallbackTimeout(t *testing.T) {
-	opts := &types.ClientOptions{CallbackTimeout: 90 * time.Second}
+func TestGetPendingWaitTimeout(t *testing.T) {
+	opts := &types.ClientOptions{PendingWaitTimeout: 2 * time.Second}
 	client := NewClientWithOptions("http://localhost:8080", opts)
 	defer client.Close()
 
-	if client.GetCallbackTimeout() != 90*time.Second {
-		t.Errorf("Expected 90s, got %v", client.GetCallbackTimeout())
+	if client.GetPendingWaitTimeout() != 2*time.Second {
+		t.Errorf("Expected 2s, got %v", client.GetPendingWaitTimeout())
 	}
 }
 

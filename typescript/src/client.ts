@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -14,24 +14,37 @@
 import {
   ClientOptions,
   SignResult,
+  VotingInfo,
+  VoteStatus,
+  ApprovalResult,
+  PasskeyCredentialProvider,
   GenerateKeyResult,
   APIKeyResult,
   APISignResult,
   PublicKeyResponse,
   Protocol,
   PublicKeyInfo,
+  ErrorCode,
+  ErrorCodeType,
 } from './types';
 import { verifySignature } from './crypto';
+import { sha256 } from '@noble/hashes/sha256';
 
 const DEFAULT_REQUEST_TIMEOUT = 30000;
-const DEFAULT_CALLBACK_TIMEOUT = 60000;
+const DEFAULT_PENDING_WAIT_TIMEOUT = 10 * 1000;
+const DEFAULT_STATUS_POLL_INTERVAL = 1000;
+const MAX_STATUS_POLL_INTERVAL = 5000;
 
 interface APIResponse {
   success: boolean;
   message?: string;
   error?: string;
   signature?: string;
-  signature_hex?: string;
+  hash?: string;
+  status?: string;
+  current_votes?: number;
+  required_votes?: number;
+  needs_voting?: boolean;
   public_key?: string | APIPublicKeyInfo;
   protocol?: string;
   curve?: string;
@@ -50,6 +63,26 @@ interface APIPublicKeyInfo {
   max_participant_count?: number;
   application_id: number;
   created_by_instance_id: string;
+}
+
+interface CacheDetailResponse {
+  success: boolean;
+  found: boolean;
+  entry?: CacheEntry;
+  message?: string;
+}
+
+interface CacheEntry {
+  hash: string;
+  status: string;
+  signature?: string;
+  required_votes: number;
+  requests?: Record<string, CacheRequest>;
+  error_message?: string;
+}
+
+interface CacheRequest {
+  approved: boolean;
 }
 
 /**
@@ -76,7 +109,8 @@ export class Client {
   private consensusURL: string;
   private defaultAppID: string = '';
   private requestTimeout: number;
-  private callbackTimeout: number;
+  private pendingWaitTimeout: number;
+  private debug: boolean;
 
   /**
    * Create a new TEENet SDK client
@@ -86,7 +120,8 @@ export class Client {
   constructor(consensusURL: string, options?: ClientOptions) {
     this.consensusURL = consensusURL.replace(/\/$/, ''); // Remove trailing slash
     this.requestTimeout = options?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT;
-    this.callbackTimeout = options?.callbackTimeout ?? DEFAULT_CALLBACK_TIMEOUT;
+    this.pendingWaitTimeout = Math.max(options?.pendingWaitTimeout ?? DEFAULT_PENDING_WAIT_TIMEOUT, 0);
+    this.debug = Boolean(options?.debug);
   }
 
   /**
@@ -144,21 +179,24 @@ export class Client {
   }
 
   /**
-   * Get the callback timeout in milliseconds
+   * Get the pending wait timeout in milliseconds
    */
-  getCallbackTimeout(): number {
-    return this.callbackTimeout;
+  getPendingWaitTimeout(): number {
+    return this.pendingWaitTimeout;
   }
 
   /**
    * Sign a message using TEENet consensus
    * @param message - The message to sign
    * @param publicKey - Optional public key to use for signing
-   * @returns SignResult containing the signature
+   * @returns SignResult containing the signature or pending status
    */
   async sign(message: Buffer, publicKey?: Buffer): Promise<SignResult> {
     if (!this.defaultAppID) {
       throw new Error('App ID not set. Call setDefaultAppID() first.');
+    }
+    if (!message || message.length === 0) {
+      return this.signFailure(ErrorCode.INVALID_INPUT, 'message must not be empty');
     }
 
     const payload: Record<string, unknown> = {
@@ -169,24 +207,215 @@ export class Client {
     if (publicKey) {
       payload.public_key = publicKey.toString('base64');
     }
+    this.logDebug('sign.submit', {
+      appId: this.defaultAppID,
+      pendingWaitTimeout: this.pendingWaitTimeout,
+      statusPollInterval: DEFAULT_STATUS_POLL_INTERVAL,
+    });
 
-    const response = await this.post('/api/submit-request', payload);
+    let response: APIResponse;
+    try {
+      response = await this.post('/api/submit-request', payload);
+    } catch (err) {
+      const errMessage = err instanceof Error ? err.message : String(err);
+      return this.signFailure(ErrorCode.SIGN_REQUEST_FAILED, `Failed to submit request: ${errMessage}`);
+    }
 
     if (!response.success) {
-      return {
-        success: false,
-        signature: Buffer.alloc(0),
-        error: response.message || 'Signing failed',
-      };
+      return this.signFailure(ErrorCode.SIGN_REQUEST_REJECTED, response.message || 'Signing failed');
+    }
+
+    const hash = response.hash || this.computeHash(message);
+    const votingInfo: VotingInfo = {
+      needsVoting: Boolean(response.needs_voting),
+      currentVotes: response.current_votes ?? 0,
+      requiredVotes: response.required_votes ?? 0,
+      status: response.status || '',
+      hash,
+    };
+
+    if (votingInfo.status === 'pending') {
+      const waitTimeout = this.pendingWaitTimeout > 0
+        ? this.pendingWaitTimeout
+        : DEFAULT_PENDING_WAIT_TIMEOUT;
+      this.logDebug('sign.pending', {
+        hash,
+        currentVotes: votingInfo.currentVotes,
+        requiredVotes: votingInfo.requiredVotes,
+      });
+      return this.waitForSignResult(hash, waitTimeout);
     }
 
     const signatureHex = response.signature || '';
-    const signature = Buffer.from(signatureHex, 'hex');
+    if (votingInfo.status === 'signed' && signatureHex) {
+      const decoded = this.decodeHexSignature(signatureHex);
+      if (!decoded.success) {
+        return this.signFailure(ErrorCode.SIGNATURE_DECODE_FAILED, decoded.error, votingInfo);
+      }
+      return {
+        success: true,
+        signature: decoded.signature,
+        votingInfo,
+      };
+    }
+
+    return this.signFailure(
+      ErrorCode.UNEXPECTED_STATUS,
+      `Unexpected response status: ${votingInfo.status || 'unknown'}`,
+      votingInfo
+    );
+  }
+
+  /**
+   * Get voting status for a specific hash
+   */
+  async getStatus(hash: string): Promise<VoteStatus> {
+    if (!hash) {
+      throw new Error('hash is required');
+    }
+
+    const response = await this.getCacheDetail(`/api/cache/${hash}`);
+    if (!response.found || !response.entry) {
+      return {
+        found: false,
+        hash,
+        status: 'not_found',
+        currentVotes: 0,
+        requiredVotes: 0,
+        errorMessage: response.message,
+      };
+    }
+
+    const entry = response.entry;
+    const currentVotes = this.countApprovals(entry.requests);
+    let signature: Buffer | undefined;
+    let errorMessage = entry.error_message;
+    if (entry.signature) {
+      const decoded = this.decodeHexSignature(entry.signature);
+      if (decoded.success) {
+        signature = decoded.signature;
+      } else {
+        errorMessage = errorMessage || decoded.error;
+      }
+    }
 
     return {
-      success: true,
+      found: true,
+      hash: entry.hash,
+      status: entry.status,
+      currentVotes,
+      requiredVotes: entry.required_votes,
       signature,
+      errorMessage,
     };
+  }
+
+  async approvalRequestInit(payload: Record<string, unknown>, approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval('/api/approvals/request/init', 'POST', approvalToken, payload);
+  }
+
+  async passkeyLoginOptions(): Promise<ApprovalResult> {
+    return this.requestApproval('/api/auth/passkey/options', 'GET', '');
+  }
+
+  async passkeyLoginVerify(loginSessionId: number, credential: unknown): Promise<ApprovalResult> {
+    return this.requestApproval('/api/auth/passkey/verify', 'POST', '', {
+      login_session_id: loginSessionId,
+      credential,
+    });
+  }
+
+  async passkeyLoginWithCredential(
+    getCredential: PasskeyCredentialProvider
+  ): Promise<ApprovalResult> {
+    const loginOptions = await this.passkeyLoginOptions();
+    if (!loginOptions.success) {
+      return loginOptions;
+    }
+    const loginSessionId = Number(loginOptions.data?.login_session_id);
+    if (!Number.isFinite(loginSessionId) || loginSessionId <= 0) {
+      return {
+        success: false,
+        statusCode: 500,
+        error: 'invalid login_session_id in login options response',
+      };
+    }
+    const options = loginOptions.data?.options;
+    if (!options) {
+      return {
+        success: false,
+        statusCode: 500,
+        error: 'missing options in login options response',
+      };
+    }
+    const credential = await getCredential(options);
+    return this.passkeyLoginVerify(loginSessionId, credential);
+  }
+
+  async approvalPending(approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval('/api/approvals/pending', 'GET', approvalToken);
+  }
+
+  async approvalRequestChallenge(requestId: number, approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval(`/api/approvals/request/${requestId}/challenge`, 'GET', approvalToken);
+  }
+
+  async approvalRequestConfirm(requestId: number, payload: Record<string, unknown>, approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval(`/api/approvals/request/${requestId}/confirm`, 'POST', approvalToken, payload);
+  }
+
+  async approvalRequestConfirmWithCredential(
+    requestId: number,
+    getCredential: PasskeyCredentialProvider,
+    approvalToken: string
+  ): Promise<ApprovalResult> {
+    const challenge = await this.approvalRequestChallenge(requestId, approvalToken);
+    if (!challenge.success) {
+      return challenge;
+    }
+    const options = challenge.data?.options || challenge.data;
+    if (!options) {
+      return {
+        success: false,
+        statusCode: 500,
+        error: 'missing challenge options in request challenge response',
+      };
+    }
+    const credential = await getCredential(options);
+    return this.approvalRequestConfirm(requestId, { credential }, approvalToken);
+  }
+
+  async approvalActionChallenge(taskId: number, approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval(`/api/approvals/${taskId}/challenge`, 'GET', approvalToken);
+  }
+
+  async approvalAction(taskId: number, payload: Record<string, unknown>, approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval(`/api/approvals/${taskId}/action`, 'POST', approvalToken, payload);
+  }
+
+  async approvalActionWithCredential(
+    taskId: number,
+    action: string,
+    getCredential: PasskeyCredentialProvider,
+    approvalToken: string
+  ): Promise<ApprovalResult> {
+    const challenge = await this.approvalActionChallenge(taskId, approvalToken);
+    if (!challenge.success) {
+      return challenge;
+    }
+    const options = challenge.data?.options || challenge.data;
+    if (!options) {
+      return {
+        success: false,
+        statusCode: 500,
+        error: 'missing challenge options in action challenge response',
+      };
+    }
+    const credential = await getCredential(options);
+    return this.approvalAction(taskId, {
+      action,
+      credential,
+    }, approvalToken);
   }
 
   /**
@@ -365,7 +594,7 @@ export class Client {
 
     return {
       success: true,
-      signature: response.signature || response.signature_hex || '',
+      signature: response.signature || '',
       algorithm: response.algorithm || 'HMAC-SHA256',
     };
   }
@@ -374,7 +603,7 @@ export class Client {
    * Close the client and release resources
    */
   close(): void {
-    // No persistent connections to close in this implementation
+    // no-op
   }
 
   /**
@@ -394,6 +623,25 @@ export class Client {
       });
 
       return (await response.json()) as APIResponse;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async getCacheDetail(path: string): Promise<CacheDetailResponse> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
+
+    try {
+      const response = await fetch(`${this.consensusURL}${path}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      return (await response.json()) as CacheDetailResponse;
     } finally {
       clearTimeout(timeout);
     }
@@ -423,5 +671,192 @@ export class Client {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async requestApproval(
+    path: string,
+    method: 'GET' | 'POST',
+    approvalToken: string,
+    body?: Record<string, unknown>
+  ): Promise<ApprovalResult> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
+
+    try {
+      const response = await fetch(`${this.consensusURL}${path}`, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(approvalToken?.trim() ? { Authorization: `Bearer ${approvalToken.trim()}` } : {}),
+        },
+        body: method === 'POST' ? JSON.stringify(body || {}) : undefined,
+        signal: controller.signal,
+      });
+
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      const result: ApprovalResult = {
+        success: response.ok,
+        statusCode: response.status,
+        data,
+      };
+      if (!response.ok) {
+        const msg = typeof data.error === 'string'
+          ? data.error
+          : typeof data.message === 'string'
+            ? data.message
+            : `Approval request failed with status ${response.status}`;
+        result.error = msg;
+      }
+      return result;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private computeHash(message: Buffer): string {
+    return `0x${Buffer.from(sha256(message)).toString('hex')}`;
+  }
+
+  private countApprovals(requests?: Record<string, CacheRequest>): number {
+    if (!requests) {
+      return 0;
+    }
+    let count = 0;
+    for (const req of Object.values(requests)) {
+      if (req && req.approved) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  private async waitForSignResult(hash: string, timeoutMs: number): Promise<SignResult> {
+    if (!hash) {
+      return this.signFailure(ErrorCode.MISSING_HASH, 'missing hash in pending signing response');
+    }
+
+    const deadline = Date.now() + timeoutMs;
+    let latestVotes = 0;
+    let latestRequiredVotes = 0;
+    const startedAt = Date.now();
+    let attempt = 0;
+
+    while (Date.now() <= deadline) {
+      attempt += 1;
+      let status: VoteStatus;
+      try {
+        status = await this.getStatus(hash);
+      } catch (err) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        return this.signFailure(ErrorCode.STATUS_QUERY_FAILED, `failed to query voting status: ${errMessage}`, {
+          needsVoting: true,
+          currentVotes: latestVotes,
+          requiredVotes: latestRequiredVotes,
+          status: 'pending',
+          hash,
+        });
+      }
+
+      if (status.found) {
+        latestVotes = status.currentVotes;
+        latestRequiredVotes = status.requiredVotes;
+        this.logDebug('sign.poll', {
+          hash,
+          attempt,
+          elapsedMs: Date.now() - startedAt,
+          status: status.status,
+          votes: `${status.currentVotes}/${status.requiredVotes}`,
+        });
+
+        if (status.status === 'signed' && status.signature && status.signature.length > 0) {
+          return {
+            success: true,
+            signature: status.signature,
+            votingInfo: {
+              needsVoting: true,
+              currentVotes: status.currentVotes,
+              requiredVotes: status.requiredVotes,
+              status: 'signed',
+              hash,
+            },
+          };
+        }
+
+        if (status.status === 'failed') {
+          const error = status.errorMessage || 'Signing failed';
+          return this.signFailure(ErrorCode.SIGN_FAILED, error, {
+            needsVoting: true,
+            currentVotes: status.currentVotes,
+            requiredVotes: status.requiredVotes,
+            status: 'failed',
+            hash,
+          });
+        }
+
+        if (status.status === 'signed' && (!status.signature || status.signature.length === 0)) {
+          const error = status.errorMessage || 'Failed to decode signature from signed status';
+          return this.signFailure(ErrorCode.SIGNATURE_DECODE_FAILED, error, {
+            needsVoting: true,
+            currentVotes: status.currentVotes,
+            requiredVotes: status.requiredVotes,
+            status: 'signed',
+            hash,
+          });
+        }
+      }
+
+      const sleepMs = this.nextPollInterval(attempt);
+      await this.sleep(Math.min(sleepMs, Math.max(0, deadline - Date.now())));
+    }
+
+    return this.signFailure(
+      ErrorCode.THRESHOLD_TIMEOUT,
+      `Threshold not met before timeout for hash ${hash}: votes ${latestVotes}/${latestRequiredVotes}`,
+      {
+        needsVoting: true,
+        currentVotes: latestVotes,
+        requiredVotes: latestRequiredVotes,
+        status: 'pending',
+        hash,
+      }
+    );
+  }
+
+  private nextPollInterval(attempt: number): number {
+    const normalizedBase = Math.max(DEFAULT_STATUS_POLL_INTERVAL, 10);
+    const shift = Math.min(Math.max(attempt - 1, 0), 4);
+    const exp = Math.min(normalizedBase * (2 ** shift), MAX_STATUS_POLL_INTERVAL);
+    const jitter = 0.8 + Math.random() * 0.4; // +/-20%
+    return Math.max(10, Math.floor(exp * jitter));
+  }
+
+  private decodeHexSignature(input: string): { success: true; signature: Buffer } | { success: false; error: string } {
+    const normalized = input.replace(/^0x/, '');
+    if (!normalized || !/^[0-9a-fA-F]+$/.test(normalized) || normalized.length % 2 !== 0) {
+      return { success: false, error: `invalid signature hex: ${input}` };
+    }
+    return { success: true, signature: Buffer.from(normalized, 'hex') };
+  }
+
+  private signFailure(errorCode: ErrorCodeType, error: string, votingInfo?: VotingInfo): SignResult {
+    return {
+      success: false,
+      signature: Buffer.alloc(0),
+      error,
+      errorCode,
+      votingInfo,
+    };
+  }
+
+  private logDebug(event: string, fields: Record<string, unknown>): void {
+    if (!this.debug) return;
+    const serialized = Object.entries(fields).map(([k, v]) => `${k}=${String(v)}`).join(' ');
+    console.debug(`[teenet-sdk] ${event} ${serialized}`);
   }
 }

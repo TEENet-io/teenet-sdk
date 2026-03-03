@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -24,7 +24,7 @@
 //   - Multiple cryptographic curves (ED25519, SECP256K1, SECP256R1)
 //   - Multiple signing protocols (ECDSA, Schnorr, EdDSA)
 //   - Signature verification with automatic format detection
-//   - Asynchronous callback handling for voting scenarios
+//   - Automatic polling for threshold voting completion
 //
 // Basic Usage:
 //
@@ -56,6 +56,11 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
+const (
+	defaultPendingWaitTimeout = 10 * time.Second
+	defaultStatusPollInterval = 200 * time.Millisecond
+)
+
 // Client is the main interface for interacting with TEENet consensus signing services.
 //
 // A Client instance manages HTTP connections to the consensus service and handles
@@ -63,22 +68,21 @@ import (
 // such as the default App ID and timeout settings.
 //
 // The Client is safe for concurrent use, though typically one client per application
-// is sufficient. A fixed-port callback server (port 19080) is created when the Client
-// is initialized and reused for all signing operations.
+// is sufficient.
 type Client struct {
-	httpClient      *network.HTTPClient     // HTTP client for consensus service communication
-	consensusURL    string                  // Base URL of the consensus service
-	defaultAppID    string                  // Default application ID for operations
-	requestTimeout  time.Duration           // Timeout for HTTP requests (default: 30s)
-	callbackTimeout time.Duration           // Timeout for waiting on voting callbacks (default: 60s)
-	callbackServer  *network.CallbackServer // Fixed-port callback server for receiving signatures
+	httpClient         *network.HTTPClient // HTTP client for consensus service communication
+	consensusURL       string              // Base URL of the consensus service
+	defaultAppID       string              // Default application ID for operations
+	requestTimeout     time.Duration       // Timeout for HTTP requests (default: 30s)
+	pendingWaitTimeout time.Duration       // Max wait in Sign for pending voting completion (default: 10s)
+	debug              bool                // Enable verbose SDK trace logs
 }
 
 // NewClient creates a new SDK client with default settings.
 //
 // This is the recommended way to create a client. It uses sensible defaults:
 //   - Request timeout: 30 seconds
-//   - Callback timeout: 60 seconds
+//   - Pending wait timeout: 10 seconds
 //
 // The client is created in an uninitialized state. You must call SetDefaultAppID()
 // before performing signing operations, or use Init() to load the App ID from
@@ -113,23 +117,25 @@ func NewClient(consensusURL string) *Client {
 //
 // Example:
 //
-//	opts := &types.types.ClientOptions{
+//	opts := &types.ClientOptions{
 //	    RequestTimeout:  45 * time.Second,
-//	    CallbackTimeout: 120 * time.Second,
+//	    PendingWaitTimeout: 10 * time.Second,
 //	}
 //	client := types.NewClientWithOptions("http://localhost:8089", opts)
 func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Client {
 	// Set defaults
 	requestTimeout := 30 * time.Second
-	callbackTimeout := 60 * time.Second
+	pendingWaitTimeout := defaultPendingWaitTimeout
+	debug := false
 
 	if opts != nil {
 		if opts.RequestTimeout > 0 {
 			requestTimeout = opts.RequestTimeout
 		}
-		if opts.CallbackTimeout > 0 {
-			callbackTimeout = opts.CallbackTimeout
+		if opts.PendingWaitTimeout > 0 {
+			pendingWaitTimeout = opts.PendingWaitTimeout
 		}
+		debug = opts.Debug
 	}
 
 	// Create standard HTTP client
@@ -137,29 +143,20 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 		Timeout: requestTimeout,
 	}
 
-	// Create and start callback server
-	callbackServer, err := network.NewCallbackServer()
-	if err != nil {
-		log.Printf("Warning: Failed to create callback server on port 19080: %v", err)
-		log.Printf("Signing operations will fail until the port is available")
-		// Don't return error - allow client creation to proceed
-		// Sign() will return error if callback server is nil
-	} else {
-		if err := callbackServer.Start(); err != nil {
-			log.Printf("Warning: Failed to start callback server: %v", err)
-			callbackServer = nil
-		} else {
-			log.Printf("Callback server started successfully on port 19080")
-		}
-	}
-
 	return &Client{
-		httpClient:      network.NewHTTPClient(consensusURL, stdHTTPClient),
-		consensusURL:    consensusURL,
-		requestTimeout:  requestTimeout,
-		callbackTimeout: callbackTimeout,
-		callbackServer:  callbackServer,
+		httpClient:         network.NewHTTPClient(consensusURL, stdHTTPClient),
+		consensusURL:       consensusURL,
+		requestTimeout:     requestTimeout,
+		pendingWaitTimeout: pendingWaitTimeout,
+		debug:              debug,
 	}
+}
+
+func (c *Client) debugf(format string, args ...interface{}) {
+	if !c.debug {
+		return
+	}
+	log.Printf("[teenet-sdk] "+format, args...)
 }
 
 // Init initializes the client by attempting to load configuration from the environment.
@@ -248,8 +245,8 @@ func (c *Client) GetDefaultAppID() string {
 
 // Close gracefully shuts down the client and releases resources.
 //
-// This method stops the callback server and releases any other resources held
-// by the client. It should always be called when the client is no longer needed.
+// This method releases resources held by the client. It should always be called
+// when the client is no longer needed.
 //
 // Returns:
 //   - Always returns nil (errors are logged as warnings)
@@ -259,12 +256,6 @@ func (c *Client) GetDefaultAppID() string {
 //	client := types.NewClient("http://localhost:8089")
 //	defer client.Close()
 func (c *Client) Close() error {
-	if c.callbackServer != nil {
-		if err := c.callbackServer.Stop(); err != nil {
-			log.Printf("Warning: Failed to stop callback server: %v", err)
-		}
-	}
-	log.Printf("SDK client closed")
 	return nil
 }
 
@@ -280,10 +271,10 @@ func (c *Client) GetRequestTimeout() time.Duration {
 	return c.requestTimeout
 }
 
-// GetCallbackTimeout returns the callback timeout duration.
+// GetPendingWaitTimeout returns the pending wait timeout duration.
 // This method is primarily for testing purposes.
-func (c *Client) GetCallbackTimeout() time.Duration {
-	return c.callbackTimeout
+func (c *Client) GetPendingWaitTimeout() time.Duration {
+	return c.pendingWaitTimeout
 }
 
 // GenerateSchnorrKey generates a new Schnorr signature key for the application.
@@ -568,7 +559,6 @@ func (c *Client) SignWithAPISecret(name string, message []byte) (*types.APISignR
 		AppInstanceID: resp.AppInstanceID,
 		Name:          resp.Name,
 		Signature:     resp.Signature,
-		SignatureHex:  resp.SignatureHex,
 		Algorithm:     resp.Algorithm,
 		MessageLength: resp.MessageLength,
 	}

@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -24,12 +24,18 @@ type (
 	ClientOptions     = types.ClientOptions
 	SignResult        = types.SignResult
 	VotingInfo        = types.VotingInfo
-	CallbackPayload   = types.CallbackPayload
+	VoteStatus        = types.VoteStatus
+	ApprovalResult    = types.ApprovalResult
 	GenerateKeyResult = types.GenerateKeyResult
 	PublicKeyInfo     = types.PublicKeyInfo
 	APIKeyResult      = types.APIKeyResult
 	APISignResult     = types.APISignResult
 )
+
+// PasskeyCredentialProvider returns credential JSON bytes for given WebAuthn options.
+// The caller typically runs browser WebAuthn (navigator.credentials.get/create)
+// and serializes the credential into JSON.
+type PasskeyCredentialProvider func(options interface{}) ([]byte, error)
 
 // Re-export constants from internal/crypto.
 

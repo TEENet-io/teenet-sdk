@@ -14,7 +14,10 @@ npm install @teenet/sdk
 import { Client, Protocol, Curve } from '@teenet/sdk';
 
 // Create client
-const client = new Client('http://localhost:8089');
+const client = new Client('http://localhost:8089', {
+  pendingWaitTimeout: 10000,  // max wait in sign() for voting completion
+  debug: true,                // verbose sign/polling trace logs
+});
 client.setDefaultAppID('your-app-id');
 
 // Sign a message
@@ -25,9 +28,11 @@ if (result.success) {
     console.log('Signature:', result.signature.toString('hex'));
 }
 
-// Verify a signature
-const valid = await client.verify(message, result.signature);
-console.log('Valid:', valid);
+// Verify a signature (only if signed)
+if (result.success && result.signature.length > 0) {
+    const valid = await client.verify(message, result.signature);
+    console.log('Valid:', valid);
+}
 
 // Generate a new key
 const keyResult = await client.generateECDSAKey(Curve.SECP256K1);
@@ -49,6 +54,74 @@ console.log('HMAC Signature:', hmacResult.signature);
 client.close();
 ```
 
+### Sign Results
+
+`sign()` is the single signing interface.
+For voting apps, SDK waits internally and returns finalized signed/failed result.
+`pendingWaitTimeout` controls the maximum wait time for voting completion.
+Polling interval/backoff is managed internally by SDK.
+
+```typescript
+const result = await client.sign(message);
+if (result.success) {
+    console.log('Signature:', result.signature.toString('hex'));
+} else {
+    console.error('Sign failed:', result.error, result.errorCode);
+}
+```
+
+`result.errorCode` values:
+
+| Code | Meaning |
+|------|---------|
+| `SIGN_REQUEST_FAILED` | Submit request/network failure |
+| `SIGN_REQUEST_REJECTED` | Consensus rejected request |
+| `SIGNATURE_DECODE_FAILED` | Signature decode failed |
+| `UNEXPECTED_STATUS` | Unexpected status value |
+| `MISSING_HASH` | Pending response missing hash |
+| `STATUS_QUERY_FAILED` | Polling status request failed |
+| `SIGN_FAILED` | Voting finalized as failed |
+| `THRESHOLD_TIMEOUT` | Threshold not met before timeout |
+
+### Passkey Approval (New Flow)
+
+```typescript
+const getCredential = async (options: unknown) => {
+  // Browser-side WebAuthn call (app responsibility)
+  // example: navigator.credentials.get(options as CredentialRequestOptions)
+  return {};
+};
+
+// 0) Passkey login (SDK orchestrates options + verify)
+const loginVerify = await client.passkeyLoginWithCredential(getCredential);
+if (!loginVerify.success) throw new Error(loginVerify.error || 'passkey login failed');
+const approvalToken = String(loginVerify.data?.token || '');
+if (!approvalToken) throw new Error('missing approval token');
+
+// Optional: pending approvals for current passkey identity
+const pending = await client.approvalPending(approvalToken);
+
+// 1) Init request
+const init = await client.approvalRequestInit({
+  app_instance_id: 'd38b86ff601b3ba5c5ed2ba526ffcbbc',
+  payload: { to: '0x1234', amount: '1' }
+}, approvalToken);
+if (!init.success) throw new Error(init.error);
+const requestId = Number(init.data?.request_id);
+
+// 2) Confirm request (SDK orchestrates challenge + confirm)
+const confirm = await client.approvalRequestConfirmWithCredential(requestId, getCredential, approvalToken);
+const taskId = Number(confirm.data?.task_id);
+
+// 3) Task action (SDK orchestrates challenge + action)
+await client.approvalActionWithCredential(taskId, 'APPROVE', getCredential, approvalToken);
+```
+
+Notes:
+- SDK can orchestrate request/response flow.
+- WebAuthn execution (`navigator.credentials.create/get`) still runs in browser/app code.
+- SDK does not own UI interaction.
+
 ## API
 
 ### Client
@@ -61,7 +134,8 @@ new Client(consensusURL: string, options?: ClientOptions)
 
 Options:
 - `requestTimeout`: Request timeout in milliseconds (default: 30000)
-- `callbackTimeout`: Callback timeout in milliseconds (default: 60000)
+- `pendingWaitTimeout`: Max wait in `sign()` when voting is pending, milliseconds (default: 10000)
+- `debug`: Enable verbose sign/polling trace logs (default: false)
 
 #### Methods
 
@@ -70,6 +144,18 @@ Options:
 | `setDefaultAppID(appID)` | Set the default application ID |
 | `getDefaultAppID()` | Get the current default App ID |
 | `sign(message, publicKey?)` | Sign a message |
+| `getStatus(hash)` | Get voting status from consensus cache |
+| `passkeyLoginOptions()` | Get passkey login options |
+| `passkeyLoginVerify(loginSessionId, credential)` | Verify passkey login and return approval token |
+| `approvalPending(approvalToken)` | Get pending approvals for current token identity |
+| `approvalRequestInit(payload, approvalToken)` | Init passkey approval request |
+| `approvalRequestChallenge(requestId, approvalToken)` | Get request challenge |
+| `approvalRequestConfirm(requestId, payload, approvalToken)` | Confirm request assertion |
+| `approvalRequestConfirmWithCredential(requestId, getCredential, approvalToken)` | Challenge + WebAuthn + confirm in one SDK call |
+| `approvalActionChallenge(taskId, approvalToken)` | Get action challenge |
+| `approvalAction(taskId, payload, approvalToken)` | Submit approval action |
+| `approvalActionWithCredential(taskId, action, getCredential, approvalToken)` | Challenge + WebAuthn + action in one SDK call |
+| `passkeyLoginWithCredential(getCredential)` | Login options + WebAuthn + verify in one SDK call |
 | `verify(message, signature)` | Verify a signature |
 | `verifyWithPublicKey(message, signature, publicKey, protocol, curve)` | Verify with specific key |
 | `getPublicKey()` | Get public key for default App ID |
@@ -113,6 +199,11 @@ const hmacValid = verifyHMACSHA256(message, secret, signature);
 | Schnorr | SECP256K1 | BIP-340 Schnorr |
 | ECDSA | SECP256R1 | NIST P-256 |
 
+## Contract Checklist
+
+- [docs/sign-contract-checklist.md](/home/sun/tee/teenet-sdk/docs/sign-contract-checklist.md)
+- [docs/error-code-matrix.md](/home/sun/tee/teenet-sdk/docs/error-code-matrix.md)
+
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.

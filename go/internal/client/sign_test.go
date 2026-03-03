@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 // -----------------------------------------------------------------------------
 
 package client
@@ -43,16 +43,48 @@ func TestSign_NoAppID(t *testing.T) {
 	}
 }
 
-func TestSign_NoCallbackServer(t *testing.T) {
-	// Create client without callback server by simulating nil
-	client := &Client{
-		defaultAppID:   "test-app",
-		callbackServer: nil,
-	}
+func TestSign_EmptyMessage(t *testing.T) {
+	client := NewClientWithOptions("http://localhost:8080", nil)
+	defer client.Close()
+	client.SetDefaultAppID("test-app")
 
-	_, err := client.Sign([]byte("test message"))
+	result, err := client.Sign(nil)
 	if err == nil {
-		t.Error("Expected error when callback server is nil")
+		t.Fatal("Expected error for empty message")
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Expected failed result, got %#v", result)
+	}
+	if result.ErrorCode != types.ErrorCodeInvalidInput {
+		t.Fatalf("Expected error code %s, got %s", types.ErrorCodeInvalidInput, result.ErrorCode)
+	}
+}
+
+func TestSign_PollingOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"status":    "signed",
+			"signature": "0xabcdef",
+		})
+	}))
+	defer server.Close()
+
+	client := NewClientWithOptions(server.URL, &types.ClientOptions{
+		RequestTimeout:     5 * time.Second,
+		PendingWaitTimeout: 500 * time.Millisecond,
+	})
+	defer client.Close()
+
+	client.SetDefaultAppID("test-app")
+
+	result, err := client.Sign([]byte("test message"))
+	if err != nil {
+		t.Fatalf("Unexpected error in polling mode: %v", err)
+	}
+	if !result.Success {
+		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 }
 
@@ -70,17 +102,11 @@ func TestSign_DirectSigning(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client with mock callback server
 	client := NewClientWithOptions(server.URL, &types.ClientOptions{
-		RequestTimeout:  5 * time.Second,
-		CallbackTimeout: 5 * time.Second,
+		RequestTimeout:     5 * time.Second,
+		PendingWaitTimeout: 500 * time.Millisecond,
 	})
 	defer client.Close()
-
-	// Skip if callback server failed to start
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
 
 	client.SetDefaultAppID("test-app")
 
@@ -124,10 +150,6 @@ func TestSign_WithPublicKey(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
-
 	client.SetDefaultAppID("test-app")
 
 	pubKey := []byte{0x04, 0x01, 0x02, 0x03}
@@ -153,10 +175,6 @@ func TestSign_ServerError(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
-
 	client.SetDefaultAppID("test-app")
 
 	result, err := client.Sign([]byte("test"))
@@ -165,6 +183,9 @@ func TestSign_ServerError(t *testing.T) {
 	}
 	if result.Success {
 		t.Error("Expected failure")
+	}
+	if result.ErrorCode != types.ErrorCodeSignRequestRejected {
+		t.Errorf("Expected error code %s, got %s", types.ErrorCodeSignRequestRejected, result.ErrorCode)
 	}
 }
 
@@ -182,10 +203,6 @@ func TestSign_InvalidSignatureHex(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
-
 	client.SetDefaultAppID("test-app")
 
 	result, err := client.Sign([]byte("test"))
@@ -194,6 +211,9 @@ func TestSign_InvalidSignatureHex(t *testing.T) {
 	}
 	if result.Success {
 		t.Error("Expected failure")
+	}
+	if result.ErrorCode != types.ErrorCodeSignatureDecode {
+		t.Errorf("Expected error code %s, got %s", types.ErrorCodeSignatureDecode, result.ErrorCode)
 	}
 }
 
@@ -210,10 +230,6 @@ func TestSign_UnexpectedStatus(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
-
 	client.SetDefaultAppID("test-app")
 
 	result, err := client.Sign([]byte("test"))
@@ -223,39 +239,57 @@ func TestSign_UnexpectedStatus(t *testing.T) {
 	if result.Success {
 		t.Error("Expected failure")
 	}
+	if result.ErrorCode != types.ErrorCodeUnexpectedStatus {
+		t.Errorf("Expected error code %s, got %s", types.ErrorCodeUnexpectedStatus, result.ErrorCode)
+	}
 }
 
-func TestSign_VotingTimeout(t *testing.T) {
+func TestSign_VotingPendingTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":        true,
-			"status":         "pending",
-			"current_votes":  1,
-			"required_votes": 3,
-			"needs_voting":   true,
-		})
+		switch r.URL.Path {
+		case "/api/submit-request":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":        true,
+				"hash":           "0xvotehash",
+				"status":         "pending",
+				"current_votes":  1,
+				"required_votes": 3,
+				"needs_voting":   true,
+			})
+		case "/api/cache/0xvotehash":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"found":   true,
+				"entry": map[string]interface{}{
+					"hash":           "0xvotehash",
+					"status":         "pending",
+					"required_votes": 3,
+					"requests": map[string]interface{}{
+						"app1": map[string]interface{}{"approved": true},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
 	client := NewClientWithOptions(server.URL, &types.ClientOptions{
-		RequestTimeout:  5 * time.Second,
-		CallbackTimeout: 100 * time.Millisecond, // Very short timeout for test
+		RequestTimeout:     5 * time.Second,
+		PendingWaitTimeout: 100 * time.Millisecond,
 	})
 	defer client.Close()
-
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
 
 	client.SetDefaultAppID("test-app")
 
 	result, err := client.Sign([]byte("test"))
 	if err == nil {
-		t.Error("Expected timeout error")
+		t.Fatal("Expected timeout error")
 	}
 	if result.Success {
-		t.Error("Expected failure due to timeout")
+		t.Errorf("Expected failure for timeout, got success")
 	}
 	if result.VotingInfo == nil {
 		t.Fatal("Expected VotingInfo")
@@ -263,16 +297,15 @@ func TestSign_VotingTimeout(t *testing.T) {
 	if result.VotingInfo.Status != "pending" {
 		t.Errorf("Expected status 'pending', got '%s'", result.VotingInfo.Status)
 	}
+	if result.ErrorCode != types.ErrorCodeThresholdTimeout {
+		t.Errorf("Expected error code %s, got %s", types.ErrorCodeThresholdTimeout, result.ErrorCode)
+	}
 }
 
 func TestSign_NetworkError(t *testing.T) {
 	// Use invalid URL to trigger network error
 	client := NewClientWithOptions("http://localhost:99999", nil)
 	defer client.Close()
-
-	if client.callbackServer == nil {
-		t.Skip("Callback server not available")
-	}
 
 	client.SetDefaultAppID("test-app")
 
@@ -282,5 +315,36 @@ func TestSign_NetworkError(t *testing.T) {
 	}
 	if result.Success {
 		t.Error("Expected failure")
+	}
+	if result.ErrorCode != types.ErrorCodeSignRequestFailed {
+		t.Errorf("Expected error code %s, got %s", types.ErrorCodeSignRequestFailed, result.ErrorCode)
+	}
+}
+
+func TestSign_UsesServerHash(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"hash":      "0xserverhash",
+			"status":    "signed",
+			"signature": "0xabcdef",
+		})
+	}))
+	defer server.Close()
+
+	client := NewClientWithOptions(server.URL, nil)
+	defer client.Close()
+	client.SetDefaultAppID("test-app")
+
+	result, err := client.Sign([]byte("test message"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.VotingInfo == nil {
+		t.Fatal("expected voting info")
+	}
+	if result.VotingInfo.Hash != "0xserverhash" {
+		t.Fatalf("expected server hash to be used, got %s", result.VotingInfo.Hash)
 	}
 }

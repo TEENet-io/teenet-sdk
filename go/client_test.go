@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -14,6 +14,9 @@
 package sdk
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -110,8 +113,8 @@ func TestDecodeHexSignature(t *testing.T) {
 // TestClientOptions tests client options
 func TestClientOptions(t *testing.T) {
 	opts := &ClientOptions{
-		RequestTimeout:  60000000000,  // 60 seconds
-		CallbackTimeout: 120000000000, // 120 seconds
+		RequestTimeout:     60000000000, // 60 seconds
+		PendingWaitTimeout: 3000000000,  // 3 seconds
 	}
 
 	client := NewClientWithOptions("http://localhost:8080", opts)
@@ -120,27 +123,9 @@ func TestClientOptions(t *testing.T) {
 	if client.GetRequestTimeout() != opts.RequestTimeout {
 		t.Errorf("Expected requestTimeout %v, got %v", opts.RequestTimeout, client.GetRequestTimeout())
 	}
-	if client.GetCallbackTimeout() != opts.CallbackTimeout {
-		t.Errorf("Expected callbackTimeout %v, got %v", opts.CallbackTimeout, client.GetCallbackTimeout())
+	if client.GetPendingWaitTimeout() != opts.PendingWaitTimeout {
+		t.Errorf("Expected pendingWaitTimeout %v, got %v", opts.PendingWaitTimeout, client.GetPendingWaitTimeout())
 	}
-}
-
-// TestCallbackServerInitialization tests that callback server is initialized with client
-func TestCallbackServerInitialization(t *testing.T) {
-	// Note: This test may fail if port 19080 is already in use
-	// In production, ensure the port is available before creating the client
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	// We can't directly access callbackServer (it's internal), but we can verify
-	// that the client was created successfully, which implies callback server
-	// initialization was attempted
-	if client == nil {
-		t.Fatal("Expected non-nil client")
-	}
-
-	// If callback server failed to start (port in use), Sign() should return an error
-	// This is tested implicitly in integration tests
 }
 
 // TestClientClose tests that client closes properly
@@ -171,8 +156,7 @@ func TestSignWithoutAppID(t *testing.T) {
 		t.Error("Expected error when signing without App ID, got nil")
 	}
 	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppID or set APP_ID environment variable)" {
-		// Check that it's the expected error about App ID
-		// (not callback server error)
+		// Check that it's the expected error about App ID.
 		t.Logf("Got error: %v", err)
 	}
 }
@@ -275,8 +259,8 @@ func TestClientOptions_NilOptions(t *testing.T) {
 	if client.GetRequestTimeout() == 0 {
 		t.Error("Expected non-zero default request timeout")
 	}
-	if client.GetCallbackTimeout() == 0 {
-		t.Error("Expected non-zero default callback timeout")
+	if client.GetPendingWaitTimeout() == 0 {
+		t.Error("Expected non-zero default pending wait timeout")
 	}
 }
 
@@ -346,12 +330,148 @@ func TestVerify_NoAppID(t *testing.T) {
 	}
 }
 
+func TestPasskeyLoginWithCredential(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		switch r.URL.Path {
+		case "/api/auth/passkey/options":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"login_session_id":77,"options":{"challenge":"abc"}}`))
+		case "/api/auth/passkey/verify":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode verify body failed: %v", err)
+			}
+			if uint64(body["login_session_id"].(float64)) != 77 {
+				t.Fatalf("unexpected login_session_id: %v", body["login_session_id"])
+			}
+			cred, ok := body["credential"].(map[string]interface{})
+			if !ok || cred["id"] != "cred-1" {
+				t.Fatalf("unexpected credential payload: %#v", body["credential"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"token":"tok.login.flow"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	defer client.Close()
+
+	res, err := client.PasskeyLoginWithCredential(func(options interface{}) ([]byte, error) {
+		opts, ok := options.(map[string]interface{})
+		if !ok || opts["challenge"] != "abc" {
+			t.Fatalf("unexpected options passed to provider: %#v", options)
+		}
+		return []byte(`{"id":"cred-1"}`), nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success=true, got error=%s", res.Error)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 API calls, got %d", callCount)
+	}
+}
+
+func TestApprovalRequestConfirmWithCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/approvals/request/12/challenge":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"challenge":"request-12"}`))
+		case "/api/approvals/request/12/confirm":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode confirm body failed: %v", err)
+			}
+			cred, ok := body["credential"].(map[string]interface{})
+			if !ok || cred["id"] != "confirm-cred" {
+				t.Fatalf("unexpected credential payload: %#v", body["credential"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task_id":88}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	defer client.Close()
+
+	res, err := client.ApprovalRequestConfirmWithCredential(12, func(options interface{}) ([]byte, error) {
+		opts, ok := options.(map[string]interface{})
+		if !ok || opts["challenge"] != "request-12" {
+			t.Fatalf("unexpected options passed to provider: %#v", options)
+		}
+		return []byte(`{"id":"confirm-cred"}`), nil
+	}, "tok.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success=true, got error=%s", res.Error)
+	}
+	if uint64(res.Data["task_id"].(float64)) != 88 {
+		t.Fatalf("unexpected task_id: %v", res.Data["task_id"])
+	}
+}
+
+func TestApprovalActionWithCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/approvals/99/challenge":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"options":{"challenge":"task-99"}}`))
+		case "/api/approvals/99/action":
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode action body failed: %v", err)
+			}
+			if body["action"] != "APPROVE" {
+				t.Fatalf("unexpected action: %v", body["action"])
+			}
+			cred, ok := body["credential"].(map[string]interface{})
+			if !ok || cred["id"] != "action-cred" {
+				t.Fatalf("unexpected credential payload: %#v", body["credential"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"APPROVED"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	defer client.Close()
+
+	res, err := client.ApprovalActionWithCredential(99, "APPROVE", func(options interface{}) ([]byte, error) {
+		opts, ok := options.(map[string]interface{})
+		if !ok || opts["challenge"] != "task-99" {
+			t.Fatalf("unexpected options passed to provider: %#v", options)
+		}
+		return []byte(`{"id":"action-cred"}`), nil
+	}, "tok.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success=true, got error=%s", res.Error)
+	}
+	if got := res.Data["status"]; got != "APPROVED" {
+		t.Fatalf("unexpected status: %v", got)
+	}
+}
+
 // Note: Integration tests that require actual services running should be in
 // separate test files (e.g., integration_test.go) and can be run with build tags:
 // go test -tags=integration
 //
-// Integration tests should verify:
-// - Callback server listens on port 19080
-// - Multiple Sign calls reuse the same callback server
-// - Callbacks are received correctly
-// - Port conflicts are handled gracefully
+// Integration tests should verify end-to-end signing against live services.

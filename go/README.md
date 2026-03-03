@@ -60,16 +60,19 @@ func main() {
 ### Client Creation
 
 ```go
-// Default settings (30s request timeout, 60s callback timeout)
+// Default settings (30s request timeout)
 client := sdk.NewClient("http://localhost:8089")
 
 // Custom options
 opts := &sdk.ClientOptions{
-    RequestTimeout:  45 * time.Second,
-    CallbackTimeout: 120 * time.Second,
+    RequestTimeout:     45 * time.Second,
+    PendingWaitTimeout: 10 * time.Second, // Max wait in Sign() for voting completion
+    Debug:              true, // Enable verbose sign/polling trace logs
 }
 client := sdk.NewClientWithOptions("http://localhost:8089", opts)
 ```
+
+Polling interval/backoff is managed internally by SDK.
 
 ### Configuration
 
@@ -101,6 +104,67 @@ if result.Success {
     fmt.Printf("Error: %s\n", result.Error)
 }
 ```
+
+### Get Status
+
+```go
+status, err := client.GetStatus("0x...")
+if err != nil {
+    log.Fatal(err)
+}
+if status.Found {
+    fmt.Printf("Status: %s (%d/%d)\n", status.Status, status.CurrentVotes, status.RequiredVotes)
+}
+```
+
+### Passkey Approval (New Flow)
+
+Use these methods when your app uses passkey approval instead of threshold voting.
+
+```go
+getCredential := func(options interface{}) ([]byte, error) {
+    // Browser/app side should run WebAuthn and return credential JSON bytes.
+    // example: navigator.credentials.get(options)
+    return []byte(`{}`), nil
+}
+
+// 0) Passkey login (SDK orchestrates options + verify)
+loginRes, _ := client.PasskeyLoginWithCredential(getCredential)
+if !loginRes.Success {
+    log.Fatalf("login failed: %s", loginRes.Error)
+}
+approvalToken, _ := loginRes.Data["token"].(string)
+if approvalToken == "" {
+    log.Fatal("missing approval token in login response")
+}
+
+// Optional: query pending tasks for current passkey identity
+pending, _ := client.ApprovalPending(approvalToken)
+_ = pending
+
+// 1) Init request
+initPayload := []byte(`{
+  "app_instance_id":"d38b86ff601b3ba5c5ed2ba526ffcbbc",
+  "payload":{"to":"0x1234","amount":"1"}
+}`)
+initRes, err := client.ApprovalRequestInit(initPayload, approvalToken)
+if err != nil || !initRes.Success {
+    log.Fatalf("init failed: %v %s", err, initRes.Error)
+}
+requestID := uint64(initRes.Data["request_id"].(float64))
+
+// 2) Confirm request (SDK orchestrates challenge + confirm)
+confirmRes, _ := client.ApprovalRequestConfirmWithCredential(requestID, getCredential, approvalToken)
+taskID := uint64(confirmRes.Data["task_id"].(float64))
+
+// 3) Task action (SDK orchestrates challenge + action)
+_, _ = client.ApprovalActionWithCredential(taskID, "APPROVE", getCredential, approvalToken)
+```
+
+Notes:
+- SDK can orchestrate request/response sequence.
+- WebAuthn execution (`navigator.credentials.create/get`) still runs in app/browser code.
+- SDK does not own UI interaction.
 
 ### Verification
 
@@ -195,8 +259,24 @@ type SignResult struct {
     Success   bool
     Signature []byte
     Error     string
+    ErrorCode string
 }
 ```
+
+### Error Codes
+
+`SignResult.ErrorCode` values:
+
+| Code | Meaning |
+|------|---------|
+| `SIGN_REQUEST_FAILED` | Submit request/network failure |
+| `SIGN_REQUEST_REJECTED` | Consensus rejected request |
+| `SIGNATURE_DECODE_FAILED` | Signature decode failed |
+| `UNEXPECTED_STATUS` | Unexpected status value |
+| `MISSING_HASH` | Pending response missing hash |
+| `STATUS_QUERY_FAILED` | Polling status request failed |
+| `SIGN_FAILED` | Voting finalized as failed |
+| `THRESHOLD_TIMEOUT` | Threshold not met before timeout |
 
 ### GenerateKeyResult
 
@@ -255,6 +335,10 @@ cd ../mock-server
 go test ./...
 ```
 
+Cross-language sign contract checklist:
+- [docs/sign-contract-checklist.md](/home/sun/tee/teenet-sdk/docs/sign-contract-checklist.md)
+- [docs/error-code-matrix.md](/home/sun/tee/teenet-sdk/docs/error-code-matrix.md)
+
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.

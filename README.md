@@ -6,7 +6,7 @@ A simplified Go SDK for TEE-DAO key management operations using the consensus se
 
 - **Transparent Voting**: Automatically handles M-of-N threshold voting without manual coordination
 - **Simple API**: Clean interface similar to teenet-sdk with Sign(), Verify(), and GetPublicKey()
-- **Callback Support**: Asynchronous notifications for voting completion via HTTP callbacks
+- **Polling-Based Completion**: Pending voting is finalized inside `Sign()` via status polling
 - **Signature Verification**: Offline verification supporting multiple protocols (ECDSA, Schnorr) and curves (ED25519, SECP256K1, SECP256R1)
 - **HTTP-based**: No TLS/gRPC complexity, simple REST API communication
 
@@ -29,7 +29,7 @@ client := sdk.NewClient("http://localhost:8089")
 // Set your App ID (required for signing)
 client.SetDefaultAppID("your-app-id")
 // Or load from environment variable
-client.SetDefaultAppIDFromEnv() // Reads from APP_ID environment variable
+client.SetDefaultAppIDFromEnv() // Reads from APP_INSTANCE_ID environment variable
 ```
 
 ### 2. Sign a Message
@@ -105,80 +105,16 @@ SDK 1 → Submit vote → app-comm-consensus (cache: 1/2 votes)
 SDK 2 → Submit vote → app-comm-consensus (cache: 2/2 votes) → Threshold met!
                     ↓
                 TEE-DAO signs
-                    ↓
-        Callback notifications sent to all SDKs
 ```
 
 Each SDK:
-1. Starts fixed-port HTTP callback server on port 19080 (at Client initialization)
-2. Submits signing request with app_id (consensus service queries container IP)
-3. Waits for either:
-   - Immediate response (direct signing)
-   - Callback notification to `http://{container_ip}:19080/callback/{hash}` (voting mode)
-   - Timeout (default 60 seconds)
-4. Reuses the same callback server for all signing operations
+1. Submits signing request with `app_instance_id`
+2. If response is `pending`, polls `/api/cache/{hash}` via SDK internal logic
+3. Returns final `signed`/`failed` result, or timeout error with vote counts
 
 ## Network Requirements
 
-TEENet SDK uses fixed port **19080** to receive callback notifications from the consensus service.
-
-### Firewall Configuration
-
-Ensure that port 19080 is accessible from the consensus service:
-
-```bash
-# Linux iptables
-sudo iptables -A INPUT -p tcp --dport 19080 -j ACCEPT
-
-# firewalld (RHEL/CentOS/Fedora)
-sudo firewall-cmd --permanent --add-port=19080/tcp
-sudo firewall-cmd --reload
-
-# UFW (Ubuntu/Debian)
-sudo ufw allow 19080/tcp
-```
-
-### Docker Deployment
-
-When running in Docker, expose port 19080:
-
-```yaml
-# docker-compose.yml
-services:
-  your-app:
-    image: your-app:latest
-    ports:
-      - "19080:19080"  # Callback server port
-```
-
-```bash
-# Docker CLI
-docker run -p 19080:19080 your-app:latest
-```
-
-### Kubernetes Deployment
-
-Ensure the Service exposes port 19080:
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: your-app
-spec:
-  selector:
-    app: your-app
-  ports:
-    - name: callback
-      port: 19080
-      targetPort: 19080
-      protocol: TCP
-```
-
-**Important Notes:**
-- Only one SDK client instance can run per machine (port 19080 is exclusive)
-- The consensus service must be able to reach your container/host on port 19080
-- Port conflicts will prevent the callback server from starting (check logs for errors)
+No inbound port is required. SDK only sends outbound HTTP requests to the consensus service.
 
 ## Configuration
 
@@ -186,15 +122,19 @@ spec:
 
 ```go
 opts := &sdk.ClientOptions{
-    RequestTimeout:  30 * time.Second, // HTTP request timeout (default: 30s)
-    CallbackTimeout: 60 * time.Second, // Callback waiting timeout (default: 60s)
+    RequestTimeout:     30 * time.Second, // HTTP request timeout (default: 30s)
+    PendingWaitTimeout: 10 * time.Second, // Max wait in Sign() for voting completion
+    Debug:              true, // Verbose sign/polling trace logs
 }
 client := sdk.NewClientWithOptions("http://localhost:8089", opts)
 ```
 
+Note: `PendingWaitTimeout` controls max wait for voting completion.
+Polling interval/backoff is managed internally by SDK.
+
 ### Environment Variables
 
-- `APP_ID`: Default App ID for signing operations
+- `APP_INSTANCE_ID`: Default App ID for signing operations
 
 ## API Reference
 
@@ -210,14 +150,17 @@ Creates a new SDK client with custom configuration options.
 Sets the default App ID for signing operations.
 
 #### `SetDefaultAppIDFromEnv() error`
-Loads default App ID from `APP_ID` environment variable.
+Loads default App ID from `APP_INSTANCE_ID` environment variable.
 
-#### `Sign(message []byte, opt ...*SignOptions) (*SignResult, error)`
+#### `Sign(message []byte, publicKey ...[]byte) (*SignResult, error)`
 Signs a message. Automatically handles both direct signing and voting modes.
 
 **Returns:**
 - `SignResult`: Contains signature, success status, and voting information
 - `error`: Error if signing fails
+
+#### `GetStatus(hash string) (*VoteStatus, error)`
+Retrieves voting status for a specific hash.
 
 #### `Verify(message []byte, signature []byte) (bool, error)`
 Verifies a signature against the message. Automatically fetches public key.
@@ -233,9 +176,10 @@ Closes the client and releases resources.
 #### `SignResult`
 ```go
 type SignResult struct {
-    Signature  []byte       `json:"signature,omitempty"` // Signature bytes
-    Success    bool         `json:"success"`             // Whether signing succeeded
-    Error      string       `json:"error,omitempty"`     // Error message if failed
+    Signature  []byte       `json:"signature,omitempty"`   // Signature bytes
+    Success    bool         `json:"success"`               // Whether signing finalized successfully
+    Error      string       `json:"error,omitempty"`       // Error message if failed
+    ErrorCode  string       `json:"error_code,omitempty"`  // Stable machine-readable error code
     VotingInfo *VotingInfo  `json:"voting_info,omitempty"` // Voting details (if applicable)
 }
 ```
@@ -246,10 +190,38 @@ type VotingInfo struct {
     NeedsVoting   bool   `json:"needs_voting"`    // Whether voting was performed
     CurrentVotes  int    `json:"current_votes"`   // Current number of votes
     RequiredVotes int    `json:"required_votes"`  // Required vote threshold
-    Status        string `json:"status"`          // pending, signed, error
+    Status        string `json:"status"`          // pending, signed, failed
     Hash          string `json:"hash"`            // Message hash
 }
 ```
+
+#### `VoteStatus`
+```go
+type VoteStatus struct {
+    Found         bool   `json:"found"`
+    Hash          string `json:"hash"`
+    Status        string `json:"status"`
+    CurrentVotes  int    `json:"current_votes"`
+    RequiredVotes int    `json:"required_votes"`
+    Signature     []byte `json:"signature,omitempty"`
+    ErrorMessage  string `json:"error_message,omitempty"`
+}
+```
+
+### Error Codes
+
+`SignResult.ErrorCode` values:
+
+| Code | Meaning | Retry |
+|------|---------|-------|
+| `SIGN_REQUEST_FAILED` | Request submission/network failure | Yes |
+| `SIGN_REQUEST_REJECTED` | Consensus rejected request payload/business check | Usually No |
+| `SIGNATURE_DECODE_FAILED` | Returned signature format invalid | No |
+| `UNEXPECTED_STATUS` | Service returned unsupported status | No |
+| `MISSING_HASH` | Pending response missing hash | No |
+| `STATUS_QUERY_FAILED` | Polling status request failed | Yes |
+| `SIGN_FAILED` | Voting finalized as failed | Usually No |
+| `THRESHOLD_TIMEOUT` | Votes not enough before timeout | Yes |
 
 ## Examples
 
@@ -399,7 +371,6 @@ func main() {
 │ app-comm-consensus  │
 │  - Voting Manager   │
 │  - Cache System     │
-│  - Callback Sender  │
 └──────────┬──────────┘
            │ gRPC
            ↓
@@ -415,30 +386,19 @@ func main() {
 └─────────────────────┘
 ```
 
-### Callback Flow
+### Voting Polling Flow
 
 ```
-1. SDK creates callback server on 127.0.0.1:random_port
-2. SDK submits: POST /api/submit-request
+1. SDK submits: POST /api/submit-request
    {
-     "app_id": "voter-1",
-     "hash": "0x1234...",
-     "requestor_id": "voter-1",
-     "callback_url": "http://127.0.0.1:54321/callback/0x1234..."
+     "app_instance_id": "voter-1",
+     "message": "base64..."
    }
 
-3. app-comm-consensus caches the request and callback URL
-
-4. When threshold met:
-   - app-comm-consensus signs via TEE-DAO
-   - Sends callback: POST http://127.0.0.1:54321/callback/0x1234...
-     {
-       "hash": "0x1234...",
-       "status": "signed",
-       "signature": "0xabcd..."
-     }
-
-5. SDK receives callback and returns result to application
+2. app-comm-consensus caches the request and voting state
+3. SDK polls: GET /api/cache/{hash}
+4. When threshold met, consensus returns `signed` + `signature`
+5. SDK `Sign()` returns signed/failed, or timeout with current votes
 ```
 
 ## Error Handling
@@ -446,7 +406,6 @@ func main() {
 ### Common Errors
 
 - `"default App ID is not set"`: Call `SetDefaultAppID()` or `SetDefaultAppIDFromEnv()` before signing
-- `"timeout waiting for callback"`: Voting threshold not met within timeout period
 - `"Failed to decode signature"`: Invalid signature format from server
 - `"Failed to get public key"`: App ID not found or not configured
 
@@ -474,7 +433,7 @@ teenet-sdk/
 ├── internal/           # Internal implementation (not exposed)
 │   ├── client/         # Client implementation
 │   ├── crypto/         # Cryptographic operations
-│   ├── network/        # HTTP and callback server
+│   ├── network/        # HTTP client
 │   ├── types/          # Internal type definitions
 │   └── util/           # Utility functions
 └── examples/           # Example applications
@@ -509,6 +468,12 @@ Run tests:
 go test ./...
 ```
 
+Cross-language sign contract checklist:
+- [docs/sign-contract-checklist.md](/home/sun/tee/teenet-sdk/docs/sign-contract-checklist.md)
+- [docs/error-code-matrix.md](/home/sun/tee/teenet-sdk/docs/error-code-matrix.md)
+- [docs/minimal-sign-integration.md](/home/sun/tee/teenet-sdk/docs/minimal-sign-integration.md)
+- [docs/error-codes.contract.json](/home/sun/tee/teenet-sdk/docs/error-codes.contract.json)
+
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.

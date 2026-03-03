@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 // -----------------------------------------------------------------------------
 
 package types
@@ -17,22 +17,29 @@ func TestClientOptions_Defaults(t *testing.T) {
 	if opts.RequestTimeout != 0 {
 		t.Errorf("Expected zero RequestTimeout, got %v", opts.RequestTimeout)
 	}
-	if opts.CallbackTimeout != 0 {
-		t.Errorf("Expected zero CallbackTimeout, got %v", opts.CallbackTimeout)
+	if opts.PendingWaitTimeout != 0 {
+		t.Errorf("Expected zero PendingWaitTimeout, got %v", opts.PendingWaitTimeout)
+	}
+	if opts.Debug {
+		t.Errorf("Expected zero Debug false, got true")
 	}
 }
 
 func TestClientOptions_CustomValues(t *testing.T) {
 	opts := ClientOptions{
-		RequestTimeout:  45 * time.Second,
-		CallbackTimeout: 120 * time.Second,
+		RequestTimeout:     45 * time.Second,
+		PendingWaitTimeout: 12 * time.Second,
+		Debug:              true,
 	}
 
 	if opts.RequestTimeout != 45*time.Second {
 		t.Errorf("Expected RequestTimeout 45s, got %v", opts.RequestTimeout)
 	}
-	if opts.CallbackTimeout != 120*time.Second {
-		t.Errorf("Expected CallbackTimeout 120s, got %v", opts.CallbackTimeout)
+	if opts.PendingWaitTimeout != 12*time.Second {
+		t.Errorf("Expected PendingWaitTimeout 12s, got %v", opts.PendingWaitTimeout)
+	}
+	if !opts.Debug {
+		t.Errorf("Expected Debug true, got false")
 	}
 }
 
@@ -72,7 +79,7 @@ func TestSignResult_Error(t *testing.T) {
 
 func TestSignResult_WithVotingInfo(t *testing.T) {
 	result := SignResult{
-		Success: true,
+		Success:   true,
 		Signature: []byte{0x01, 0x02},
 		VotingInfo: &VotingInfo{
 			NeedsVoting:   true,
@@ -140,7 +147,7 @@ func TestSignResult_JSONSerialization(t *testing.T) {
 }
 
 func TestVotingInfo_States(t *testing.T) {
-	states := []string{"pending", "signed", "error"}
+	states := []string{"pending", "signed", "failed"}
 
 	for _, state := range states {
 		vi := VotingInfo{
@@ -268,7 +275,6 @@ func TestAPISignResult_Success(t *testing.T) {
 		AppInstanceID: "app-123",
 		Name:          "my-secret",
 		Signature:     "abcdef123456",
-		SignatureHex:  "abcdef123456",
 		Algorithm:     "HMAC-SHA256",
 		MessageLength: 32,
 	}
@@ -281,9 +287,6 @@ func TestAPISignResult_Success(t *testing.T) {
 	}
 	if result.MessageLength != 32 {
 		t.Errorf("Expected MessageLength 32, got %d", result.MessageLength)
-	}
-	if result.Signature != result.SignatureHex {
-		t.Error("Expected Signature and SignatureHex to match")
 	}
 }
 
