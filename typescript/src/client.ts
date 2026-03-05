@@ -17,11 +17,12 @@ import {
   VotingInfo,
   VoteStatus,
   ApprovalResult,
+  ApprovalPendingFilter,
   PasskeyCredentialProvider,
   GenerateKeyResult,
   APIKeyResult,
   APISignResult,
-  PublicKeyResponse,
+  BoundPublicKeyInfo,
   Protocol,
   PublicKeyInfo,
   ErrorCode,
@@ -46,6 +47,7 @@ interface APIResponse {
   required_votes?: number;
   needs_voting?: boolean;
   public_key?: string | APIPublicKeyInfo;
+  public_keys?: APIPublicKeyInfo[];
   protocol?: string;
   curve?: string;
   api_key?: string;
@@ -96,13 +98,13 @@ interface CacheRequest {
  * client.setDefaultAppID('your-app-id');
  *
  * // Sign a message
- * const result = await client.sign(Buffer.from('message'));
+ * const result = await client.sign(Buffer.from('message'), 'my-key');
  * if (result.success) {
  *   console.log('Signature:', result.signature.toString('hex'));
  * }
  *
  * // Verify a signature
- * const valid = await client.verify(message, result.signature);
+ * const valid = await client.verify(message, result.signature, 'my-key');
  * ```
  */
 export class Client {
@@ -188,10 +190,10 @@ export class Client {
   /**
    * Sign a message using TEENet consensus
    * @param message - The message to sign
-   * @param publicKey - Optional public key to use for signing
+   * @param publicKeyName - Bound public key name to use for signing
    * @returns SignResult containing the signature or pending status
    */
-  async sign(message: Buffer, publicKey?: Buffer): Promise<SignResult> {
+  async sign(message: Buffer, publicKeyName: string): Promise<SignResult> {
     if (!this.defaultAppID) {
       throw new Error('App ID not set. Call setDefaultAppID() first.');
     }
@@ -204,9 +206,18 @@ export class Client {
       message: message.toString('base64'),
     };
 
-    if (publicKey) {
-      payload.public_key = publicKey.toString('base64');
+    if (!publicKeyName || !publicKeyName.trim()) {
+      return this.signFailure(ErrorCode.INVALID_INPUT, 'public key name is required');
     }
+    let keyInfo: BoundPublicKeyInfo;
+    try {
+      keyInfo = await this.getBoundPublicKeyByName(publicKeyName);
+    } catch (err) {
+      const errMessage = err instanceof Error ? err.message : String(err);
+      return this.signFailure(ErrorCode.INVALID_INPUT, errMessage);
+    }
+    const keyHex = keyInfo.keyData.startsWith('0x') ? keyInfo.keyData.slice(2) : keyInfo.keyData;
+    payload.public_key = Buffer.from(keyHex, 'hex').toString('base64');
     this.logDebug('sign.submit', {
       appId: this.defaultAppID,
       pendingWaitTimeout: this.pendingWaitTimeout,
@@ -352,8 +363,28 @@ export class Client {
     return this.passkeyLoginVerify(loginSessionId, credential);
   }
 
-  async approvalPending(approvalToken: string): Promise<ApprovalResult> {
-    return this.requestApproval('/api/approvals/pending', 'GET', approvalToken);
+  async approvalPending(approvalToken: string, filter?: ApprovalPendingFilter): Promise<ApprovalResult> {
+    const query = new URLSearchParams();
+    const applicationId = Number(filter?.applicationId ?? 0);
+    const publicKeyName = String(filter?.publicKeyName ?? '').trim();
+
+    if (applicationId > 0) {
+      query.set('application_id', String(applicationId));
+    }
+    if (publicKeyName) {
+      if (applicationId <= 0) {
+        return {
+          success: false,
+          statusCode: 0,
+          error: 'application_id is required when public_key_name is provided',
+        };
+      }
+      query.set('public_key_name', publicKeyName);
+    }
+
+    const queryString = query.toString();
+    const path = queryString ? `/api/approvals/pending?${queryString}` : '/api/approvals/pending';
+    return this.requestApproval(path, 'GET', approvalToken);
   }
 
   async approvalRequestChallenge(requestId: number, approvalToken: string): Promise<ApprovalResult> {
@@ -419,36 +450,52 @@ export class Client {
   }
 
   /**
-   * Get the public key for the default App ID
-   * @returns Public key information
+   * Get all bound public keys for the default App ID
    */
-  async getPublicKey(): Promise<PublicKeyResponse> {
+  async getPublicKeys(): Promise<BoundPublicKeyInfo[]> {
     if (!this.defaultAppID) {
       throw new Error('App ID not set. Call setDefaultAppID() first.');
     }
 
-    const response = await this.get(`/api/publickey/${this.defaultAppID}`);
-
+    const response = await this.get(`/api/publickeys/${this.defaultAppID}`);
     if (!response.success) {
-      throw new Error(response.error || 'Failed to get public key');
+      throw new Error(response.error || 'Failed to get public keys');
     }
 
-    return {
-      publicKey: response.public_key as string,
-      protocol: response.protocol || '',
-      curve: response.curve || '',
-    };
+    const keys = (response.public_keys || []) as APIPublicKeyInfo[];
+    return keys.map((key) => ({
+      id: key.id,
+      name: key.name,
+      keyData: key.key_data,
+      protocol: key.protocol,
+      curve: key.curve,
+    }));
+  }
+
+  private async getBoundPublicKeyByName(publicKeyName: string): Promise<BoundPublicKeyInfo> {
+    const keyName = publicKeyName.trim();
+    if (!keyName) {
+      throw new Error('public key name is required');
+    }
+    const keys = await this.getPublicKeys();
+    const matched = keys.find((key) => key.name === keyName);
+    if (!matched) {
+      throw new Error(`public key name '${keyName}' is not bound to this application`);
+    }
+    return matched;
   }
 
   /**
    * Verify a signature against a message
    * @param message - The original message
    * @param signature - The signature to verify
+   * @param publicKeyName - Bound public key name used to verify
    * @returns true if the signature is valid
    */
-  async verify(message: Buffer, signature: Buffer): Promise<boolean> {
-    const keyInfo = await this.getPublicKey();
-    const publicKeyBytes = Buffer.from(keyInfo.publicKey, 'hex');
+  async verify(message: Buffer, signature: Buffer, publicKeyName: string): Promise<boolean> {
+    const keyInfo = await this.getBoundPublicKeyByName(publicKeyName);
+    const keyHex = keyInfo.keyData.startsWith('0x') ? keyInfo.keyData.slice(2) : keyInfo.keyData;
+    const publicKeyBytes = Buffer.from(keyHex, 'hex');
 
     return verifySignature(
       message,
@@ -457,25 +504,6 @@ export class Client {
       keyInfo.protocol,
       keyInfo.curve
     );
-  }
-
-  /**
-   * Verify a signature using a specific public key
-   * @param message - The original message
-   * @param signature - The signature to verify
-   * @param publicKey - The public key bytes
-   * @param protocol - The signature protocol ('ecdsa' or 'schnorr')
-   * @param curve - The elliptic curve ('ed25519', 'secp256k1', or 'secp256r1')
-   * @returns true if the signature is valid
-   */
-  verifyWithPublicKey(
-    message: Buffer,
-    signature: Buffer,
-    publicKey: Buffer,
-    protocol: string,
-    curve: string
-  ): boolean {
-    return verifySignature(message, publicKey, signature, protocol, curve);
   }
 
   /**

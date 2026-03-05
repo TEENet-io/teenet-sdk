@@ -14,24 +14,45 @@ import (
 	"testing"
 )
 
-func TestGetPublicKey_NoAppID(t *testing.T) {
+func singleKeyResponse(keyData, protocol, curve string) map[string]interface{} {
+	return map[string]interface{}{
+		"success": true,
+		"public_keys": []map[string]interface{}{
+			{
+				"id":       1,
+				"name":     "pk1",
+				"key_data": keyData,
+				"protocol": protocol,
+				"curve":    curve,
+			},
+		},
+	}
+}
+
+func TestGetPublicKeys_NoAppID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, _, _, err := client.GetPublicKey()
+	_, err := client.GetPublicKeys()
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
-func TestGetPublicKey_Success(t *testing.T) {
+func TestGetPublicKeys_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"public_key": "0x04abcdef1234",
-			"protocol":   "ecdsa",
-			"curve":      "secp256k1",
+			"success": true,
+			"public_keys": []map[string]interface{}{
+				{
+					"id":       1,
+					"name":     "pk1",
+					"key_data": "0x04abcdef1234",
+					"protocol": "ecdsa",
+					"curve":    "secp256k1",
+				},
+			},
 		})
 	}))
 	defer server.Close()
@@ -40,22 +61,19 @@ func TestGetPublicKey_Success(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	pubKey, protocol, curve, err := client.GetPublicKey()
+	keys, err := client.GetPublicKeys()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if pubKey != "0x04abcdef1234" {
-		t.Errorf("Expected pubKey '0x04abcdef1234', got '%s'", pubKey)
+	if len(keys) != 1 {
+		t.Fatalf("Expected 1 key, got %d", len(keys))
 	}
-	if protocol != "ecdsa" {
-		t.Errorf("Expected protocol 'ecdsa', got '%s'", protocol)
-	}
-	if curve != "secp256k1" {
-		t.Errorf("Expected curve 'secp256k1', got '%s'", curve)
+	if keys[0].KeyData != "0x04abcdef1234" {
+		t.Errorf("Expected key_data '0x04abcdef1234', got '%s'", keys[0].KeyData)
 	}
 }
 
-func TestGetPublicKey_ServerError(t *testing.T) {
+func TestGetPublicKeys_ServerError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -69,7 +87,7 @@ func TestGetPublicKey_ServerError(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, _, _, err := client.GetPublicKey()
+	_, err := client.GetPublicKeys()
 	if err == nil {
 		t.Error("Expected error for server error")
 	}
@@ -79,9 +97,43 @@ func TestVerify_NoAppID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.Verify([]byte("message"), []byte("signature"))
+	_, err := client.Verify([]byte("message"), []byte("signature"), "pk1")
 	if err == nil {
 		t.Error("Expected error when no App ID set")
+	}
+}
+
+func TestVerify_EmptyPublicKeyName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(singleKeyResponse("0x0102", "ecdsa", "secp256k1"))
+	}))
+	defer server.Close()
+
+	client := NewClientWithOptions(server.URL, nil)
+	defer client.Close()
+	client.SetDefaultAppID("test-app")
+
+	_, err := client.Verify([]byte("message"), []byte("sig"), " ")
+	if err == nil {
+		t.Fatal("Expected error for empty public key name")
+	}
+}
+
+func TestVerify_PublicKeyNameNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(singleKeyResponse("0x0102", "ecdsa", "secp256k1"))
+	}))
+	defer server.Close()
+
+	client := NewClientWithOptions(server.URL, nil)
+	defer client.Close()
+	client.SetDefaultAppID("test-app")
+
+	_, err := client.Verify([]byte("message"), []byte("sig"), "missing-key")
+	if err == nil {
+		t.Fatal("Expected error for missing public key name")
 	}
 }
 
@@ -98,12 +150,7 @@ func TestVerify_ED25519(t *testing.T) {
 	// Create mock server that returns the public key
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"public_key": "0x" + hex.EncodeToString(publicKey),
-			"protocol":   "schnorr",
-			"curve":      "ed25519",
-		})
+		json.NewEncoder(w).Encode(singleKeyResponse("0x"+hex.EncodeToString(publicKey), "schnorr", "ed25519"))
 	}))
 	defer server.Close()
 
@@ -111,7 +158,7 @@ func TestVerify_ED25519(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	valid, err := client.Verify(message, signature)
+	valid, err := client.Verify(message, signature, "pk1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -127,12 +174,7 @@ func TestVerify_InvalidSignature(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"public_key": "0x" + hex.EncodeToString(publicKey),
-			"protocol":   "schnorr",
-			"curve":      "ed25519",
-		})
+		json.NewEncoder(w).Encode(singleKeyResponse("0x"+hex.EncodeToString(publicKey), "schnorr", "ed25519"))
 	}))
 	defer server.Close()
 
@@ -140,7 +182,7 @@ func TestVerify_InvalidSignature(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	valid, err := client.Verify(message, invalidSignature)
+	valid, err := client.Verify(message, invalidSignature, "pk1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -152,12 +194,7 @@ func TestVerify_InvalidSignature(t *testing.T) {
 func TestVerify_InvalidPublicKeyHex(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"public_key": "0xGGGGGG", // Invalid hex
-			"protocol":   "schnorr",
-			"curve":      "ed25519",
-		})
+		json.NewEncoder(w).Encode(singleKeyResponse("0xGGGGGG", "schnorr", "ed25519")) // Invalid hex
 	}))
 	defer server.Close()
 
@@ -165,13 +202,13 @@ func TestVerify_InvalidPublicKeyHex(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, err := client.Verify([]byte("message"), []byte("signature"))
+	_, err := client.Verify([]byte("message"), []byte("signature"), "pk1")
 	if err == nil {
 		t.Error("Expected error for invalid public key hex")
 	}
 }
 
-func TestVerify_GetPublicKeyError(t *testing.T) {
+func TestVerify_GetPublicKeysError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -185,67 +222,9 @@ func TestVerify_GetPublicKeyError(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, err := client.Verify([]byte("message"), []byte("signature"))
+	_, err := client.Verify([]byte("message"), []byte("signature"), "pk1")
 	if err == nil {
-		t.Error("Expected error when GetPublicKey fails")
-	}
-}
-
-func TestVerifyWithPublicKey_ED25519(t *testing.T) {
-	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	message := []byte("test message")
-	signature := ed25519.Sign(privateKey, message)
-
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	valid, err := client.VerifyWithPublicKey(message, signature, publicKey, "schnorr", "ed25519")
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if !valid {
-		t.Error("Expected signature to be valid")
-	}
-}
-
-func TestVerifyWithPublicKey_InvalidSignature(t *testing.T) {
-	publicKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	message := []byte("test message")
-	invalidSignature := make([]byte, 64)
-
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	valid, err := client.VerifyWithPublicKey(message, invalidSignature, publicKey, "schnorr", "ed25519")
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if valid {
-		t.Error("Expected signature to be invalid")
-	}
-}
-
-func TestVerifyWithPublicKey_InvalidCurve(t *testing.T) {
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	_, err := client.VerifyWithPublicKey([]byte("msg"), []byte("sig"), []byte("key"), "ecdsa", "invalid_curve")
-	if err == nil {
-		t.Error("Expected error for invalid curve")
-	}
-}
-
-func TestVerifyWithPublicKey_WrongKeySize(t *testing.T) {
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	// ED25519 expects 32-byte public key
-	wrongSizeKey := make([]byte, 16)
-	signature := make([]byte, 64)
-
-	_, err := client.VerifyWithPublicKey([]byte("msg"), signature, wrongSizeKey, "schnorr", "ed25519")
-	if err == nil {
-		t.Error("Expected error for wrong key size")
+		t.Error("Expected error when GetPublicKeys fails")
 	}
 }
 
@@ -257,12 +236,7 @@ func TestVerify_PublicKeyWith0xPrefix(t *testing.T) {
 	// Server returns key with 0x prefix
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"public_key": "0x" + hex.EncodeToString(publicKey),
-			"protocol":   "schnorr",
-			"curve":      "ed25519",
-		})
+		json.NewEncoder(w).Encode(singleKeyResponse("0x"+hex.EncodeToString(publicKey), "schnorr", "ed25519"))
 	}))
 	defer server.Close()
 
@@ -270,7 +244,7 @@ func TestVerify_PublicKeyWith0xPrefix(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	valid, err := client.Verify(message, signature)
+	valid, err := client.Verify(message, signature, "pk1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -287,12 +261,7 @@ func TestVerify_PublicKeyWithout0xPrefix(t *testing.T) {
 	// Server returns key without 0x prefix
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"public_key": hex.EncodeToString(publicKey), // No 0x prefix
-			"protocol":   "schnorr",
-			"curve":      "ed25519",
-		})
+		json.NewEncoder(w).Encode(singleKeyResponse(hex.EncodeToString(publicKey), "schnorr", "ed25519")) // No 0x prefix
 	}))
 	defer server.Close()
 
@@ -300,7 +269,7 @@ func TestVerify_PublicKeyWithout0xPrefix(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	valid, err := client.Verify(message, signature)
+	valid, err := client.Verify(message, signature, "pk1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}

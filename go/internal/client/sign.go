@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 	"github.com/TEENet-io/teenet-sdk/go/internal/util"
@@ -53,7 +54,7 @@ func min(a, b int) int {
 //
 // Parameters:
 //   - message: The raw bytes to sign (will be hashed with SHA256 internally)
-//   - publicKey: Optional public key bytes to use for signing. If not provided, uses default key.
+//   - publicKeyName: Bound public key name to use for signing (required)
 //
 // Returns:
 //   - SignResult: Contains the signature bytes and success status
@@ -72,7 +73,7 @@ func min(a, b int) int {
 //
 // Example (Direct Signing):
 //
-//	result, err := client.Sign([]byte("important message"))
+//	result, err := client.Sign([]byte("important message"), "my-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
@@ -84,13 +85,13 @@ func min(a, b int) int {
 //	// 1. Submit the signing request
 //	// 2. Wait up to PendingWaitTimeout (default 10s) for threshold completion
 //	// 3. Return final signed/failed result
-//	result, err := client.Sign(message)
+//	result, err := client.Sign(message, "my-key")
 //	if result.VotingInfo != nil {
 //	    fmt.Printf("Votes: %d/%d\n",
 //	        result.VotingInfo.CurrentVotes,
 //	        result.VotingInfo.RequiredVotes)
 //	}
-func (c *Client) Sign(message []byte, publicKey ...[]byte) (*types.SignResult, error) {
+func (c *Client) Sign(message []byte, publicKeyName string) (*types.SignResult, error) {
 	// Check if default App ID is set
 	if c.defaultAppID == "" {
 		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)")
@@ -104,16 +105,29 @@ func (c *Client) Sign(message []byte, publicKey ...[]byte) (*types.SignResult, e
 	hash := sha256.Sum256(message)
 	messageHash := "0x" + hex.EncodeToString(hash[:])
 
-	// Extract public key from optional parameter if provided
-	var pubKey []byte
-	if len(publicKey) > 0 && len(publicKey[0]) > 0 {
-		pubKey = publicKey[0]
-		log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s, with provided public key (%d bytes)",
-			len(message), truncateForLog(messageHash), c.defaultAppID, len(pubKey))
-	} else {
-		log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s (using default key)",
-			len(message), truncateForLog(messageHash), c.defaultAppID)
+	if strings.TrimSpace(publicKeyName) == "" {
+		msg := "public key name is required"
+		return signFailure(types.ErrorCodeInvalidInput, msg, nil), errors.New(msg)
 	}
+
+	selectedKey, err := c.getBoundPublicKeyByName(publicKeyName)
+	if err != nil {
+		if errors.Is(err, ErrPublicKeyNameNotFound) {
+			msg := fmt.Sprintf("public key name '%s' is not bound to this application", publicKeyName)
+			return signFailure(types.ErrorCodeInvalidInput, msg, nil), errors.New(msg)
+		}
+		msg := fmt.Sprintf("failed to resolve public key '%s': %v", publicKeyName, err)
+		return signFailure(types.ErrorCodeSignRequestFailed, msg, nil), errors.New(msg)
+	}
+	pubKeyHex := strings.TrimPrefix(selectedKey.KeyData, "0x")
+	pubKey, decodeErr := hex.DecodeString(pubKeyHex)
+	if decodeErr != nil {
+		msg := fmt.Sprintf("invalid public key data for '%s': %v", publicKeyName, decodeErr)
+		return signFailure(types.ErrorCodeInvalidInput, msg, nil), errors.New(msg)
+	}
+
+	log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s, with public key name '%s' (%d bytes)",
+		len(message), truncateForLog(messageHash), c.defaultAppID, publicKeyName, len(pubKey))
 	c.debugf("sign.submit app_id=%s hash=%s pending_wait_ms=%d poll_base_ms=%d",
 		c.defaultAppID, messageHash, c.pendingWaitTimeout.Milliseconds(), defaultStatusPollInterval.Milliseconds())
 	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, pubKey)
@@ -158,6 +172,26 @@ func (c *Client) Sign(message []byte, publicKey ...[]byte) (*types.SignResult, e
 			resp.CurrentVotes, resp.RequiredVotes, c.pendingWaitTimeout)
 		c.debugf("sign.pending hash=%s votes=%d/%d", messageHash, resp.CurrentVotes, resp.RequiredVotes)
 		return c.WaitForSignResult(messageHash, c.pendingWaitTimeout)
+	}
+
+	// Approval mode - request is created and waiting for human approval.
+	if resp.Status == "pending_approval" {
+		log.Printf("Approval mode: request initialized (tx_id=%s request_id=%d hash=%s)",
+			resp.TxID, resp.RequestID, truncateForLog(messageHash))
+		return &types.SignResult{
+			Success:   false,
+			Error:     "approval required",
+			ErrorCode: types.ErrorCodeApprovalPending,
+			VotingInfo: &types.VotingInfo{
+				NeedsVoting:   false,
+				CurrentVotes:  0,
+				RequiredVotes: 0,
+				Status:        resp.Status,
+				Hash:          messageHash,
+				TxID:          resp.TxID,
+				RequestID:     resp.RequestID,
+			},
+		}, nil
 	}
 
 	// Unknown status

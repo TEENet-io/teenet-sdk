@@ -143,6 +143,43 @@ test('approvalPending sends explicit bearer token header', async () => {
   }
 });
 
+test('approvalPending appends filter query params', async () => {
+  let seenURL = '';
+  const { server, baseURL } = await startJSONServer(async (req, res) => {
+    seenURL = req.url || '';
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ approvals: [] }));
+  });
+
+  const client = createClient(baseURL);
+  try {
+    const pendingResult = await client.approvalPending('tok.123', {
+      applicationId: 42,
+      publicKeyName: 'pk-alpha',
+    });
+    assert.equal(pendingResult.success, true);
+    assert.equal(seenURL, '/api/approvals/pending?application_id=42&public_key_name=pk-alpha');
+  } finally {
+    client.close();
+    server.close();
+  }
+});
+
+test('approvalPending validates publicKeyName requires applicationId', async () => {
+  const client = createClient('http://127.0.0.1:1');
+  try {
+    const result = await client.approvalPending('tok.123', {
+      publicKeyName: 'pk-alpha',
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.statusCode, 0);
+    assert.equal(result.error, 'application_id is required when public_key_name is provided');
+  } finally {
+    client.close();
+  }
+});
+
 test('passkeyLoginWithCredential orchestrates options + verify', async () => {
   const calls = [];
   const { server, baseURL } = await startJSONServer(async (req, res) => {
@@ -269,6 +306,15 @@ test('approvalActionWithCredential orchestrates challenge + action', async () =>
 
 test('sign decodes signed response signature with 0x prefix', async () => {
   const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
     if (req.url === '/api/submit-request' && req.method === 'POST') {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -287,7 +333,7 @@ test('sign decodes signed response signature with 0x prefix', async () => {
   const client = createClient(baseURL);
   client.setDefaultAppID('app-1');
   try {
-    const result = await client.sign(Buffer.from('hello'));
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, true);
     assert.equal(result.signature.toString('hex'), 'abcdef');
   } finally {
@@ -298,6 +344,15 @@ test('sign decodes signed response signature with 0x prefix', async () => {
 
 test('sign returns decode error code when signed signature hex is invalid', async () => {
   const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
     if (req.url === '/api/submit-request' && req.method === 'POST') {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -316,7 +371,7 @@ test('sign returns decode error code when signed signature hex is invalid', asyn
   const client = createClient(baseURL);
   client.setDefaultAppID('app-1');
   try {
-    const result = await client.sign(Buffer.from('hello'));
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
     assert.equal(result.errorCode, 'SIGNATURE_DECODE_FAILED');
   } finally {
@@ -333,9 +388,53 @@ test('sign returns invalid input when message is empty', async () => {
   const client = createClient(baseURL);
   client.setDefaultAppID('app-1');
   try {
-    const result = await client.sign(Buffer.alloc(0));
+    const result = await client.sign(Buffer.alloc(0), 'pk1');
     assert.equal(result.success, false);
     assert.equal(result.errorCode, 'INVALID_INPUT');
+  } finally {
+    client.close();
+    server.close();
+  }
+});
+
+test('sign returns invalid input when public key name is empty', async () => {
+  const { server, baseURL } = await startJSONServer(async (_req, res) => {
+    res.statusCode = 500;
+    res.end();
+  });
+  const client = createClient(baseURL);
+  client.setDefaultAppID('app-1');
+  try {
+    const result = await client.sign(Buffer.from('hello'), '');
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'INVALID_INPUT');
+  } finally {
+    client.close();
+    server.close();
+  }
+});
+
+test('sign returns invalid input when public key name not bound', async () => {
+  const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
+    res.statusCode = 404;
+    res.end();
+  });
+  const client = createClient(baseURL);
+  client.setDefaultAppID('app-1');
+  try {
+    const result = await client.sign(Buffer.from('hello'), 'missing');
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'INVALID_INPUT');
+    assert.match(result.error || '', /not bound/);
   } finally {
     client.close();
     server.close();
@@ -345,6 +444,15 @@ test('sign returns invalid input when message is empty', async () => {
 test('sign waits pending request until signed', async () => {
   let statusCalls = 0;
   const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
     if (req.url === '/api/submit-request' && req.method === 'POST') {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -401,7 +509,7 @@ test('sign waits pending request until signed', async () => {
   client.setDefaultAppID('app-1');
   try {
     client.pendingWaitTimeout = 2000;
-    const result = await client.sign(Buffer.from('hello'));
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, true);
     assert.equal(result.signature.toString('hex'), 'abcdef');
     assert.equal(result.votingInfo.status, 'signed');
@@ -413,6 +521,15 @@ test('sign waits pending request until signed', async () => {
 
 test('sign returns threshold-not-met error when pending times out', async () => {
   const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
     if (req.url === '/api/submit-request' && req.method === 'POST') {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -451,7 +568,7 @@ test('sign returns threshold-not-met error when pending times out', async () => 
   client.setDefaultAppID('app-1');
   try {
     client.pendingWaitTimeout = 50;
-    const result = await client.sign(Buffer.from('hello'));
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
     assert.match(result.error || '', /Threshold not met before timeout/);
     assert.equal(result.errorCode, 'THRESHOLD_TIMEOUT');
@@ -464,6 +581,15 @@ test('sign returns threshold-not-met error when pending times out', async () => 
 
 test('sign maps server rejection to stable error code', async () => {
   const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
     if (req.url === '/api/submit-request' && req.method === 'POST') {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -480,7 +606,7 @@ test('sign maps server rejection to stable error code', async () => {
   const client = createClient(baseURL);
   client.setDefaultAppID('app-1');
   try {
-    const result = await client.sign(Buffer.from('hello'));
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
     assert.equal(result.errorCode, 'SIGN_REQUEST_REJECTED');
   } finally {
@@ -490,24 +616,47 @@ test('sign maps server rejection to stable error code', async () => {
 });
 
 test('sign maps submit network failure to stable error code', async () => {
-  const { server, baseURL } = await startJSONServer(async (_req, res) => {
-    res.statusCode = 200;
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ success: true }));
+  const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
+    if (req.url === '/api/submit-request' && req.method === 'POST') {
+      req.socket.destroy();
+      return;
+    }
+    res.statusCode = 404;
+    res.end();
   });
 
   const client = createClient(baseURL);
   client.setDefaultAppID('app-1');
-  server.close();
-
-  const result = await client.sign(Buffer.from('hello'));
-  assert.equal(result.success, false);
-  assert.equal(result.errorCode, 'SIGN_REQUEST_FAILED');
-  client.close();
+  try {
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'SIGN_REQUEST_FAILED');
+  } finally {
+    client.close();
+    server.close();
+  }
 });
 
 test('sign maps status polling network failure to stable error code', async () => {
   const { server, baseURL } = await startJSONServer(async (req, res) => {
+    if (req.url === '/api/publickeys/app-1' && req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        public_keys: [{ id: 1, name: 'pk1', key_data: '0x01020304', protocol: 'ecdsa', curve: 'secp256k1' }],
+      }));
+      return;
+    }
     if (req.url === '/api/submit-request' && req.method === 'POST') {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -534,7 +683,7 @@ test('sign maps status polling network failure to stable error code', async () =
   client.pendingWaitTimeout = 100;
 
   try {
-    const result = await client.sign(Buffer.from('hello'));
+    const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
     assert.equal(result.errorCode, 'STATUS_QUERY_FAILED');
     assert.equal(result.votingInfo?.status, 'pending');

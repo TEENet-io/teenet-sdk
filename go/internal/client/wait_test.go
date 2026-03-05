@@ -16,6 +16,13 @@ func TestSignAndWait_FinalSigned(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/api/publickeys/test-app":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"public_keys": []map[string]interface{}{
+					{"id": 1, "name": "pk1", "key_data": "0x04010203", "protocol": "ecdsa", "curve": "secp256k1"},
+				},
+			})
 		case "/api/submit-request":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"success":        true,
@@ -68,7 +75,7 @@ func TestSignAndWait_FinalSigned(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.SignAndWait([]byte("wait-message"), 2*time.Second)
+	result, err := client.SignAndWait([]byte("wait-message"), 2*time.Second, "pk1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
 func TestApprovalRequestInit_Success(t *testing.T) {
@@ -93,12 +95,51 @@ func TestApprovalPending_SendsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalPending("tok-123")
+	resp, err := client.ApprovalPending("tok-123", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestApprovalPending_WithFilterQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/approvals/pending" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("application_id"); got != "42" {
+			t.Fatalf("unexpected application_id query: %s", got)
+		}
+		if got := r.URL.Query().Get("public_key_name"); got != "pk-alpha" {
+			t.Fatalf("unexpected public_key_name query: %s", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"approvals":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	resp, err := client.ApprovalPending("tok-123", &types.ApprovalPendingFilter{
+		ApplicationID: 42,
+		PublicKeyName: "pk-alpha",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestApprovalPending_FilterValidation(t *testing.T) {
+	client := NewHTTPClient("http://127.0.0.1:1", &http.Client{})
+	_, err := client.ApprovalPending("tok-123", &types.ApprovalPendingFilter{
+		PublicKeyName: "pk-alpha",
+	})
+	if err == nil || !strings.Contains(err.Error(), "application_id is required when public_key_name is provided") {
+		t.Fatalf("expected validation error, got: %v", err)
 	}
 }
 

@@ -28,7 +28,7 @@ func main() {
 
     // Sign a message
     message := []byte("Hello, TEENet!")
-    result, err := client.Sign(message)
+    result, err := client.Sign(message, "my-key")
     if err != nil {
         log.Fatal(err)
     }
@@ -38,7 +38,7 @@ func main() {
     fmt.Printf("Signature: %x\n", result.Signature)
 
     // Verify the signature
-    valid, err := client.Verify(message, result.Signature)
+    valid, err := client.Verify(message, result.Signature, "my-key")
     if err != nil {
         log.Fatal(err)
     }
@@ -90,12 +90,8 @@ client.Init()
 ### Signing
 
 ```go
-// Sign with default key
-result, err := client.Sign([]byte("message"))
-
-// Sign with specific public key
-pubKeyBytes, _ := hex.DecodeString(publicKeyHex)
-result, err := client.Sign([]byte("message"), pubKeyBytes)
+// Sign with specific bound key name (required)
+result, err := client.Sign([]byte("message"), "my-key")
 
 // Check result
 if result.Success {
@@ -138,26 +134,25 @@ if approvalToken == "" {
     log.Fatal("missing approval token in login response")
 }
 
-// Optional: query pending tasks for current passkey identity
-pending, _ := client.ApprovalPending(approvalToken)
+// 1) Initiator side: just call Sign (approval request is auto-initialized by backend policy)
+signRes, err := client.Sign([]byte(`{"to":"0x1234","amount":"1"}`), "my-key")
+if err != nil {
+    log.Fatalf("sign failed: %v", err)
+}
+if signRes.ErrorCode != "APPROVAL_PENDING" {
+    log.Fatalf("expected approval pending, got: %+v", signRes)
+}
+requestID := signRes.VotingInfo.RequestID
+
+// Optional: approver can query pending tasks for current passkey identity
+pending, _ := client.ApprovalPending(approvalToken, nil)
 _ = pending
 
-// 1) Init request
-initPayload := []byte(`{
-  "app_instance_id":"d38b86ff601b3ba5c5ed2ba526ffcbbc",
-  "payload":{"to":"0x1234","amount":"1"}
-}`)
-initRes, err := client.ApprovalRequestInit(initPayload, approvalToken)
-if err != nil || !initRes.Success {
-    log.Fatalf("init failed: %v %s", err, initRes.Error)
-}
-requestID := uint64(initRes.Data["request_id"].(float64))
-
-// 2) Confirm request (SDK orchestrates challenge + confirm)
+// 2) Approver confirms request (SDK orchestrates challenge + confirm)
 confirmRes, _ := client.ApprovalRequestConfirmWithCredential(requestID, getCredential, approvalToken)
 taskID := uint64(confirmRes.Data["task_id"].(float64))
 
-// 3) Task action (SDK orchestrates challenge + action)
+// 3) Approver takes task action (SDK orchestrates challenge + action)
 _, _ = client.ApprovalActionWithCredential(taskID, "APPROVE", getCredential, approvalToken)
 ```
 
@@ -169,23 +164,14 @@ Notes:
 ### Verification
 
 ```go
-// Verify with default App ID's public key
-valid, err := client.Verify(message, signature)
-
-// Verify with specific public key
-valid, err := client.VerifyWithPublicKey(
-    message,
-    signature,
-    publicKeyBytes,
-    sdk.ProtocolECDSA,    // or sdk.ProtocolSchnorr
-    sdk.CurveSECP256K1,   // or sdk.CurveED25519, sdk.CurveSECP256R1
-)
+// Verify with specific bound key name
+valid, err := client.Verify(message, signature, "my-key")
 ```
 
 ### Get Public Key
 
 ```go
-publicKey, protocol, curve, err := client.GetPublicKey()
+keys, err := client.GetPublicKeys()
 // publicKey: hex-encoded public key
 // protocol: "ecdsa" or "schnorr"
 // curve: "ed25519", "secp256k1", or "secp256r1"
@@ -206,8 +192,7 @@ if result.Success {
     fmt.Printf("Public Key: %s\n", result.PublicKey.KeyData)
 
     // Sign with generated key
-    pubKeyBytes, _ := hex.DecodeString(result.PublicKey.KeyData)
-    signResult, _ := client.Sign(message, pubKeyBytes)
+    signResult, _ := client.Sign(message, result.PublicKey.Name)
 }
 ```
 

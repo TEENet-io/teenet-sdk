@@ -15,8 +15,8 @@ const (
 )
 
 // SignAndWait submits a sign request and blocks until it is finalized or timeout.
-func (c *Client) SignAndWait(message []byte, timeout time.Duration, publicKey ...[]byte) (*types.SignResult, error) {
-	result, err := c.Sign(message, publicKey...)
+func (c *Client) SignAndWait(message []byte, timeout time.Duration, publicKeyName string) (*types.SignResult, error) {
+	result, err := c.Sign(message, publicKeyName)
 	if err != nil || result == nil || result.VotingInfo == nil || result.VotingInfo.Status != "pending" {
 		return result, err
 	}

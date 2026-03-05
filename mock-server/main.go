@@ -225,7 +225,7 @@ func (s *MockServer) Start() error {
 	api := router.Group("/api")
 	{
 		api.GET("/health", s.handleHealth)
-		api.GET("/publickey/:app_instance_id", s.handleGetPublicKey)
+		api.GET("/publickeys/:app_instance_id", s.handleGetPublicKeys)
 		api.POST("/submit-request", s.handleSubmitRequest)
 		api.POST("/generate-key", s.handleGenerateKey)
 		api.GET("/apikey/:name", s.handleGetAPIKey)
@@ -249,8 +249,8 @@ func (s *MockServer) handleHealth(c *gin.Context) {
 	})
 }
 
-// handleGetPublicKey handles GET /api/publickey/:app_instance_id
-func (s *MockServer) handleGetPublicKey(c *gin.Context) {
+// handleGetPublicKeys handles GET /api/publickeys/:app_instance_id
+func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 	appInstanceID := c.Param("app_instance_id")
 
 	if appInstanceID == "" {
@@ -286,11 +286,19 @@ func (s *MockServer) handleGetPublicKey(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"app_id":     appInstanceID,
-		"public_key": keyInfo.PublicKey,
-		"protocol":   keyInfo.Protocol,
-		"curve":      keyInfo.Curve,
+		"success": true,
+		"app_id":  appInstanceID,
+		"public_keys": []gin.H{
+			{
+				"id":                     1,
+				"name":                   "default",
+				"key_data":               "0x" + keyInfo.PublicKey,
+				"protocol":               keyInfo.Protocol,
+				"curve":                  keyInfo.Curve,
+				"application_id":         1,
+				"created_by_instance_id": appInstanceID,
+			},
+		},
 	})
 }
 
@@ -374,10 +382,10 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 	if err != nil {
 		log.Printf("❌ Signing failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"success":     false,
-			"message":     "Signing failed: " + err.Error(),
-			"hash":        hash,
-			"status":      "failed",
+			"success":      false,
+			"message":      "Signing failed: " + err.Error(),
+			"hash":         hash,
+			"status":       "failed",
 			"needs_voting": false,
 		})
 		return
@@ -390,13 +398,13 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":       true,
-		"message":       "Direct signing completed",
-		"hash":          hash,
-		"status":        "signed",
-		"signature":     signatureHex,
-		"needs_voting":  false,
-		"current_votes": 0,
+		"success":        true,
+		"message":        "Direct signing completed",
+		"hash":           hash,
+		"status":         "signed",
+		"signature":      signatureHex,
+		"needs_voting":   false,
+		"current_votes":  0,
 		"required_votes": 0,
 	})
 }

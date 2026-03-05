@@ -21,6 +21,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
 // HTTPClient wraps HTTP operations for the SDK.
@@ -50,11 +55,14 @@ type submitRequestResponse struct {
 	Success       bool   `json:"success"`
 	Message       string `json:"message"`
 	Hash          string `json:"hash"`   // Hash returned by server
-	Status        string `json:"status"` // pending/signed/failed
+	Status        string `json:"status"` // pending/pending_approval/signed/failed
 	Signature     string `json:"signature,omitempty"`
+	TxID          string `json:"tx_id,omitempty"`
+	RequestID     uint64 `json:"request_id,omitempty"`
 	CurrentVotes  int    `json:"current_votes,omitempty"`
 	RequiredVotes int    `json:"required_votes,omitempty"`
 	NeedsVoting   bool   `json:"needs_voting"`
+	NeedsApproval bool   `json:"needs_approval,omitempty"`
 }
 
 // cacheDetailResponse is the response from fetching cache status for a hash
@@ -80,16 +88,22 @@ type cacheRequest struct {
 
 // publicKeyResponse is the response from getting public key
 type publicKeyResponse struct {
-	Success   bool   `json:"success"`
-	AppID     string `json:"app_id"`
-	PublicKey string `json:"public_key"`
-	Protocol  string `json:"protocol"`
-	Curve     string `json:"curve"`
-	Error     string `json:"error,omitempty"`
+	ID       uint32 `json:"id"`
+	Name     string `json:"name"`
+	KeyData  string `json:"key_data"`
+	Protocol string `json:"protocol"`
+	Curve    string `json:"curve"`
+}
+
+type publicKeysResponse struct {
+	Success    bool                `json:"success"`
+	AppID      string              `json:"app_instance_id"`
+	PublicKeys []publicKeyResponse `json:"public_keys"`
+	Error      string              `json:"error,omitempty"`
 }
 
 // SubmitRequest submits a signature request to the consensus module.
-// publicKey is optional - pass nil to use the default key, or provide raw public key bytes to use a specific key.
+// publicKey must be provided as raw key bytes.
 func (c *HTTPClient) SubmitRequest(appID string, message []byte, publicKey []byte) (*submitRequestResponse, error) {
 	payload := submitRequestPayload{
 		AppInstanceID: appID,
@@ -136,24 +150,24 @@ func (c *HTTPClient) GetCacheDetail(hash string) (*cacheDetailResponse, error) {
 	return &result, nil
 }
 
-// GetPublicKey retrieves public key information for an App ID.
-func (c *HTTPClient) GetPublicKey(appID string) (publicKey, protocol, curve string, err error) {
-	resp, err := c.client.Get(c.baseURL + "/api/publickey/" + appID)
+// GetPublicKeys retrieves bound public key information for an App ID.
+func (c *HTTPClient) GetPublicKeys(appID string) ([]publicKeyResponse, error) {
+	resp, err := c.client.Get(c.baseURL + "/api/publickeys/" + appID)
 	if err != nil {
-		return "", "", "", fmt.Errorf("failed to get public key: %w", err)
+		return nil, fmt.Errorf("failed to get public keys: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var result publicKeyResponse
+	var result publicKeysResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", "", fmt.Errorf("failed to decode response: %w", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	if !result.Success {
-		return "", "", "", fmt.Errorf("failed to get public key: %s", result.Error)
+		return nil, fmt.Errorf("failed to get public keys: %s", result.Error)
 	}
 
-	return result.PublicKey, result.Protocol, result.Curve, nil
+	return result.PublicKeys, nil
 }
 
 // generateKeyPayload is the request body for generating a key
@@ -401,8 +415,26 @@ func (c *HTTPClient) PasskeyLoginVerify(payload []byte) (*approvalBridgeResponse
 	return c.doAuthRequest(http.MethodPost, "/api/auth/passkey/verify", payload)
 }
 
-func (c *HTTPClient) ApprovalPending(approvalToken string) (*approvalBridgeResponse, error) {
-	return c.doApprovalRequest(http.MethodGet, "/api/approvals/pending", approvalToken, nil)
+func (c *HTTPClient) ApprovalPending(approvalToken string, filter *types.ApprovalPendingFilter) (*approvalBridgeResponse, error) {
+	path := "/api/approvals/pending"
+	if filter != nil {
+		publicKeyName := strings.TrimSpace(filter.PublicKeyName)
+		if publicKeyName != "" && filter.ApplicationID == 0 {
+			return nil, fmt.Errorf("application_id is required when public_key_name is provided")
+		}
+
+		query := url.Values{}
+		if filter.ApplicationID > 0 {
+			query.Set("application_id", strconv.FormatUint(filter.ApplicationID, 10))
+		}
+		if publicKeyName != "" {
+			query.Set("public_key_name", publicKeyName)
+		}
+		if encoded := query.Encode(); encoded != "" {
+			path += "?" + encoded
+		}
+	}
+	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
 }
 
 func (c *HTTPClient) ApprovalRequestInit(payload []byte, approvalToken string) (*approvalBridgeResponse, error) {

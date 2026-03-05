@@ -22,7 +22,7 @@ client.setDefaultAppID('your-app-id');
 
 // Sign a message
 const message = Buffer.from('Hello, TEENet!');
-const result = await client.sign(message);
+const result = await client.sign(message, 'my-key');
 
 if (result.success) {
     console.log('Signature:', result.signature.toString('hex'));
@@ -30,7 +30,7 @@ if (result.success) {
 
 // Verify a signature (only if signed)
 if (result.success && result.signature.length > 0) {
-    const valid = await client.verify(message, result.signature);
+    const valid = await client.verify(message, result.signature, 'my-key');
     console.log('Valid:', valid);
 }
 
@@ -39,8 +39,7 @@ const keyResult = await client.generateECDSAKey(Curve.SECP256K1);
 console.log('Key ID:', keyResult.publicKey.id);
 
 // Sign with generated key
-const pubKeyBytes = Buffer.from(keyResult.publicKey.keyData, 'hex');
-const signResult = await client.sign(message, pubKeyBytes);
+const signResult = await client.sign(message, keyResult.publicKey.name);
 
 // Get API key
 const apiKeyResult = await client.getAPIKey('my-api-key');
@@ -62,7 +61,7 @@ For voting apps, SDK waits internally and returns finalized signed/failed result
 Polling interval/backoff is managed internally by SDK.
 
 ```typescript
-const result = await client.sign(message);
+const result = await client.sign(message, 'my-key');
 if (result.success) {
     console.log('Signature:', result.signature.toString('hex'));
 } else {
@@ -100,6 +99,12 @@ if (!approvalToken) throw new Error('missing approval token');
 
 // Optional: pending approvals for current passkey identity
 const pending = await client.approvalPending(approvalToken);
+
+// Optional: filter by app + key name
+const filtered = await client.approvalPending(approvalToken, {
+  applicationId: 42,
+  publicKeyName: 'pk-alpha',
+});
 
 // 1) Init request
 const init = await client.approvalRequestInit({
@@ -143,11 +148,11 @@ Options:
 |--------|-------------|
 | `setDefaultAppID(appID)` | Set the default application ID |
 | `getDefaultAppID()` | Get the current default App ID |
-| `sign(message, publicKey?)` | Sign a message |
+| `sign(message, publicKeyName)` | Sign a message with bound key name |
 | `getStatus(hash)` | Get voting status from consensus cache |
 | `passkeyLoginOptions()` | Get passkey login options |
 | `passkeyLoginVerify(loginSessionId, credential)` | Verify passkey login and return approval token |
-| `approvalPending(approvalToken)` | Get pending approvals for current token identity |
+| `approvalPending(approvalToken, filter?)` | Get pending approvals for current token identity, optionally filtered by app/key |
 | `approvalRequestInit(payload, approvalToken)` | Init passkey approval request |
 | `approvalRequestChallenge(requestId, approvalToken)` | Get request challenge |
 | `approvalRequestConfirm(requestId, payload, approvalToken)` | Confirm request assertion |
@@ -156,9 +161,8 @@ Options:
 | `approvalAction(taskId, payload, approvalToken)` | Submit approval action |
 | `approvalActionWithCredential(taskId, action, getCredential, approvalToken)` | Challenge + WebAuthn + action in one SDK call |
 | `passkeyLoginWithCredential(getCredential)` | Login options + WebAuthn + verify in one SDK call |
-| `verify(message, signature)` | Verify a signature |
-| `verifyWithPublicKey(message, signature, publicKey, protocol, curve)` | Verify with specific key |
-| `getPublicKey()` | Get public key for default App ID |
+| `verify(message, signature, publicKeyName)` | Verify a signature with bound key name |
+| `getPublicKeys()` | Get all bound public keys for default App ID |
 | `generateECDSAKey(curve)` | Generate ECDSA key |
 | `generateSchnorrKey(curve)` | Generate Schnorr key |
 | `getAPIKey(name)` | Get API key by name |

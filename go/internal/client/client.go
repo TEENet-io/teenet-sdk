@@ -33,13 +33,13 @@
 //	defer client.Close()
 //
 //	// Sign a message
-//	result, err := client.Sign([]byte("message to sign"))
+//	result, err := client.Sign([]byte("message to sign"), "my-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //
 //	// Verify a signature
-//	valid, err := client.Verify(message, result.Signature)
+//	valid, err := client.Verify(message, result.Signature, "my-key")
 //
 // For more examples, see the examples/ directory.
 package client
@@ -193,7 +193,7 @@ func (c *Client) Init() error {
 //
 // The App ID identifies your application to the consensus service and determines
 // which key material is used for signing. This must be set before calling Sign(),
-// GetPublicKey(), or Verify().
+// GetPublicKeys(), or Verify().
 //
 // Parameters:
 //   - appID: Your TEENet application ID (typically a UUID or hex string)

@@ -79,8 +79,8 @@ func (c *Client) PasskeyLoginVerify(loginSessionID uint64, credential []byte) (*
 	return toApprovalResult(resp.StatusCode, resp.Data, err)
 }
 
-func (c *Client) ApprovalPending(approvalToken string) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalPending(approvalToken)
+func (c *Client) ApprovalPending(approvalToken string, filter *types.ApprovalPendingFilter) (*types.ApprovalResult, error) {
+	resp, err := c.httpClient.ApprovalPending(approvalToken, filter)
 	if resp == nil {
 		return toApprovalResult(0, nil, err)
 	}

@@ -45,6 +45,7 @@ const (
 	ErrorCodeStatusQueryFailed   = "STATUS_QUERY_FAILED"
 	ErrorCodeSignFailed          = "SIGN_FAILED"
 	ErrorCodeThresholdTimeout    = "THRESHOLD_TIMEOUT"
+	ErrorCodeApprovalPending     = "APPROVAL_PENDING"
 )
 
 // SignResult contains the result of a sign operation.
@@ -95,6 +96,12 @@ type VotingInfo struct {
 
 	// Hash is the message hash (0x-prefixed hex) used for tracking this request.
 	Hash string `json:"hash"`
+
+	// TxID is the approval transaction id when status is pending_approval.
+	TxID string `json:"tx_id,omitempty"`
+
+	// RequestID is the approval request id when status is pending_approval.
+	RequestID uint64 `json:"request_id,omitempty"`
 }
 
 // VoteStatus contains the current status of a voting request.
@@ -114,6 +121,16 @@ type ApprovalResult struct {
 	StatusCode int                    `json:"status_code"`
 	Data       map[string]interface{} `json:"data,omitempty"`
 	Error      string                 `json:"error,omitempty"`
+}
+
+// ApprovalPendingFilter specifies optional query filters for pending approvals.
+type ApprovalPendingFilter struct {
+	// ApplicationID narrows pending approvals to one application.
+	ApplicationID uint64 `json:"application_id,omitempty"`
+
+	// PublicKeyName narrows pending approvals to one bound key name.
+	// Requires ApplicationID > 0.
+	PublicKeyName string `json:"public_key_name,omitempty"`
 }
 
 // GenerateKeyOptions contains optional parameters for key generation operations.

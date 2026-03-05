@@ -151,11 +151,11 @@ func TestSignWithoutAppID(t *testing.T) {
 	defer client.Close()
 
 	// Try to sign without setting App ID
-	_, err := client.Sign([]byte("test message"))
+	_, err := client.Sign([]byte("test message"), "pk1")
 	if err == nil {
 		t.Error("Expected error when signing without App ID, got nil")
 	}
-	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppID or set APP_ID environment variable)" {
+	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)" {
 		// Check that it's the expected error about App ID.
 		t.Logf("Got error: %v", err)
 	}
@@ -192,39 +192,14 @@ func TestInit_NoEnvVar(t *testing.T) {
 	}
 }
 
-// TestVerifyWithPublicKey tests signature verification with provided public key
-func TestVerifyWithPublicKey(t *testing.T) {
+// TestVerify_NoAppID tests Verify without App ID
+func TestVerify_NoAppID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	// This tests the public API wrapper
-	// The actual crypto is tested in internal/crypto tests
-
-	// Test with wrong key size (ED25519 expects 32-byte key, give 16)
-	_, err := client.VerifyWithPublicKey(
-		[]byte("message"),
-		make([]byte, 64), // signature (correct size for ED25519)
-		make([]byte, 16), // public key (wrong size - should be 32)
-		ProtocolSchnorr,
-		CurveED25519,
-	)
+	_, err := client.Verify([]byte("message"), []byte("signature"), "pk1")
 	if err == nil {
-		t.Error("Expected error for wrong key size")
-	}
-
-	// Test with valid sizes but invalid signature (should return false, not error)
-	valid, err := client.VerifyWithPublicKey(
-		[]byte("message"),
-		make([]byte, 64), // signature (all zeros = invalid)
-		make([]byte, 32), // public key (correct size)
-		ProtocolSchnorr,
-		CurveED25519,
-	)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-	if valid {
-		t.Error("Expected invalid signature")
+		t.Error("Expected error when no App ID set")
 	}
 }
 
@@ -308,23 +283,12 @@ func TestSignWithAPISecret_NoAppID(t *testing.T) {
 	}
 }
 
-// TestGetPublicKey_NoAppID tests GetPublicKey without App ID
-func TestGetPublicKey_NoAppID(t *testing.T) {
+// TestGetPublicKeys_NoAppID tests GetPublicKeys without App ID
+func TestGetPublicKeys_NoAppID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, _, _, err := client.GetPublicKey()
-	if err == nil {
-		t.Error("Expected error when no App ID set")
-	}
-}
-
-// TestVerify_NoAppID tests Verify without App ID
-func TestVerify_NoAppID(t *testing.T) {
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	_, err := client.Verify([]byte("message"), []byte("signature"))
+	_, err := client.GetPublicKeys()
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}

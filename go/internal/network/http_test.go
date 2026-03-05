@@ -81,8 +81,8 @@ func TestSubmitRequest_WithPublicKey(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(submitRequestResponse{
-			Success: true,
-			Status:  "signed",
+			Success:   true,
+			Status:    "signed",
 			Signature: "abcdef",
 		})
 	}))
@@ -113,47 +113,54 @@ func TestSubmitRequest_ServerError(t *testing.T) {
 	}
 }
 
-func TestGetPublicKey_Success(t *testing.T) {
+func TestGetPublicKeys_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
 			t.Errorf("Expected GET method, got '%s'", r.Method)
 		}
-		expectedPath := "/api/publickey/test-app-id"
+		expectedPath := "/api/publickeys/test-app-id"
 		if r.URL.Path != expectedPath {
 			t.Errorf("Expected path '%s', got '%s'", expectedPath, r.URL.Path)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(publicKeyResponse{
-			Success:   true,
-			AppID:     "test-app-id",
-			PublicKey: "0x04abcdef",
-			Protocol:  "ecdsa",
-			Curve:     "secp256k1",
+		json.NewEncoder(w).Encode(publicKeysResponse{
+			Success: true,
+			AppID:   "test-app-id",
+			PublicKeys: []publicKeyResponse{{
+				ID:       1,
+				Name:     "pk1",
+				KeyData:  "0x04abcdef",
+				Protocol: "ecdsa",
+				Curve:    "secp256k1",
+			}},
 		})
 	}))
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	pubKey, protocol, curve, err := client.GetPublicKey("test-app-id")
+	keys, err := client.GetPublicKeys("test-app-id")
 	if err != nil {
-		t.Fatalf("GetPublicKey failed: %v", err)
+		t.Fatalf("GetPublicKeys failed: %v", err)
 	}
-	if pubKey != "0x04abcdef" {
-		t.Errorf("Expected publicKey '0x04abcdef', got '%s'", pubKey)
+	if len(keys) != 1 {
+		t.Fatalf("Expected 1 key, got %d", len(keys))
 	}
-	if protocol != "ecdsa" {
-		t.Errorf("Expected protocol 'ecdsa', got '%s'", protocol)
+	if keys[0].KeyData != "0x04abcdef" {
+		t.Errorf("Expected key_data '0x04abcdef', got '%s'", keys[0].KeyData)
 	}
-	if curve != "secp256k1" {
-		t.Errorf("Expected curve 'secp256k1', got '%s'", curve)
+	if keys[0].Protocol != "ecdsa" {
+		t.Errorf("Expected protocol 'ecdsa', got '%s'", keys[0].Protocol)
+	}
+	if keys[0].Curve != "secp256k1" {
+		t.Errorf("Expected curve 'secp256k1', got '%s'", keys[0].Curve)
 	}
 }
 
-func TestGetPublicKey_NotFound(t *testing.T) {
+func TestGetPublicKeys_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(publicKeyResponse{
+		json.NewEncoder(w).Encode(publicKeysResponse{
 			Success: false,
 			Error:   "App not found",
 		})
@@ -161,7 +168,7 @@ func TestGetPublicKey_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, _, _, err := client.GetPublicKey("nonexistent")
+	_, err := client.GetPublicKeys("nonexistent")
 	if err == nil {
 		t.Error("Expected error for not found response")
 	}
@@ -188,11 +195,11 @@ func TestGenerateKey_Success(t *testing.T) {
 			Success: true,
 			Message: "Key generated",
 			PublicKey: &GeneratedKeyInfo{
-				ID:        123,
-				Name:      "my-key",
-				KeyData:   "0xabcdef",
-				Curve:     "secp256k1",
-				Protocol:  "schnorr",
+				ID:       123,
+				Name:     "my-key",
+				KeyData:  "0xabcdef",
+				Curve:    "secp256k1",
+				Protocol: "schnorr",
 			},
 		})
 	}))
@@ -375,7 +382,7 @@ func TestHTTPClient_ConnectionError(t *testing.T) {
 		t.Error("Expected error for connection failure")
 	}
 
-	_, _, _, err = client.GetPublicKey("test")
+	_, err = client.GetPublicKeys("test")
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
@@ -415,7 +422,7 @@ func TestHTTPClient_InvalidJSON(t *testing.T) {
 		t.Error("Expected error for invalid JSON response")
 	}
 
-	_, _, _, err = client.GetPublicKey("test")
+	_, err = client.GetPublicKeys("test")
 	if err == nil {
 		t.Error("Expected error for invalid JSON response")
 	}

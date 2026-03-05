@@ -125,6 +125,16 @@ export interface ApprovalResult {
 }
 
 /**
+ * Optional filters for approvalPending().
+ */
+export interface ApprovalPendingFilter {
+  /** Filter by application ID */
+  applicationId?: number;
+  /** Filter by bound public key name (requires applicationId) */
+  publicKeyName?: string;
+}
+
+/**
  * Provider used by high-level passkey helpers to obtain a WebAuthn credential.
  * The caller decides how to run WebAuthn (for example in browser via navigator.credentials.get).
  */
@@ -195,11 +205,15 @@ export interface APISignResult {
 }
 
 /**
- * Public key information returned from getPublicKey
+ * Bound public key information for an application.
  */
-export interface PublicKeyResponse {
-  /** Hex-encoded public key */
-  publicKey: string;
+export interface BoundPublicKeyInfo {
+  /** Unique key ID */
+  id: number;
+  /** Key name */
+  name: string;
+  /** Hex-encoded public key data */
+  keyData: string;
   /** Signing protocol */
   protocol: string;
   /** Elliptic curve */

@@ -33,13 +33,13 @@
 //	defer client.Close()
 //
 //	// Sign a message
-//	result, err := client.Sign([]byte("message to sign"))
+//	result, err := client.Sign([]byte("message to sign"), "my-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //
 //	// Verify a signature
-//	valid, err := client.Verify(message, result.Signature)
+//	valid, err := client.Verify(message, result.Signature, "my-key")
 //
 // For more examples, see the examples/ directory.
 package sdk
@@ -57,6 +57,9 @@ import (
 type Client struct {
 	impl *client.Client
 }
+
+// PublicKeyMeta is a bound public key descriptor returned by GetPublicKeys.
+type PublicKeyMeta = client.PublicKeyMeta
 
 // NewClient creates a new SDK client with default settings.
 //
@@ -168,27 +171,17 @@ func (c *Client) GetDefaultAppID() string {
 //
 // Parameters:
 //   - message: The raw bytes to sign
-//   - publicKey: Optional public key bytes. If not provided, uses the default key.
+//   - publicKeyName: Bound public key name to use for signing (required)
 //
 // Returns:
 //   - SignResult: Contains the signature bytes and success status
 //   - error: Non-nil if the signing operation failed
 //
-// Example (using default key):
-//
-//	result, err := client.Sign([]byte("important message"))
-//	if err != nil || !result.Success {
-//	    log.Fatal(err)
-//	}
-//	fmt.Printf("Signature: %x\n", result.Signature)
-//
 // Example (using specific generated key):
 //
-//	keyResult, _ := client.GenerateSchnorrKey("my-key", sdk.CurveSECP256K1)
-//	pubKeyBytes, _ := hex.DecodeString(strings.TrimPrefix(keyResult.PublicKey.KeyData, "0x"))
-//	result, err := client.Sign([]byte("important message"), pubKeyBytes)
-func (c *Client) Sign(message []byte, publicKey ...[]byte) (*SignResult, error) {
-	return c.impl.SignAndWait(message, 0, publicKey...)
+//	result, err := client.Sign([]byte("important message"), "my-key")
+func (c *Client) Sign(message []byte, publicKeyName string) (*SignResult, error) {
+	return c.impl.SignAndWait(message, 0, publicKeyName)
 }
 
 // GetStatus retrieves voting status for a specific hash.
@@ -259,8 +252,8 @@ func (c *Client) PasskeyLoginWithCredential(getCredential PasskeyCredentialProvi
 }
 
 // ApprovalPending returns pending approvals accessible by the provided approval token.
-func (c *Client) ApprovalPending(approvalToken string) (*ApprovalResult, error) {
-	return c.impl.ApprovalPending(approvalToken)
+func (c *Client) ApprovalPending(approvalToken string, filter *ApprovalPendingFilter) (*ApprovalResult, error) {
+	return c.impl.ApprovalPending(approvalToken, filter)
 }
 
 // ApprovalRequestChallenge fetches WebAuthn assertion challenge options for request confirmation.
@@ -411,32 +404,17 @@ func extractChallengeOptions(data map[string]interface{}) interface{} {
 	return data
 }
 
-// GetPublicKey retrieves the public key information for the default App ID.
-//
-// Returns:
-//   - publicKey: Hex-encoded public key
-//   - protocol: Protocol name (e.g., "ECDSA", "Schnorr")
-//   - curve: Curve name (e.g., "SECP256K1", "ED25519")
-//   - err: Error if the request fails
-//
-// Example:
-//
-//	pubKey, protocol, curve, err := client.GetPublicKey()
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-func (c *Client) GetPublicKey() (publicKey, protocol, curve string, err error) {
-	return c.impl.GetPublicKey()
+// GetPublicKeys retrieves all bound public keys for the default App ID.
+func (c *Client) GetPublicKeys() ([]PublicKeyMeta, error) {
+	return c.impl.GetPublicKeys()
 }
 
-// Verify verifies a cryptographic signature against a message.
-//
-// This method automatically retrieves the public key and verifies the signature
-// using the appropriate cryptographic algorithm.
+// Verify verifies a cryptographic signature against a message using a bound key name.
 //
 // Parameters:
 //   - message: The original message that was signed
 //   - signature: The signature to verify (raw bytes)
+//   - publicKeyName: Bound public key name to use for verification
 //
 // Returns:
 //   - bool: true if the signature is valid
@@ -444,45 +422,15 @@ func (c *Client) GetPublicKey() (publicKey, protocol, curve string, err error) {
 //
 // Example:
 //
-//	valid, err := client.Verify(message, signature)
+//	valid, err := client.Verify(message, signature, "my-key")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	if valid {
 //	    fmt.Println("Signature is valid")
 //	}
-func (c *Client) Verify(message, signature []byte) (bool, error) {
-	return c.impl.Verify(message, signature)
-}
-
-// VerifyWithPublicKey verifies a cryptographic signature against a message using a specific public key.
-//
-// This method verifies the signature using the provided public key, protocol, and curve.
-// The verification is performed locally without contacting the consensus service.
-//
-// Parameters:
-//   - message: The original message that was signed (raw bytes)
-//   - signature: The signature to verify (raw bytes)
-//   - publicKey: The public key to use for verification (raw bytes)
-//   - protocol: The signature protocol (e.g., "ecdsa", "schnorr")
-//   - curve: The elliptic curve (e.g., "secp256k1", "ed25519", "secp256r1")
-//
-// Returns:
-//   - bool: true if the signature is valid
-//   - error: Error if verification cannot be performed
-//
-// Example:
-//
-//	// Verify signature with Schnorr ED25519
-//	valid, err := client.VerifyWithPublicKey(message, signature, publicKeyBytes, sdk.ProtocolSchnorr, sdk.CurveED25519)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Verify signature with ECDSA secp256k1
-//	valid, err := client.VerifyWithPublicKey(message, signature, publicKeyBytes, sdk.ProtocolECDSA, sdk.CurveSECP256K1)
-func (c *Client) VerifyWithPublicKey(message, signature, publicKey []byte, protocol, curve string) (bool, error) {
-	return c.impl.VerifyWithPublicKey(message, signature, publicKey, protocol, curve)
+func (c *Client) Verify(message, signature []byte, publicKeyName string) (bool, error) {
+	return c.impl.Verify(message, signature, publicKeyName)
 }
 
 // Close gracefully shuts down the client and releases resources.

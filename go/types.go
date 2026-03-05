@@ -21,20 +21,19 @@ import (
 // Re-export all types from internal/types for public API.
 
 type (
-	ClientOptions     = types.ClientOptions
-	SignResult        = types.SignResult
-	VotingInfo        = types.VotingInfo
-	VoteStatus        = types.VoteStatus
-	ApprovalResult    = types.ApprovalResult
-	GenerateKeyResult = types.GenerateKeyResult
-	PublicKeyInfo     = types.PublicKeyInfo
-	APIKeyResult      = types.APIKeyResult
-	APISignResult     = types.APISignResult
+	ClientOptions         = types.ClientOptions
+	SignResult            = types.SignResult
+	VotingInfo            = types.VotingInfo
+	VoteStatus            = types.VoteStatus
+	ApprovalResult        = types.ApprovalResult
+	ApprovalPendingFilter = types.ApprovalPendingFilter
+	GenerateKeyResult     = types.GenerateKeyResult
+	PublicKeyInfo         = types.PublicKeyInfo
+	APIKeyResult          = types.APIKeyResult
+	APISignResult         = types.APISignResult
 )
 
-// PasskeyCredentialProvider returns credential JSON bytes for given WebAuthn options.
-// The caller typically runs browser WebAuthn (navigator.credentials.get/create)
-// and serializes the credential into JSON.
+// PasskeyCredentialProvider returns credential JSON bytes for WebAuthn options.
 type PasskeyCredentialProvider func(options interface{}) ([]byte, error)
 
 // Re-export constants from internal/crypto.
