@@ -119,26 +119,35 @@ func testSignAndVerify(serverURL, appID string) error {
 	// Test message
 	message := []byte("Hello, TEENet! This is a test message.")
 
-	// Get public key
-	pubKey, protocol, curve, err := client.GetPublicKey()
+	// Get bound public keys
+	keys, err := client.GetPublicKeys()
 	if err != nil {
-		return fmt.Errorf("failed to get public key: %v", err)
+		return fmt.Errorf("failed to get public keys: %v", err)
 	}
+	if len(keys) == 0 {
+		return fmt.Errorf("no bound public keys found")
+	}
+	key := keys[0]
+	pubKey := key.KeyData
+	protocol := key.Protocol
+	curve := key.Curve
 	fmt.Printf("   Public Key: %s...%s\n", pubKey[:16], pubKey[len(pubKey)-8:])
 	fmt.Printf("   Protocol: %s, Curve: %s\n", protocol, curve)
+	keyName := key.Name
 
 	// Sign
-	result, err := client.Sign(message)
+	result, err := client.Sign(message, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to sign: %v", err)
 	}
 	if !result.Success {
 		return fmt.Errorf("sign returned failure: %s", result.Error)
 	}
-	fmt.Printf("   Signature: %s... (%d bytes)\n", hex.EncodeToString(result.Signature[:8]), len(result.Signature))
+
+	fmt.Printf("   Signature: %s... (%d bytes)\n", shortHex(result.Signature, 8), len(result.Signature))
 
 	// Verify
-	valid, err := client.Verify(message, result.Signature)
+	valid, err := client.Verify(message, result.Signature, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to verify: %v", err)
 	}
@@ -190,14 +199,8 @@ func testKeyGeneration(serverURL string) error {
 			result.PublicKey.KeyData[:16],
 			result.PublicKey.KeyData[len(result.PublicKey.KeyData)-8:])
 
-		// Test signing with the generated key
-		pubKeyBytes, err := hex.DecodeString(strings.TrimPrefix(result.PublicKey.KeyData, "0x"))
-		if err != nil {
-			return fmt.Errorf("failed to decode %s public key: %v", kc.name, err)
-		}
-
 		message := []byte("Test message for generated key")
-		signResult, err := client.Sign(message, pubKeyBytes)
+		signResult, err := client.Sign(message, result.PublicKey.Name)
 		if err != nil {
 			return fmt.Errorf("failed to sign with %s key: %v", kc.name, err)
 		}
@@ -206,7 +209,7 @@ func testKeyGeneration(serverURL string) error {
 		}
 
 		// Verify the signature
-		valid, err := client.VerifyWithPublicKey(message, signResult.Signature, pubKeyBytes, kc.protocol, kc.curve)
+		valid, err := client.Verify(message, signResult.Signature, result.PublicKey.Name)
 		if err != nil {
 			return fmt.Errorf("failed to verify %s signature: %v", kc.name, err)
 		}
@@ -275,4 +278,14 @@ func testAPISecretSign(serverURL string) error {
 	fmt.Printf("   Verify: OK\n")
 
 	return nil
+}
+
+func shortHex(b []byte, n int) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if n > len(b) {
+		n = len(b)
+	}
+	return hex.EncodeToString(b[:n])
 }

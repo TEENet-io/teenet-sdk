@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -28,11 +28,12 @@ type SignRequest struct {
 
 // SignResponse is the response after direct signing
 type SignResponse struct {
-	Success       bool   `json:"success"`
-	AppInstanceID string `json:"app_instance_id,omitempty"`
-	Message       string `json:"message,omitempty"`
-	Signature     string `json:"signature,omitempty"` // Hex-encoded signature
-	Error         string `json:"error,omitempty"`
+	Success       bool            `json:"success"`
+	AppInstanceID string          `json:"app_instance_id,omitempty"`
+	Message       string          `json:"message,omitempty"`
+	Signature     string          `json:"signature,omitempty"` // Hex-encoded signature
+	VotingInfo    *sdk.VotingInfo `json:"voting_info,omitempty"`
+	Error         string          `json:"error,omitempty"`
 }
 
 // VoteRequest is the request payload for submitting a vote

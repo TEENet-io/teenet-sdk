@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -15,6 +15,7 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -32,6 +33,17 @@ var (
 	appID        string
 	consensusURL string
 )
+
+func getPrimaryKeyName() (string, error) {
+	keys, err := sdkClient.GetPublicKeys()
+	if err != nil {
+		return "", err
+	}
+	if len(keys) == 0 {
+		return "", fmt.Errorf("no bound public keys found")
+	}
+	return keys[0].Name, nil
+}
 
 func main() {
 	// Setup logging to file
@@ -170,10 +182,17 @@ func handleSign(c *gin.Context) {
 	hashedMessage := keccak256Hash(messageBytes)
 	log.Printf("🔐 [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
-	// Call SDK Sign method - this will handle signing based on app configuration
-	// For direct signing apps, it signs immediately
-	// For voting apps, it goes through voting process
-	result, err := sdkClient.Sign(hashedMessage)
+	keyName, err := getPrimaryKeyName()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, SignResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	// Call SDK Sign method - single signing interface for both direct and voting apps.
+	result, err := sdkClient.Sign(hashedMessage, keyName)
 	if err != nil {
 		log.Printf("❌ [%s] Sign failed: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, SignResponse{
@@ -196,13 +215,18 @@ func handleSign(c *gin.Context) {
 
 	// Return signature
 	signatureHex := hex.EncodeToString(result.Signature)
-	log.Printf("✅ [%s] Sign succeeded: %s...", appID[:8], signatureHex[:16])
+	shortSig := signatureHex
+	if len(shortSig) > 16 {
+		shortSig = shortSig[:16]
+	}
+	log.Printf("✅ [%s] Sign succeeded: %s...", appID[:8], shortSig)
 
 	c.JSON(http.StatusOK, SignResponse{
 		Success:       true,
 		AppInstanceID: appID,
 		Message:       req.Message,
 		Signature:     signatureHex,
+		VotingInfo:    result.VotingInfo,
 	})
 }
 
@@ -232,9 +256,18 @@ func handleVote(c *gin.Context) {
 	hashedMessage := keccak256Hash(messageBytes)
 	log.Printf("🗳️  [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
+	keyName, err := getPrimaryKeyName()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, VoteResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+		return
+	}
+
 	// Call SDK Sign method - this will handle voting automatically
-	// The SDK creates a callback server and waits for results
-	result, err := sdkClient.Sign(hashedMessage)
+	// with internal status polling until final result.
+	result, err := sdkClient.Sign(hashedMessage, keyName)
 	if err != nil {
 		log.Printf("❌ [%s] Vote failed: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, VoteResponse{
@@ -258,16 +291,9 @@ func handleVote(c *gin.Context) {
 	} else {
 		response.Message = "Vote submitted successfully"
 
-		// If we have a signature, include it
-		if len(result.Signature) > 0 {
-			response.Signature = hex.EncodeToString(result.Signature)
-			log.Printf("✅ [%s] Vote succeeded with signature: %s...", appID[:8], response.Signature[:16])
-		} else if result.VotingInfo != nil {
-			log.Printf("⏳ [%s] Vote submitted, waiting for threshold (%d/%d)",
-				appID[:8],
-				result.VotingInfo.CurrentVotes,
-				result.VotingInfo.RequiredVotes)
-		}
+		// Sign() now returns finalized result for voting flows.
+		response.Signature = hex.EncodeToString(result.Signature)
+		log.Printf("✅ [%s] Vote succeeded with signature: %s...", appID[:8], response.Signature[:16])
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -310,19 +336,29 @@ func handleVerify(c *gin.Context) {
 	hashedMessage := keccak256Hash(messageBytes)
 	log.Printf("🔍 [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
-	// Get public key for this app
-	publicKey, protocol, curve, err := sdkClient.GetPublicKey()
+	// Get bound public keys for this app
+	keys, err := sdkClient.GetPublicKeys()
 	if err != nil {
-		log.Printf("❌ [%s] Failed to get public key: %v", appID[:8], err)
+		log.Printf("❌ [%s] Failed to get public keys: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, VerifyResponse{
 			Success: false,
-			Error:   "Failed to get public key: " + err.Error(),
+			Error:   "Failed to get public keys: " + err.Error(),
 		})
 		return
 	}
-
-	// Verify the signature using the SDK
-	valid, err := sdkClient.Verify(hashedMessage, signatureBytes)
+	if len(keys) == 0 {
+		c.JSON(http.StatusBadRequest, VerifyResponse{
+			Success: false,
+			Error:   "No bound public keys found",
+		})
+		return
+	}
+	selected := keys[0]
+	publicKey := selected.KeyData
+	protocol := selected.Protocol
+	curve := selected.Curve
+	// Verify the signature using selected key name
+	valid, err := sdkClient.Verify(hashedMessage, signatureBytes, selected.Name)
 	if err != nil {
 		log.Printf("❌ [%s] Verification error: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, VerifyResponse{

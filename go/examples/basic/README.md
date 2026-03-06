@@ -84,17 +84,21 @@ Configuration is hardcoded in the source files. Edit `main.go` to customize:
 
 ### Get Public Key
 ```go
-publicKey, protocol, curve, err := client.GetPublicKey()
+keys, err := client.GetPublicKeys()
 ```
 
 ### Sign Message
 ```go
-result, err := client.Sign([]byte("message"))
+result, err := client.Sign([]byte("message"), "my-key")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Signature: %x\n", result.Signature)
 ```
 
 ### Verify Signature
 ```go
-valid, err := client.Verify(message, signature)
+valid, err := client.Verify(message, signature, "my-key")
 ```
 
 ## More Examples

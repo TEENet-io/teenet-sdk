@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.10
 
 require (
-	github.com/TEENet-io/teenet-sdk/go v0.0.0-20251230101753-31ad8d0598e4
+	github.com/TEENet-io/teenet-sdk/go v0.0.0-20260305083800-58b3b9a7e070
 	github.com/gin-gonic/gin v1.11.0
 	golang.org/x/crypto v0.45.0
 )

@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -40,6 +40,10 @@ func main() {
 
 	// Use first voter's app_id as target (for signing after threshold)
 	targetAppID := voterAppIDs[0]
+	publicKeyName := os.Getenv("PUBLIC_KEY_NAME")
+	if publicKeyName == "" {
+		log.Fatal("PUBLIC_KEY_NAME environment variable is required")
+	}
 
 	consensusURL := os.Getenv("CONSENSUS_URL")
 	if consensusURL == "" {
@@ -63,7 +67,7 @@ func main() {
 			client := sdk.NewClient(consensusURL)
 			client.SetDefaultAppID(voterAppID) // Each voter uses their own app_id
 
-			result, err := client.Sign(message)
+			result, err := client.Sign(message, publicKeyName)
 
 			if err != nil {
 				fmt.Printf("❌ Vote %d failed: %v\n\n", voteNum, err)

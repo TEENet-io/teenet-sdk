@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -58,15 +58,23 @@ func main() {
 	client.SetDefaultAppID(appID)
 
 	// Get public key information
-	fmt.Println("1. Get Public Key")
+	fmt.Println("1. Get Public Keys")
 	fmt.Println("-----------------")
-	pubKey, protocol, curve, err := client.GetPublicKey()
+	keys, err := client.GetPublicKeys()
 	if err != nil {
-		log.Fatalf("Failed to get public key: %v", err)
+		log.Fatalf("Failed to get public keys: %v", err)
 	}
+	if len(keys) == 0 {
+		log.Fatalf("No bound public keys found")
+	}
+	selectedKey := keys[0]
+	pubKey := selectedKey.KeyData
+	protocol := selectedKey.Protocol
+	curve := selectedKey.Curve
 	fmt.Printf("Public Key: %s\n", pubKey)
 	fmt.Printf("Protocol: %s\n", protocol)
 	fmt.Printf("Curve: %s\n\n", curve)
+	keyName := selectedKey.Name
 
 	// Sign a message
 	fmt.Println("2. Sign Message")
@@ -75,7 +83,7 @@ func main() {
 	fmt.Printf("Message: %s\n", string(message))
 
 	hashedMessage := crypto.Keccak256(message)
-	result, err := client.Sign(hashedMessage)
+	result, err := client.Sign(hashedMessage, keyName)
 	if err != nil {
 		log.Fatalf("Failed to sign message: %v", err)
 	}
@@ -96,7 +104,7 @@ func main() {
 	// Verify the signature
 	fmt.Println("3. Verify Signature")
 	fmt.Println("-------------------")
-	valid, err := client.Verify(message, result.Signature)
+	valid, err := client.Verify(message, result.Signature, keyName)
 	if err != nil {
 		log.Fatalf("Failed to verify signature: %v", err)
 	}

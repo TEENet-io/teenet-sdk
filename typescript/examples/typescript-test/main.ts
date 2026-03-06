@@ -105,20 +105,24 @@ async function testSignAndVerify(serverURL: string, appID: string): Promise<void
   try {
     const message = Buffer.from('Hello, TEENet! This is a test message.');
 
-    // Get public key
-    const keyInfo = await client.getPublicKey();
-    console.log(`   Public Key: ${keyInfo.publicKey.slice(0, 16)}...${keyInfo.publicKey.slice(-8)}`);
+    // Get public keys
+    const keys = await client.getPublicKeys();
+    if (!keys.length) {
+      throw new Error('No bound public keys found');
+    }
+    const keyInfo = keys[0];
+    console.log(`   Public Key: ${keyInfo.keyData.slice(0, 16)}...${keyInfo.keyData.slice(-8)}`);
     console.log(`   Protocol: ${keyInfo.protocol}, Curve: ${keyInfo.curve}`);
 
     // Sign
-    const result = await client.sign(message);
+    const result = await client.sign(message, keyInfo.name);
     if (!result.success) {
       throw new Error(`sign returned failure: ${result.error}`);
     }
     console.log(`   Signature: ${result.signature.toString('hex').slice(0, 16)}... (${result.signature.length} bytes)`);
 
     // Verify
-    const valid = await client.verify(message, result.signature);
+    const valid = await client.verify(message, result.signature, keyInfo.name);
     if (!valid) {
       throw new Error('signature verification failed');
     }
@@ -155,16 +159,15 @@ async function testKeyGeneration(serverURL: string): Promise<void> {
       console.log(`   ${kc.name}: ID=${result.publicKey.id}, Key=${result.publicKey.keyData.slice(0, 16)}...${result.publicKey.keyData.slice(-8)}`);
 
       // Test signing with generated key
-      const pubKeyBytes = Buffer.from(result.publicKey.keyData, 'hex');
       const message = Buffer.from('Test message for generated key');
-      const signResult = await client.sign(message, pubKeyBytes);
+      const signResult = await client.sign(message, result.publicKey.name);
 
       if (!signResult.success) {
         throw new Error(`sign with ${kc.name} key returned failure: ${signResult.error}`);
       }
 
       // Verify the signature
-      const valid = client.verifyWithPublicKey(message, signResult.signature, pubKeyBytes, kc.protocol, kc.curve);
+      const valid = await client.verify(message, signResult.signature, result.publicKey.name);
       if (!valid) {
         throw new Error(`${kc.name} signature verification failed`);
       }

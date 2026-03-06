@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 //
 // This software and its associated documentation files (the "Software") are
 // the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
@@ -48,8 +48,8 @@ func main() {
 	// Create SDK client with extended timeout for key generation
 	// ECDSA key generation requires multi-party DKG which can take 1-2 minutes
 	opts := &sdk.ClientOptions{
-		RequestTimeout:  120 * time.Second, // 2 minutes for key generation
-		CallbackTimeout: 180 * time.Second, // 3 minutes for callbacks
+		RequestTimeout:     120 * time.Second, // 2 minutes for key generation
+		PendingWaitTimeout: 15 * time.Second,  // wait for voting completion in sign flow
 	}
 	client := sdk.NewClientWithOptions(consensusURL, opts)
 	defer client.Close()
@@ -106,10 +106,10 @@ func main() {
 	fmt.Println("🔐 Schnorr Signature Test (ED25519)")
 	fmt.Println(repeat("=", 70))
 
-	schnorrPubKey := hexToBytes(schnorrResult.PublicKey.KeyData)
+	schnorrKeyName := schnorrResult.PublicKey.Name
 
 	fmt.Println("\n📝 Signing with Schnorr key...")
-	schnorrSig, err := client.Sign(message, schnorrPubKey)
+	schnorrSig, err := client.Sign(message, schnorrKeyName)
 	if err != nil {
 		fmt.Printf("❌ Schnorr signing failed: %v\n", err)
 	} else if !schnorrSig.Success {
@@ -121,7 +121,7 @@ func main() {
 
 		// Verify Schnorr signature using SDK
 		fmt.Println("\n🔍 Verifying Schnorr signature...")
-		valid, err := client.VerifyWithPublicKey(message, schnorrSig.Signature, schnorrPubKey, sdk.ProtocolSchnorr, sdk.CurveED25519)
+		valid, err := client.Verify(message, schnorrSig.Signature, schnorrKeyName)
 		if err != nil {
 			fmt.Printf("❌ Schnorr signature verification error: %v\n", err)
 		} else if valid {
@@ -138,10 +138,10 @@ func main() {
 	fmt.Println("🔐 ECDSA Signature Test (secp256k1)")
 	fmt.Println(repeat("=", 70))
 
-	ecdsaPubKey := hexToBytes(ecdsaResult.PublicKey.KeyData)
+	ecdsaKeyName := ecdsaResult.PublicKey.Name
 
 	fmt.Println("\n📝 Signing with ECDSA key...")
-	ecdsaSig, err := client.Sign(message, ecdsaPubKey)
+	ecdsaSig, err := client.Sign(message, ecdsaKeyName)
 	if err != nil {
 		fmt.Printf("❌ ECDSA signing failed: %v\n", err)
 	} else if !ecdsaSig.Success {
@@ -153,7 +153,7 @@ func main() {
 
 		// Verify ECDSA signature using SDK
 		fmt.Println("\n🔍 Verifying ECDSA signature...")
-		valid, err := client.VerifyWithPublicKey(message, ecdsaSig.Signature, ecdsaPubKey, sdk.ProtocolECDSA, sdk.CurveSECP256K1)
+		valid, err := client.Verify(message, ecdsaSig.Signature, ecdsaKeyName)
 		if err != nil {
 			fmt.Printf("❌ ECDSA signature verification error: %v\n", err)
 		} else if valid {
@@ -178,7 +178,7 @@ func main() {
 
 	// Save the current app's key info
 	firstAppID := client.GetDefaultAppID()
-	firstAppKey := hexToBytes(schnorrResult.PublicKey.KeyData)
+	firstAppKeyName := schnorrResult.PublicKey.Name
 
 	fmt.Printf("\n📋 Original App ID: %s\n", firstAppID)
 	fmt.Printf("   Key ID: %d\n", schnorrResult.PublicKey.ID)
@@ -198,7 +198,7 @@ func main() {
 	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
 
 	testMessage := []byte("Cross-app signing test message")
-	crossAppSig, err := client.Sign(testMessage, firstAppKey)
+	crossAppSig, err := client.Sign(testMessage, firstAppKeyName)
 
 	if err != nil {
 		fmt.Printf("❌ Cross-app signing FAILED (Error): %v\n", err)
@@ -225,13 +225,7 @@ func main() {
 		fmt.Printf("   Signature length: %d bytes\n", len(crossAppSig.Signature))
 
 		// Verify the signature
-		valid, err := client.VerifyWithPublicKey(
-			testMessage,
-			crossAppSig.Signature,
-			firstAppKey,
-			sdk.ProtocolSchnorr,
-			sdk.CurveED25519,
-		)
+		valid, err := client.Verify(testMessage, crossAppSig.Signature, firstAppKeyName)
 
 		if err != nil {
 			fmt.Printf("❌ Verification error: %v\n", err)
@@ -261,7 +255,7 @@ func main() {
 	fmt.Printf("\n🔄 Switching to third App ID: %s\n", thirdAppID)
 	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
 
-	crossAppSig3, err := client.Sign(testMessage, firstAppKey)
+	crossAppSig3, err := client.Sign(testMessage, firstAppKeyName)
 
 	if err != nil {
 		fmt.Printf("❌ Cross-app signing FAILED (Error): %v\n", err)
@@ -288,13 +282,7 @@ func main() {
 		fmt.Printf("   Signature length: %d bytes\n", len(crossAppSig3.Signature))
 
 		// Verify the signature
-		valid, err := client.VerifyWithPublicKey(
-			testMessage,
-			crossAppSig3.Signature,
-			firstAppKey,
-			sdk.ProtocolSchnorr,
-			sdk.CurveED25519,
-		)
+		valid, err := client.Verify(testMessage, crossAppSig3.Signature, firstAppKeyName)
 
 		if err != nil {
 			fmt.Printf("❌ Verification error: %v\n", err)
@@ -338,20 +326,6 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
-}
-
-// hexToBytes converts hex string to bytes
-func hexToBytes(hexStr string) []byte {
-	// Remove 0x prefix if present
-	if len(hexStr) > 2 && hexStr[:2] == "0x" {
-		hexStr = hexStr[2:]
-	}
-
-	bytes := make([]byte, len(hexStr)/2)
-	for i := 0; i < len(bytes); i++ {
-		fmt.Sscanf(hexStr[i*2:i*2+2], "%02x", &bytes[i])
-	}
-	return bytes
 }
 
 // min returns the minimum of two integers

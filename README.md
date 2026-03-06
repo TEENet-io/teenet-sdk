@@ -5,7 +5,7 @@ A simplified Go SDK for TEE-DAO key management operations using the consensus se
 ## Features
 
 - **Transparent Voting**: Automatically handles M-of-N threshold voting without manual coordination
-- **Simple API**: Clean interface similar to teenet-sdk with Sign(), Verify(), and GetPublicKey()
+- **Simple API**: Clean interface with Sign(), Verify(), and GetPublicKeys()
 - **Polling-Based Completion**: Pending voting is finalized inside `Sign()` via status polling
 - **Signature Verification**: Offline verification supporting multiple protocols (ECDSA, Schnorr) and curves (ED25519, SECP256K1, SECP256R1)
 - **HTTP-based**: No TLS/gRPC complexity, simple REST API communication
@@ -38,7 +38,7 @@ client.SetDefaultAppIDFromEnv() // Reads from APP_INSTANCE_ID environment variab
 message := []byte("Hello, TEENet!")
 
 // Sign the message (handles both direct signing and voting automatically)
-result, err := client.Sign(message)
+result, err := client.Sign(message, "my-key")
 if err != nil {
     log.Fatalf("Signing failed: %v", err)
 }
@@ -63,8 +63,8 @@ if result.Success {
 message := []byte("Hello, TEENet!")
 signature := result.Signature
 
-// Verify signature (automatically fetches public key)
-valid, err := client.Verify(message, signature)
+// Verify signature with bound key name
+valid, err := client.Verify(message, signature, "my-key")
 if err != nil {
     log.Fatalf("Verification failed: %v", err)
 }
@@ -72,16 +72,16 @@ if err != nil {
 fmt.Printf("Signature valid: %v\n", valid)
 ```
 
-### 4. Get Public Key
+### 4. Get Bound Public Keys
 
 ```go
-publicKey, protocol, curve, err := client.GetPublicKey()
+keys, err := client.GetPublicKeys()
 if err != nil {
-    log.Fatalf("Failed to get public key: %v", err)
+    log.Fatalf("Failed to get public keys: %v", err)
 }
-
-fmt.Printf("Public Key: %s\n", publicKey)
-fmt.Printf("Protocol: %s, Curve: %s\n", protocol, curve)
+for _, key := range keys {
+    fmt.Printf("Name=%s Protocol=%s Curve=%s\n", key.Name, key.Protocol, key.Curve)
+}
 ```
 
 ## How It Works
@@ -152,7 +152,7 @@ Sets the default App ID for signing operations.
 #### `SetDefaultAppIDFromEnv() error`
 Loads default App ID from `APP_INSTANCE_ID` environment variable.
 
-#### `Sign(message []byte, publicKey ...[]byte) (*SignResult, error)`
+#### `Sign(message []byte, publicKeyName string) (*SignResult, error)`
 Signs a message. Automatically handles both direct signing and voting modes.
 
 **Returns:**
@@ -162,11 +162,11 @@ Signs a message. Automatically handles both direct signing and voting modes.
 #### `GetStatus(hash string) (*VoteStatus, error)`
 Retrieves voting status for a specific hash.
 
-#### `Verify(message []byte, signature []byte) (bool, error)`
-Verifies a signature against the message. Automatically fetches public key.
+#### `Verify(message []byte, signature []byte, publicKeyName string) (bool, error)`
+Verifies a signature against the message using a bound key name.
 
-#### `GetPublicKey() (publicKey, protocol, curve string, err error)`
-Retrieves public key information for the default App ID.
+#### `GetPublicKeys() ([]PublicKeyMeta, error)`
+Retrieves all bound public keys for the default App ID.
 
 #### `Close() error`
 Closes the client and releases resources.
@@ -245,7 +245,7 @@ func main() {
 
     // Sign message
     message := []byte("Important transaction data")
-    result, err := client.Sign(message)
+    result, err := client.Sign(message, "my-key")
     if err != nil {
         log.Fatalf("Sign error: %v", err)
     }
@@ -258,7 +258,7 @@ func main() {
     fmt.Printf("Signature: %x\n", result.Signature)
 
     // Verify signature
-    valid, err := client.Verify(message, result.Signature)
+    valid, err := client.Verify(message, result.Signature, "my-key")
     if err != nil {
         log.Fatalf("Verify error: %v", err)
     }
@@ -297,7 +297,7 @@ func main() {
         client1.SetDefaultAppID("voter-app-1")
         defer client1.Close()
 
-        result, err := client1.Sign(message)
+        result, err := client1.Sign(message, "my-key")
         if err != nil {
             log.Printf("App 1 error: %v", err)
             return
@@ -314,7 +314,7 @@ func main() {
         client2.SetDefaultAppID("voter-app-2")
         defer client2.Close()
 
-        result, err := client2.Sign(message)
+        result, err := client2.Sign(message, "my-key")
         if err != nil {
             log.Printf("App 2 error: %v", err)
             return
@@ -331,7 +331,7 @@ func main() {
         client3.SetDefaultAppID("voter-app-3")
         defer client3.Close()
 
-        result, err := client3.Sign(message)
+        result, err := client3.Sign(message, "my-key")
         if err != nil {
             log.Printf("App 3 error: %v", err)
             return
@@ -412,7 +412,7 @@ func main() {
 ### Error Response Structure
 
 ```go
-result, err := client.Sign(message)
+result, err := client.Sign(message, "my-key")
 if err != nil {
     // Network or system error
     log.Printf("System error: %v", err)

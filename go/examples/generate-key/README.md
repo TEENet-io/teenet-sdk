@@ -87,16 +87,8 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Option 1: Sign with the generated key by passing public key bytes
-pubKeyBytes, _ := hex.DecodeString(strings.TrimPrefix(keyResult.PublicKey.KeyData, "0x"))
-signResult, err := client.Sign([]byte("message to sign"), pubKeyBytes)
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Printf("Signature: %x\n", signResult.Signature)
-
-// Option 2: Sign with default key (if no options provided)
-signResult, err := client.Sign([]byte("message to sign"))
+// Sign with generated key name
+signResult, err := client.Sign([]byte("message to sign"), keyResult.PublicKey.Name)
 if err != nil {
     log.Fatal(err)
 }

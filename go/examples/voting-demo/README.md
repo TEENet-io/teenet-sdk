@@ -4,7 +4,7 @@ A simple web application demonstrating Mode 1 passive voting with the app-comm-c
 
 ## Overview
 
-This application showcases how multiple independent app instances can participate in distributed voting for message signing. Each instance represents a single voter, and when the voting threshold is reached, all participants receive the signature through the SDK's callback mechanism.
+This application showcases how multiple independent app instances can participate in distributed voting for message signing. Each instance represents a single voter, and when the voting threshold is reached, participants can obtain the final signature through SDK polling.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Consensus Server (collects votes)
 Instance 2 (voter2_app_id:8082)
     ↑ Vote submitted (2/2 - threshold met!)
     ↓
-Both instances receive signature via callback
+Both instances can query/fetch the final signature
 ```
 
 ## Quick Start
@@ -81,7 +81,7 @@ go run .
    - Status: "已投票 2/2" (Voted 2/2)
 
 3. **Result**: Both browser tabs will display the signature!
-   - Instance 1: Shows signature (via callback)
+   - Instance 1: Shows signature (after polling returns signed)
    - Instance 2: Shows signature (immediate response)
 
 ## Environment Variables
@@ -236,7 +236,7 @@ voting-demo/
 
 - ✅ **Single Vote Button**: Each instance has one button representing itself
 - ✅ **Real-time Status**: Display app status and voting progress
-- ✅ **Callback Support**: Receive signature via SDK callback mechanism
+- ✅ **Polling-Based Completion**: SDK waits/polls until signature is finalized
 - ✅ **API Key Operations**: Retrieve API keys and sign with API secrets
 - ✅ **Responsive UI**: Clean, mobile-friendly interface
 - ✅ **Error Handling**: Clear error messages and validation
@@ -314,20 +314,18 @@ voting-demo/
 ## Integration with App-Comm-Consensus
 
 This demo uses the app-comm-consensus SDK's `Sign()` method, which:
-1. Creates a temporary HTTP callback server
-2. Submits vote request to consensus server
-3. Waits for callback (if voting required)
-4. Returns signature when threshold met
+1. Submits vote request to consensus server
+2. Polls voting status while pending
+3. Returns signature when threshold met (or timeout/failed)
 
 The consensus server:
 - Collects votes from multiple app instances
 - Tracks voting progress
 - Triggers signing when threshold reached
-- Sends callbacks to all voters
 
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 
 ## Support
 

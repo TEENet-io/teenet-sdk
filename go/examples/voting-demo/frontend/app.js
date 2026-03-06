@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited. All Rights Reserved.
+// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
 // -----------------------------------------------------------------------------
 
 // Toast notification system
@@ -124,6 +124,20 @@ async function directSign() {
         const result = await response.json();
 
         if (result.success) {
+            if (result.voting_info && result.voting_info.status === 'pending') {
+                const votingInfo = result.voting_info;
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <h3>⏳ Pending Approval</h3>
+                    <p class="success-message">Waiting for other voters...</p>
+                    <div class="voting-details">
+                        <p><strong>Progress:</strong> ${votingInfo.current_votes}/${votingInfo.required_votes}</p>
+                        <p><strong>Hash:</strong> <code>${votingInfo.hash}</code></p>
+                    </div>
+                `;
+                return;
+            }
+
             resultDiv.className = 'result success';
             resultDiv.innerHTML = `
                 <h3>✅ Signature Generated</h3>

@@ -11,7 +11,6 @@
 //
 // -----------------------------------------------------------------------------
 
-
 // Test forwarding with voting
 package main
 
@@ -26,6 +25,13 @@ import (
 	sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
+func shortPrefix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
 func main() {
 	// Get voter app IDs from environment
 	// Example: export VOTER_APP_IDS="app-id-1,app-id-2"
@@ -37,6 +43,11 @@ func main() {
 	voterAppIDs := strings.Split(voterAppIDsEnv, ",")
 	if len(voterAppIDs) < 2 {
 		log.Fatal("At least 2 voter app IDs are required")
+	}
+
+	publicKeyName := os.Getenv("PUBLIC_KEY_NAME")
+	if publicKeyName == "" {
+		log.Fatal("PUBLIC_KEY_NAME environment variable is required")
 	}
 
 	// Get consensus URLs from environment
@@ -62,12 +73,12 @@ func main() {
 		go func(voteNum int, voterAppID string, url string) {
 			defer wg.Done()
 
-			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum+1, voterAppID[:8])
+			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum+1, shortPrefix(voterAppID, 8))
 
 			client := sdk.NewClient(url)
 			client.SetDefaultAppID(voterAppID)
 
-			result, err := client.Sign(message)
+			result, err := client.Sign(message, publicKeyName)
 
 			if err != nil {
 				fmt.Printf("❌ Vote %d failed: %v\n\n", voteNum+1, err)
@@ -84,7 +95,7 @@ func main() {
 						result.VotingInfo.Status)
 				}
 				if len(result.Signature) > 0 {
-					fmt.Printf("   🎉 Got signature: %x...\n", result.Signature[:16])
+					fmt.Printf("   🎉 Got signature: %x...\n", result.Signature[:min(len(result.Signature), 16)])
 				}
 				fmt.Println()
 			} else {
@@ -98,4 +109,11 @@ func main() {
 	wg.Wait()
 
 	fmt.Println("✅ Forwarding test completed")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

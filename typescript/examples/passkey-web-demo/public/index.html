@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Passkey Approval Web Demo</title>
+  <style>
+    :root {
+      --bg-0: #f3f6ff;
+      --bg-1: #e8f1ff;
+      --text-1: #15233b;
+      --text-2: #4a5f86;
+      --line: #d7e2f5;
+      --card: rgba(255, 255, 255, 0.9);
+      --accent: #1f6fff;
+      --accent-2: #1452c8;
+      --ok: #0f9960;
+      --shadow: 0 14px 34px rgba(26, 53, 112, 0.12);
+      --radius: 16px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text-1);
+      font-family: "Space Grotesk", "Manrope", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(72, 150, 255, 0.26), transparent 36%),
+        radial-gradient(circle at 90% 15%, rgba(75, 203, 176, 0.24), transparent 34%),
+        linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1120px; margin: 30px auto 42px; padding: 0 16px; }
+    h1 { margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; }
+    .sub { margin: 8px 0 10px; color: var(--text-2); font-size: 13px; }
+    .action-notice { margin: 0 0 14px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #fff; color: var(--text-2); font-size: 13px; }
+    .action-notice.ok { border-color: rgba(15, 153, 96, 0.35); background: rgba(15, 153, 96, 0.08); color: #0b7a4c; }
+    .action-notice.fail { border-color: rgba(217, 55, 80, 0.35); background: rgba(217, 55, 80, 0.08); color: #a1263b; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(6px);
+    }
+    .card h2 { margin: 0 0 10px; font-size: 16px; }
+    .card-sign-query { grid-column: 1 / -1; }
+    label { display: block; margin: 8px 0 5px; font-size: 12px; color: var(--text-2); font-weight: 700; letter-spacing: 0.01em; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 10px 12px;
+      font-size: 14px;
+      color: var(--text-1);
+      background: #fff;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(31,111,255,.16);
+    }
+    textarea { min-height: 94px; resize: vertical; font-family: var(--mono); }
+    button {
+      width: 100%;
+      border: none;
+      border-radius: 11px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      cursor: pointer;
+      margin-top: 10px;
+      background: linear-gradient(135deg, var(--accent), #2a86ff);
+      box-shadow: 0 9px 20px rgba(31,111,255,.22);
+      transition: transform .14s ease, box-shadow .2s ease, opacity .2s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 14px 24px rgba(31,111,255,.26); }
+    button:active { transform: translateY(0); }
+    button + button { margin-top: 8px; background: linear-gradient(135deg, #4a607f, #6e84a8); box-shadow: 0 8px 18px rgba(74,96,127,.24); }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      font-family: var(--mono);
+      background: #0f172a;
+      color: #d6e4ff;
+      border-radius: 12px;
+      padding: 12px;
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid rgba(170, 196, 246, 0.24);
+    }
+    .hint { font-size: 12px; color: var(--text-2); margin: 4px 0 0; }
+    .pending-list, .mini-list { margin-top: 10px; display: grid; gap: 9px; max-height: 240px; overflow: auto; }
+    .pending-item, .mini-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      font-size: 12px;
+      cursor: pointer;
+      transition: border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+    }
+    .pending-item:hover, .mini-item:hover { border-color: #b6cbef; transform: translateY(-1px); }
+    .pending-item.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(19,102,214,0.14); }
+    .pending-item b, .mini-item b { color: #1e3a67; }
+    .pending-empty { font-size: 12px; color: #6c7a95; }
+    .mini-result { margin-top: 10px; max-height: 180px; }
+    #myRequestsList { max-height: 180px; }
+    .hidden { display: none !important; }
+    .query-layout { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+    .query-panel { border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #ffffff, #f7faff); padding: 10px; min-width: 0; }
+    .query-panel h3 { margin: 0 0 8px; font-size: 13px; color: #23406c; }
+    .query-panel .hint { margin-bottom: 6px; }
+    .sign-card { margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 10px; }
+    .kv-grid { display: grid; gap: 8px; min-width: 0; }
+    .kv-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; align-items: start; }
+    .kv-k { font-size: 12px; color: var(--text-2); font-weight: 700; }
+    .kv-v { font-size: 12px; color: var(--text-1); word-break: break-word; overflow-wrap: anywhere; font-family: var(--mono); min-width: 0; }
+    .kv-v.badge { display: inline-block; width: fit-content; padding: 2px 8px; border-radius: 999px; font-family: inherit; font-weight: 700; }
+    .badge.ok { background: rgba(15, 153, 96, 0.14); color: #0b7a4c; }
+    .badge.fail { background: rgba(217, 55, 80, 0.14); color: #a1263b; }
+    .op-msg { min-height: 18px; margin-top: 6px; font-size: 12px; color: #6c7a95; }
+    .op-msg.ok { color: #0b7a4c; }
+    .op-msg.fail { color: #a1263b; }
+    @media (max-width: 720px) {
+      .wrap { margin-top: 18px; }
+      h1 { font-size: 24px; }
+      .grid { grid-template-columns: 1fr; gap: 12px; }
+      .card { padding: 12px; border-radius: 14px; }
+      .query-layout { grid-template-columns: 1fr; }
+      .kv-row { grid-template-columns: 1fr; gap: 4px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Passkey Approval Web Demo</h1>
+  <p class="sub">Initiator uses Sign (auto approval init); approver handles pending/confirm/action</p>
+  <div class="grid">
+    <section class="card">
+      <h2>1) Passkey Login</h2>
+      <button id="btnLogin">Passkey Login</button>
+      <div id="msgLogin" class="op-msg"></div>
+      <p class="hint">Automatically runs options -> navigator.credentials.get -> verify</p>
+      <label>Current user</label>
+      <input id="loginUserName" readonly placeholder="Not logged in" />
+    </section>
+
+    <section class="card">
+      <h2>2) Initiate By Sign</h2>
+      <label>public_key_name</label>
+      <input id="signPublicKeyName" placeholder="e.g. my-key" />
+      <label>payload(JSON or plain text)</label>
+      <textarea id="signPayload">{"to":"0x1234","amount":"1"}</textarea>
+      <button id="btnSign">Sign (Auto Init Approval)</button>
+      <div id="msgSign" class="op-msg"></div>
+      <label>request_id</label>
+      <input id="requestId" />
+      <label>tx_id</label>
+      <input id="txId" readonly />
+    </section>
+
+    <section class="card">
+      <h2>3) Pending List</h2>
+      <label>app_instance_id (optional)</label>
+      <input id="pendingAppInstanceId" placeholder="e.g. app-demo-001" />
+      <label>public_key_name (optional, with app_instance_id)</label>
+      <input id="pendingPublicKeyName" placeholder="e.g. pk-alpha" />
+      <button id="btnPending">Get Pending</button>
+      <div id="msgPending" class="op-msg"></div>
+      <p class="hint">Requires login token</p>
+      <div id="pendingList" class="pending-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>4) Request Confirm</h2>
+      <button id="btnConfirm">Challenge + Confirm</button>
+      <div id="msgConfirm" class="op-msg"></div>
+      <p class="hint">Automatically runs challenge -> navigator.credentials.get -> confirm</p>
+      <label>task_id</label>
+      <input id="taskId" />
+    </section>
+
+    <section class="card">
+      <h2>5) Task Action</h2>
+      <label>action</label>
+      <input id="action" value="APPROVE" />
+      <button id="btnAction">Challenge + Action</button>
+      <div id="msgAction" class="op-msg"></div>
+      <p class="hint">Automatically runs challenge -> navigator.credentials.get -> action</p>
+    </section>
+
+    <section class="card card-sign-query">
+      <h2>6) Signature Query</h2>
+      <div class="query-layout">
+        <div class="query-panel">
+          <h3>My Initiated Requests (Batch)</h3>
+          <p class="hint">Fetch all requests first; click one to auto-fill tx_id</p>
+          <button id="btnMyRequests" type="button">Refresh My Requests</button>
+          <div id="msgMyRequests" class="op-msg"></div>
+          <div id="myRequestsList" class="mini-list"></div>
+        </div>
+        <div class="query-panel">
+          <h3>Query Signature by tx_id (Single)</h3>
+          <p class="hint">Initiator can query by tx_id directly; no need to wait for final approver to return hash</p>
+          <label>tx_id</label>
+          <input id="signTxId" placeholder="tx-..." />
+          <button id="btnQuerySign">Query Signature</button>
+          <div id="msgQuerySign" class="op-msg"></div>
+          <div id="signQueryResult" class="sign-card hidden"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Result</h2>
+      <pre id="result">ready</pre>
+    </section>
+  </div>
+</div>
+
+<script>
+  const el = (id) => document.getElementById(id);
+  const resultEl = el('result');
+  const pendingListEl = el('pendingList');
+  const signQueryResultEl = el('signQueryResult');
+  const myRequestsListEl = el('myRequestsList');
+  let selectedPendingTaskId = 0;
+
+  function show(v) {
+    resultEl.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+  }
+
+  function notify(type, text) {
+    if (!actionNoticeEl) return;
+    actionNoticeEl.classList.remove('ok', 'fail');
+    if (type === 'ok') actionNoticeEl.classList.add('ok');
+    if (type === 'fail') actionNoticeEl.classList.add('fail');
+    actionNoticeEl.textContent = text;
+  }
+
+  function notifyFromResponse(actionLabel, res, okMsg) {
+    if (res && res.success) {
+      notify('ok', okMsg || `${actionLabel} success`);
+      return;
+    }
+    const msg = (res && (res.error || res.message || res.data?.error)) ? (res.error || res.message || res.data?.error) : `${actionLabel} failed`;
+    notify('fail', `${actionLabel} failed: ${msg}`);
+  }
+
+  function setOpMsg(id, ok, text) {
+    const node = el(id);
+    if (!node) return;
+    node.classList.remove('ok', 'fail');
+    node.classList.add(ok ? 'ok' : 'fail');
+    node.textContent = text;
+  }
+
+  function showSignQuery(v) {
+    if (!signQueryResultEl) return;
+    const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const src = (v && typeof v === 'object' && v.data && typeof v.data === 'object') ? v.data : v;
+    const data = (src && typeof src === 'object') ? src : { result: src };
+    const status = String(data.status || data.error_message || '').toUpperCase();
+    const statusClass = status.includes('SIGNED') || status.includes('APPROVED') ? 'ok' : (status.includes('FAIL') || status.includes('ERROR') ? 'fail' : '');
+    const pretty = (x) => {
+      const raw = String(x || '').trim();
+      if (!raw) return '-';
+      if (raw === 'PENDING_CONFIRM') return 'PENDING_CONFIRM (awaiting confirm)';
+      if (raw === 'EXPIRED_CONFIRM') return 'EXPIRED_CONFIRM (request session expired)';
+      return raw;
+    };
+    const rows = [
+      ['request_id', data.request_id ?? '-'],
+      ['task_id', data.task_id ?? '-'],
+      ['tx_id', data.tx_id],
+      ['hash', data.hash],
+      ['status', pretty(data.status)],
+      ['sign_status', pretty(data.sign_status)],
+      ['found', typeof data.found === 'boolean' ? String(data.found) : '-'],
+      ['required_votes', data.required_votes ?? '-'],
+      ['signature', data.signature || '-'],
+      ['error', data.sign_error || data.error_message || data.error || '-'],
+    ];
+    signQueryResultEl.classList.remove('hidden');
+    signQueryResultEl.innerHTML = `<div class="kv-grid">${rows.map(([k, val]) => {
+      const value = (val === undefined || val === null || val === '') ? '-' : val;
+      const isStatus = k === 'status' && statusClass;
+      return `<div class="kv-row"><div class="kv-k">${esc(k)}</div><div class="kv-v${isStatus ? ` badge ${statusClass}` : ''}">${esc(value)}</div></div>`;
+    }).join('')}</div>`;
+  }
+
+  function selectPendingTask(taskId, txId) {
+    selectedPendingTaskId = Number(taskId || 0);
+    if (selectedPendingTaskId > 0) {
+      el('taskId').value = String(selectedPendingTaskId);
+    }
+    if (txId) {
+      if (el('txId')) el('txId').value = String(txId);
+      if (el('signTxId')) el('signTxId').value = String(txId);
+    }
+    pendingListEl.querySelectorAll('.pending-item').forEach((node) => {
+      node.classList.toggle('active', Number(node.getAttribute('data-task-id') || 0) === selectedPendingTaskId);
+    });
+  }
+
+  function renderPendingList(res) {
+    if (!pendingListEl) return;
+    const approvals = res && res.success && Array.isArray(res.data?.approvals) ? res.data.approvals : [];
+    const progressMap = (res && res.success && res.data && typeof res.data.level_progress === 'object') ? res.data.level_progress : {};
+    if (approvals.length === 0) {
+      pendingListEl.innerHTML = '<div class="pending-empty">No pending approvals</div>';
+      selectedPendingTaskId = 0;
+      return;
+    }
+    pendingListEl.innerHTML = approvals.map((a) => {
+      const taskId = Number(a.id || 0);
+      const active = taskId > 0 && taskId === selectedPendingTaskId ? 'active' : '';
+      const progress = progressMap && progressMap[String(taskId)] ? progressMap[String(taskId)] : {};
+      const approved = Number(progress.approved || 0);
+      const threshold = Number(progress.threshold || 0);
+      return `
+      <div class="pending-item ${active}" data-task-id="${taskId}" onclick="selectPendingTask(${taskId}, '${String(a.tx_id || '').replace(/'/g, "\'")}')">
+        <div><b>Task</b> #${a.id} <b>Status</b> ${a.status}</div>
+        <div><b>Progress</b> ${approved}/${threshold > 0 ? threshold : '-'}</div>
+        <div><b>Tx</b> ${a.tx_id}</div>
+        <div><b>App</b> ${a.application_name || a.app_name || a.application_id || '-'} <b>Key</b> ${a.public_key_name || a.key_name || a.public_key_id || '-'}</div>
+        <div><b>Initiator</b> ${a.requested_by_display_name || a.requested_by_name || a.requested_by_passkey_user_id || '-'} <b>Level</b> ${a.current_level}</div>
+        <div><b>Expire</b> ${a.expires_at}</div>
+      </div>
+    `;
+    }).join('');
+  }
+
+  function renderMyRequests(res) {
+    if (!myRequestsListEl) return;
+    const requests = Array.isArray(res?.data?.requests)
+      ? res.data.requests
+      : Array.isArray(res?.requests)
+        ? res.requests
+        : [];
+    if (requests.length === 0) {
+      myRequestsListEl.innerHTML = '<div class="pending-empty">No initiated requests</div>';
+      return;
+    }
+    const pretty = (v) => {
+      const raw = String(v || '').trim();
+      if (!raw) return '-';
+      if (raw === 'PENDING_CONFIRM') return 'PENDING_CONFIRM (awaiting confirm)';
+      if (raw === 'EXPIRED_CONFIRM') return 'EXPIRED_CONFIRM (request session expired)';
+      return raw;
+    };
+    myRequestsListEl.innerHTML = requests.map((r) => `
+      <div class="mini-item" onclick="selectMyRequest('${String(r.tx_id || "").replace(/'/g, "\'")}')">
+        <div><b>Tx</b> ${r.tx_id || '-'}</div>
+        <div><b>Request</b> ${r.request_id || r.id || '-'} <b>Task</b> ${r.task_id || '-'}</div>
+        <div><b>Status</b> ${pretty(r.status)} <b>Sign</b> ${pretty(r.sign_status)}</div>
+        <div><b>Created</b> ${r.created_at || '-'} <b>Updated</b> ${r.updated_at || '-'}</div>
+        <div><b>Hash</b> ${r.hash || '-'}</div>
+        <div><b>Signature</b> ${r.signature || '-'}</div>
+      </div>
+    `).join('');
+  }
+
+  function selectMyRequest(txId) {
+    if (!txId) return;
+    el('signTxId').value = String(txId);
+  }
+
+  function b64urlToBuffer(v) {
+    const pad = '='.repeat((4 - (v.length % 4)) % 4);
+    const b64 = (v + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out.buffer;
+  }
+
+  function bufferToB64url(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  function normalizeOptions(raw) {
+    const options = raw.publicKey ? raw : { publicKey: raw };
+    const pk = options.publicKey;
+    pk.challenge = b64urlToBuffer(pk.challenge);
+    if (typeof pk.user?.id === 'string') pk.user.id = b64urlToBuffer(pk.user.id);
+    if (Array.isArray(pk.allowCredentials)) {
+      pk.allowCredentials = pk.allowCredentials.map((c) => ({ ...c, id: b64urlToBuffer(c.id) }));
+    }
+    if (Array.isArray(pk.excludeCredentials)) {
+      pk.excludeCredentials = pk.excludeCredentials.map((c) => ({ ...c, id: b64urlToBuffer(c.id) }));
+    }
+    return options;
+  }
+
+  function credentialToJSON(cred) {
+    const response = {};
+    for (const k of ['clientDataJSON', 'authenticatorData', 'signature', 'userHandle', 'attestationObject']) {
+      if (cred.response && cred.response[k]) response[k] = bufferToB64url(cred.response[k]);
+    }
+    const out = {
+      id: cred.id,
+      rawId: bufferToB64url(cred.rawId),
+      type: cred.type,
+      response,
+    };
+    if (cred.getClientExtensionResults) {
+      out.clientExtensionResults = cred.getClientExtensionResults();
+    }
+    return out;
+  }
+
+  function getDemoSessionID() {
+    const key = 'passkey_demo_session_id';
+    let sid = sessionStorage.getItem(key);
+    if (!sid) {
+      sid = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      sessionStorage.setItem(key, sid);
+    }
+    return sid;
+  }
+
+  function getApiBasePath() {
+    const p = window.location.pathname || '/';
+    if (p === '/') return '';
+    const segs = p.split('/').filter(Boolean);
+    const last = segs.length > 0 ? segs[segs.length - 1] : '';
+    if (last.includes('.')) {
+      if (segs.length <= 1) return '/';
+      return `/${segs.slice(0, -1).join('/')}/`;
+    }
+    return p.endsWith('/') ? p : `${p}/`;
+  }
+
+  async function api(path, method = 'GET', body) {
+    const clean = String(path || '').replace(/^\/+/, '');
+    const base = getApiBasePath();
+    const url = `${base}${clean}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Demo-Session': getDemoSessionID(),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return res.json();
+  }
+
+  el('btnLogin').onclick = async () => {
+    try {
+      const optsRes = await api('/api/login/options');
+      if (!optsRes.success) throw new Error(optsRes.error || 'login options failed');
+      const sessionId = Number(optsRes.data.login_session_id);
+      const options = normalizeOptions(optsRes.data.options);
+      const cred = await navigator.credentials.get(options);
+      const verifyRes = await api('/api/login/verify', 'POST', {
+        login_session_id: sessionId,
+        credential: credentialToJSON(cred),
+      });
+      if (verifyRes?.success) {
+        const name = verifyRes?.data?.display_name || '';
+        const userId = verifyRes?.data?.passkey_user_id;
+        el('loginUserName').value = name ? `${name}${userId ? ` (#${userId})` : ''}` : (userId ? `#${userId}` : 'Logged in');
+      }
+      show(verifyRes);
+      if (verifyRes?.success) {
+        const who = el('loginUserName').value || 'Logged in';
+        setOpMsg('msgLogin', true, `Login successful: ${who}`);
+      } else {
+        setOpMsg('msgLogin', false, `Login failed: ${verifyRes?.error || verifyRes?.message || 'unknown error'}`);
+      }
+    } catch (e) {
+      show({ error: String(e) });
+      setOpMsg('msgLogin', false, `Login failed: ${String(e)}`);
+    }
+  };
+
+  el('btnSign').onclick = async () => {
+    try {
+      const publicKeyName = String(el('signPublicKeyName').value || '').trim();
+      if (!publicKeyName) throw new Error('public_key_name is required');
+      const raw = String(el('signPayload').value || '').trim();
+      if (!raw) throw new Error('payload is required');
+      let payload = raw;
+      try { payload = JSON.parse(raw); } catch (_) {}
+      const res = await api('/api/sign', 'POST', {
+        public_key_name: publicKeyName,
+        payload,
+      });
+      if (res.success && res.data?.request_id) {
+        el('requestId').value = String(res.data.request_id);
+      }
+      if (res.success && res.data?.tx_id) {
+        el('txId').value = String(res.data.tx_id);
+        el('signTxId').value = String(res.data.tx_id);
+      }
+      show(res);
+      if (res.success) {
+        setOpMsg('msgSign', true, `Sign submitted: status=${res?.data?.status || '-'} tx_id=${res?.data?.tx_id || '-'}`);
+      } else {
+        setOpMsg('msgSign', false, `Sign failed: ${res?.error || res?.message || 'unknown error'}`);
+      }
+    } catch (e) {
+      show({ error: String(e) });
+      setOpMsg('msgSign', false, `Sign failed: ${String(e)}`);
+    }
+  };
+
+  el('btnPending').onclick = async () => {
+    try {
+      const appInstanceId = String(el('pendingAppInstanceId')?.value || '').trim();
+      const publicKeyName = String(el('pendingPublicKeyName')?.value || '').trim();
+      const query = new URLSearchParams();
+      if (appInstanceId) {
+        query.set('app_instance_id', appInstanceId);
+      }
+      if (publicKeyName) {
+        query.set('public_key_name', publicKeyName);
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const res = await api(`/api/approvals/pending${suffix}`);
+      renderPendingList(res);
+      show(res);
+      const count = Array.isArray(res?.data?.approvals) ? res.data.approvals.length : 0;
+      if (res?.success) setOpMsg('msgPending', true, `Fetched: ${count} items`);
+      else setOpMsg('msgPending', false, `Fetch failed: ${res?.error || res?.message || 'unknown error'}`);
+    } catch (e) {
+      show({ error: String(e) });
+      setOpMsg('msgPending', false, `Fetch failed: ${String(e)}`);
+    }
+  };
+
+  el('btnConfirm').onclick = async () => {
+    try {
+      const requestId = Number(el('requestId').value);
+      const challengeRes = await api(`/api/approvals/request/${requestId}/challenge`);
+      if (!challengeRes.success) throw new Error(challengeRes.error || 'request challenge failed');
+      const options = normalizeOptions(challengeRes.data);
+      const cred = await navigator.credentials.get(options);
+      const confirmRes = await api(`/api/approvals/request/${requestId}/confirm`, 'POST', {
+        credential: credentialToJSON(cred),
+      });
+      if (confirmRes.success && confirmRes.data?.task_id) {
+        el('taskId').value = String(confirmRes.data.task_id);
+      }
+      show(confirmRes);
+      if (confirmRes.success) setOpMsg('msgConfirm', true, `Request confirmed: task_id=${confirmRes?.data?.task_id || '-'}`);
+      else setOpMsg('msgConfirm', false, `Confirm failed: ${confirmRes?.error || confirmRes?.message || 'unknown error'}`);
+    } catch (e) {
+      show({ error: String(e) });
+      setOpMsg('msgConfirm', false, `Confirm failed: ${String(e)}`);
+    }
+  };
+
+  el('btnAction').onclick = async () => {
+    try {
+      const taskId = Number(el('taskId').value);
+      const action = el('action').value.trim() || 'APPROVE';
+      const challengeRes = await api(`/api/approvals/${taskId}/challenge`);
+      if (!challengeRes.success) throw new Error(challengeRes.error || 'action challenge failed');
+      const options = normalizeOptions(challengeRes.data.options || challengeRes.data);
+      const cred = await navigator.credentials.get(options);
+      const actionRes = await api(`/api/approvals/${taskId}/action`, 'POST', {
+        action,
+        credential: credentialToJSON(cred),
+      });
+      show(actionRes);
+      if (actionRes.success) setOpMsg('msgAction', true, `Action succeeded: ${action}`);
+      else setOpMsg('msgAction', false, `Action failed: ${actionRes?.error || actionRes?.message || 'unknown error'}`);
+    } catch (e) {
+      show({ error: String(e) });
+      setOpMsg('msgAction', false, `Action failed: ${String(e)}`);
+    }
+  };
+
+  window.selectPendingTask = selectPendingTask;
+  window.selectMyRequest = selectMyRequest;
+
+  el('btnQuerySign').onclick = async () => {
+    try {
+      const txID = el('signTxId').value.trim();
+      if (!txID) throw new Error('tx_id is required');
+      const res = await api(`/api/signature/by-tx/${encodeURIComponent(txID)}`);
+      showSignQuery(res);
+      show(res);
+      if (res.success) setOpMsg('msgQuerySign', true, `Query succeeded: tx_id=${txID}`);
+      else setOpMsg('msgQuerySign', false, `Query failed: ${res?.error || res?.message || 'unknown error'}`);
+    } catch (e) {
+      showSignQuery({ error: String(e) });
+      show({ error: String(e) });
+      setOpMsg('msgQuerySign', false, `Query failed: ${String(e)}`);
+    }
+  };
+
+  el('btnMyRequests').onclick = async () => {
+    try {
+      const res = await api('/api/requests/mine');
+      renderMyRequests(res);
+      show(res);
+      const count = Array.isArray(res?.data?.requests) ? res.data.requests.length : (Array.isArray(res?.requests) ? res.requests.length : 0);
+      if (res.success) setOpMsg('msgMyRequests', true, `Query succeeded: ${count} items`);
+      else setOpMsg('msgMyRequests', false, `Query failed: ${res?.error || res?.message || 'unknown error'}`);
+    } catch (e) {
+      show({ error: String(e) });
+      setOpMsg('msgMyRequests', false, `Query failed: ${String(e)}`);
+    }
+  };
+</script>
+</body>
+</html>
