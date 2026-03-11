@@ -213,24 +213,6 @@ func TestGenerateKeyResult_Error(t *testing.T) {
 	}
 }
 
-func TestGenerateKeyOptions(t *testing.T) {
-	opts := GenerateKeyOptions{
-		Name:     "test-key",
-		Curve:    "ed25519",
-		Protocol: "schnorr",
-	}
-
-	if opts.Name != "test-key" {
-		t.Errorf("Expected Name 'test-key', got %s", opts.Name)
-	}
-	if opts.Curve != "ed25519" {
-		t.Errorf("Expected Curve 'ed25519', got %s", opts.Curve)
-	}
-	if opts.Protocol != "schnorr" {
-		t.Errorf("Expected Protocol 'schnorr', got %s", opts.Protocol)
-	}
-}
-
 func TestAPIKeyResult_Success(t *testing.T) {
 	result := APIKeyResult{
 		Success:       true,

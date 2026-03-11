@@ -277,65 +277,15 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 	return c.pendingWaitTimeout
 }
 
-// GenerateSchnorrKey generates a new Schnorr signature key for the application.
-//
-// This method generates a key using the Schnorr signature protocol, which supports
-// multiple elliptic curves. The key is generated via TEE consensus and stored in
-// the user management system, associated with the current application.
-//
-// Supported curves:
-//   - "ed25519": Edwards curve (recommended for EdDSA-style Schnorr)
-//   - "secp256k1": Bitcoin/Ethereum curve
-//   - "secp256r1": NIST P-256 curve
-//
-// Parameters:
-//   - name: Human-readable name for the key (e.g., "signing-key-1")
-//   - curve: Elliptic curve to use (see supported curves above)
-//
-// Returns:
-//   - GenerateKeyResult: Contains the generated public key information
-//   - error: Non-nil if key generation fails
-//
-// Example:
-//
-//	result, err := client.GenerateSchnorrKey("my-signing-key", "secp256k1")
-//	if err != nil || !result.Success {
-//	    log.Fatal(err)
-//	}
-//	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
-//	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
-func (c *Client) GenerateSchnorrKey(curve string) (*types.GenerateKeyResult, error) {
-	// Validate that we have an App ID
-	if c.defaultAppID == "" {
-		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
-	}
-
-	// Validate curve for Schnorr
-	validCurves := map[string]bool{
-		crypto.CurveED25519:   true,
-		crypto.CurveSECP256K1: true,
-		crypto.CurveSECP256R1: true,
-	}
-	if !validCurves[curve] {
-		return nil, fmt.Errorf("invalid curve '%s' for Schnorr protocol, supported: %s, %s, %s", curve, crypto.CurveED25519, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
-	}
-
-	log.Printf("Generating Schnorr key: curve=%s, app_id=%s", curve, c.defaultAppID)
-
-	// Call HTTP API
-	resp, err := c.httpClient.GenerateKey(c.defaultAppID, curve, crypto.ProtocolSchnorr)
+// generateKey calls the HTTP API to generate a key and converts the response.
+func (c *Client) generateKey(curve, protocol string) (*types.GenerateKeyResult, error) {
+	resp, err := c.httpClient.GenerateKey(c.defaultAppID, curve, protocol)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate Schnorr key: %w", err)
+		return nil, fmt.Errorf("failed to generate %s key: %w", protocol, err)
 	}
-
 	if !resp.Success {
-		return &types.GenerateKeyResult{
-			Success: false,
-			Message: resp.Message,
-		}, nil
+		return &types.GenerateKeyResult{Success: false, Message: resp.Message}, nil
 	}
-
-	// Convert network response to SDK result
 	result := &types.GenerateKeyResult{
 		Success: true,
 		Message: resp.Message,
@@ -352,89 +302,45 @@ func (c *Client) GenerateSchnorrKey(curve string) (*types.GenerateKeyResult, err
 			CreatedByInstanceID: resp.PublicKey.CreatedByInstanceID,
 		},
 	}
-
-	log.Printf("Successfully generated Schnorr key (ID: %d)", result.PublicKey.ID)
+	log.Printf("Successfully generated %s key (ID: %d)", protocol, result.PublicKey.ID)
 	return result, nil
+}
+
+// GenerateSchnorrKey generates a new Schnorr signature key for the application.
+//
+// Supported curves: "ed25519", "secp256k1", "secp256r1"
+func (c *Client) GenerateSchnorrKey(curve string) (*types.GenerateKeyResult, error) {
+	if c.defaultAppID == "" {
+		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
+	}
+	validCurves := map[string]bool{
+		crypto.CurveED25519: true, crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
+	}
+	if !validCurves[curve] {
+		return nil, fmt.Errorf("invalid curve '%s' for Schnorr protocol, supported: %s, %s, %s",
+			curve, crypto.CurveED25519, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
+	}
+	log.Printf("Generating Schnorr key: curve=%s, app_id=%s", curve, c.defaultAppID)
+	return c.generateKey(curve, crypto.ProtocolSchnorr)
 }
 
 // GenerateECDSAKey generates a new ECDSA signature key for the application.
 //
-// This method generates a key using the ECDSA (Elliptic Curve Digital Signature Algorithm)
-// protocol. The key is generated via TEE consensus and stored in the user management system,
-// associated with the current application.
-//
-// Supported curves:
-//   - "secp256k1": Bitcoin/Ethereum curve (recommended for blockchain applications)
-//   - "secp256r1": NIST P-256 curve (recommended for general use)
-//
-// Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey for ed25519)
-//
-// Parameters:
-//   - name: Human-readable name for the key (e.g., "signing-key-1")
-//   - curve: Elliptic curve to use (see supported curves above)
-//
-// Returns:
-//   - GenerateKeyResult: Contains the generated public key information
-//   - error: Non-nil if key generation fails
-//
-// Example:
-//
-//	result, err := client.GenerateECDSAKey("my-ecdsa-key", "secp256k1")
-//	if err != nil || !result.Success {
-//	    log.Fatal(err)
-//	}
-//	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
-//	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
+// Supported curves: "secp256k1", "secp256r1"
+// Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey).
 func (c *Client) GenerateECDSAKey(curve string) (*types.GenerateKeyResult, error) {
-	// Validate that we have an App ID
 	if c.defaultAppID == "" {
 		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
 	}
-
-	// Validate curve for ECDSA
 	validCurves := map[string]bool{
-		crypto.CurveSECP256K1: true,
-		crypto.CurveSECP256R1: true,
+		crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
 	}
 	if !validCurves[curve] {
-		return nil, fmt.Errorf("invalid curve '%s' for ECDSA protocol, supported: %s, %s", curve, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
+		return nil, fmt.Errorf("invalid curve '%s' for ECDSA protocol, supported: %s, %s",
+			curve, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
 	}
-
 	log.Printf("Generating ECDSA key: curve=%s, app_id=%s", curve, c.defaultAppID)
-
-	// Call HTTP API
-	resp, err := c.httpClient.GenerateKey(c.defaultAppID, curve, crypto.ProtocolECDSA)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ECDSA key: %w", err)
-	}
-
-	if !resp.Success {
-		return &types.GenerateKeyResult{
-			Success: false,
-			Message: resp.Message,
-		}, nil
-	}
-
-	// Convert network response to SDK result
-	result := &types.GenerateKeyResult{
-		Success: true,
-		Message: resp.Message,
-		PublicKey: &types.PublicKeyInfo{
-			ID:                  resp.PublicKey.ID,
-			Name:                resp.PublicKey.Name,
-			KeyData:             resp.PublicKey.KeyData,
-			Curve:               resp.PublicKey.Curve,
-			Protocol:            resp.PublicKey.Protocol,
-			Threshold:           resp.PublicKey.Threshold,
-			ParticipantCount:    resp.PublicKey.ParticipantCount,
-			MaxParticipantCount: resp.PublicKey.MaxParticipantCount,
-			ApplicationID:       resp.PublicKey.ApplicationID,
-			CreatedByInstanceID: resp.PublicKey.CreatedByInstanceID,
-		},
-	}
-
-	log.Printf("Successfully generated ECDSA key (ID: %d)", result.PublicKey.ID)
-	return result, nil
+	return c.generateKey(curve, crypto.ProtocolECDSA)
 }
 
 // GetAPIKey retrieves an API key value by name from the consensus service.

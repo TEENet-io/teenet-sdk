@@ -25,15 +25,6 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/util"
 )
 
-// min returns the minimum of two integers.
-// This is a utility function used internally for vote counting.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // Sign generates a cryptographic signature for a message using TEENet consensus.
 //
 // This method automatically handles both direct signing and M-of-N threshold voting
@@ -91,7 +82,7 @@ func min(a, b int) int {
 //	        result.VotingInfo.CurrentVotes,
 //	        result.VotingInfo.RequiredVotes)
 //	}
-func (c *Client) Sign(message []byte, publicKeyName string) (*types.SignResult, error) {
+func (c *Client) Sign(message []byte, publicKeyName string, passkeyToken ...string) (*types.SignResult, error) {
 	// Check if default App ID is set
 	if c.defaultAppID == "" {
 		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)")
@@ -100,7 +91,10 @@ func (c *Client) Sign(message []byte, publicKeyName string) (*types.SignResult, 
 		msg := "message must not be empty"
 		return signFailure(types.ErrorCodeInvalidInput, msg, nil), errors.New(msg)
 	}
-
+	var token string
+	if len(passkeyToken) > 0 {
+		token = passkeyToken[0]
+	}
 	// Calculate message hash for status tracking (SHA256)
 	hash := sha256.Sum256(message)
 	messageHash := "0x" + hex.EncodeToString(hash[:])
@@ -130,7 +124,7 @@ func (c *Client) Sign(message []byte, publicKeyName string) (*types.SignResult, 
 		len(message), truncateForLog(messageHash), c.defaultAppID, publicKeyName, len(pubKey))
 	c.debugf("sign.submit app_id=%s hash=%s pending_wait_ms=%d poll_base_ms=%d",
 		c.defaultAppID, messageHash, c.pendingWaitTimeout.Milliseconds(), defaultStatusPollInterval.Milliseconds())
-	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, pubKey)
+	resp, err := c.httpClient.SubmitRequest(c.defaultAppID, message, pubKey, token)
 	if err != nil {
 		return signFailure(types.ErrorCodeSignRequestFailed, fmt.Sprintf("Failed to submit request: %v", err), nil), err
 	}

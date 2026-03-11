@@ -11,7 +11,7 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
-func TestSignAndWait_FinalSigned(t *testing.T) {
+func TestSign_FinalSigned(t *testing.T) {
 	statusCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -75,7 +75,7 @@ func TestSignAndWait_FinalSigned(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.SignAndWait([]byte("wait-message"), 2*time.Second, "pk1")
+	result, err := client.Sign([]byte("wait-message"), "pk1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

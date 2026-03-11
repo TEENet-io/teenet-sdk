@@ -31,6 +31,23 @@ type (
 	PublicKeyInfo         = types.PublicKeyInfo
 	APIKeyResult          = types.APIKeyResult
 	APISignResult         = types.APISignResult
+
+	// Admin management types.
+	PasskeyRegistrationOptionsResult = types.PasskeyRegistrationOptionsResult
+	PasskeyRegistrationVerifyResult  = types.PasskeyRegistrationVerifyResult
+	PasskeyInviteRequest             = types.PasskeyInviteRequest
+	PasskeyInviteResult              = types.PasskeyInviteResult
+	PasskeyUser          = types.PasskeyUser
+	PasskeyUsersResult   = types.PasskeyUsersResult
+	AuditRecord          = types.AuditRecord
+	AuditRecordsResult   = types.AuditRecordsResult
+	PolicyLevel          = types.PolicyLevel
+	PolicyRequest        = types.PolicyRequest
+	Policy               = types.Policy
+	PolicyResult         = types.PolicyResult
+	AdminResult          = types.AdminResult
+	CreateAPIKeyRequest  = types.CreateAPIKeyRequest
+	CreateAPIKeyResult   = types.CreateAPIKeyResult
 )
 
 // PasskeyCredentialProvider returns credential JSON bytes for WebAuthn options.

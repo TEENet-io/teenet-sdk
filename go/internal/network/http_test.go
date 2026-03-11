@@ -55,7 +55,7 @@ func TestSubmitRequest_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.SubmitRequest("test-app-id", []byte("test message"), nil)
+	result, err := client.SubmitRequest("test-app-id", []byte("test message"), nil, "")
 	if err != nil {
 		t.Fatalf("SubmitRequest failed: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestSubmitRequest_WithPublicKey(t *testing.T) {
 
 	client := NewHTTPClient(server.URL, server.Client())
 	pubKey := []byte{0x04, 0x01, 0x02, 0x03}
-	result, err := client.SubmitRequest("test-app-id", []byte("test"), pubKey)
+	result, err := client.SubmitRequest("test-app-id", []byte("test"), pubKey, "")
 	if err != nil {
 		t.Fatalf("SubmitRequest failed: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestSubmitRequest_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, err := client.SubmitRequest("test-app-id", []byte("test"), nil)
+	_, err := client.SubmitRequest("test-app-id", []byte("test"), nil, "")
 	if err == nil {
 		t.Error("Expected error for server error response")
 	}
@@ -377,7 +377,7 @@ func TestHTTPClient_ConnectionError(t *testing.T) {
 	// Use invalid URL to trigger connection error
 	client := NewHTTPClient("http://localhost:99999", &http.Client{})
 
-	_, err := client.SubmitRequest("test", []byte("msg"), nil)
+	_, err := client.SubmitRequest("test", []byte("msg"), nil, "")
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
@@ -417,7 +417,7 @@ func TestHTTPClient_InvalidJSON(t *testing.T) {
 
 	client := NewHTTPClient(server.URL, server.Client())
 
-	_, err := client.SubmitRequest("test", []byte("msg"), nil)
+	_, err := client.SubmitRequest("test", []byte("msg"), nil, "")
 	if err == nil {
 		t.Error("Expected error for invalid JSON response")
 	}

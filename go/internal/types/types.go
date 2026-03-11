@@ -133,26 +133,6 @@ type ApprovalPendingFilter struct {
 	PublicKeyName string `json:"public_key_name,omitempty"`
 }
 
-// GenerateKeyOptions contains optional parameters for key generation operations.
-//
-// This structure allows customization of the key generation process,
-// such as specifying the cryptographic protocol and curve.
-type GenerateKeyOptions struct {
-	// Name is the human-readable name for the generated key.
-	// This will be used to identify the key in the user management system.
-	Name string
-
-	// Curve specifies the elliptic curve to use.
-	// Supported values: "ed25519", "secp256k1", "secp256r1"
-	// Default is "secp256k1" if not specified.
-	Curve string
-
-	// Protocol specifies the signing protocol to use.
-	// Supported values: "schnorr", "ecdsa"
-	// Default is "schnorr" if not specified.
-	Protocol string
-}
-
 // GenerateKeyResult contains the result of a key generation operation.
 //
 // This structure is returned by the GenerateKey method and contains
@@ -222,6 +202,164 @@ type APIKeyResult struct {
 	// APIKey is the retrieved API key value.
 	// This field is empty if Success is false.
 	APIKey string `json:"api_key,omitempty"`
+}
+
+// PasskeyInviteRequest contains the parameters for inviting a passkey user.
+type PasskeyInviteRequest struct {
+	// DisplayName is the human-readable name for the invited user.
+	DisplayName string `json:"display_name"`
+
+	// ApplicationID optionally scopes the user to a specific application.
+	ApplicationID uint `json:"application_id,omitempty"`
+
+	// ExpiresInSeconds sets invite link TTL (0 = server default).
+	ExpiresInSeconds int `json:"expires_in_seconds,omitempty"`
+}
+
+// PasskeyInviteResult is returned by InvitePasskeyUser.
+type PasskeyInviteResult struct {
+	Success     bool   `json:"success"`
+	Error       string `json:"error,omitempty"`
+	InviteToken string `json:"invite_token,omitempty"`
+	RegisterURL string `json:"register_url,omitempty"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+}
+
+// PasskeyRegistrationOptionsResult is returned by PasskeyRegistrationOptions.
+type PasskeyRegistrationOptionsResult struct {
+	Success     bool        `json:"success"`
+	Error       string      `json:"error,omitempty"`
+	InviteToken string      `json:"invite_token,omitempty"`
+	Options     interface{} `json:"options,omitempty"`
+	ExpiresAt   string      `json:"expires_at,omitempty"`
+}
+
+// PasskeyRegistrationVerifyResult is returned by PasskeyRegistrationVerify.
+type PasskeyRegistrationVerifyResult struct {
+	Success       bool   `json:"success"`
+	Error         string `json:"error,omitempty"`
+	PasskeyUserID uint   `json:"passkey_user_id,omitempty"`
+	DisplayName   string `json:"display_name,omitempty"`
+}
+
+// PasskeyUser describes a registered passkey user.
+type PasskeyUser struct {
+	ID            uint   `json:"id"`
+	DisplayName   string `json:"display_name"`
+	UserHandle    string `json:"user_handle,omitempty"`
+	ApplicationID *uint  `json:"application_id,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+}
+
+// PasskeyUsersResult is returned by ListPasskeyUsers.
+type PasskeyUsersResult struct {
+	Success bool          `json:"success"`
+	Error   string        `json:"error,omitempty"`
+	Users   []PasskeyUser `json:"users,omitempty"`
+	Total   int           `json:"total,omitempty"`
+	Page    int           `json:"page,omitempty"`
+	Limit   int           `json:"limit,omitempty"`
+}
+
+// AuditRecord describes one audit log entry returned by ListAuditRecords.
+// Field names match the audit_records table in UMS.
+type AuditRecord struct {
+	ID                 uint   `json:"id"`
+	TaskID             *uint  `json:"task_id,omitempty"`
+	RequestSessionID   *uint  `json:"request_session_id,omitempty"`
+	EventType          string `json:"event_type,omitempty"`           // REQUEST_INIT | REQUEST_CONFIRMED | ACTION | SIGN_RESULT | INVITE_PASSKEY | …
+	Action             string `json:"action,omitempty"`               // APPROVE | REJECT (only for ACTION events)
+	Status             string `json:"status,omitempty"`               // PENDING | APPROVED | REJECTED | SIGNED | FAILED
+	ActorPasskeyUserID uint   `json:"actor_passkey_user_id,omitempty"`
+	ActorDisplayName   string `json:"actor_display_name,omitempty"`
+	TxID               string `json:"tx_id,omitempty"`
+	Hash               string `json:"hash,omitempty"`
+	Signature          string `json:"signature,omitempty"`
+	AppInstanceID      string `json:"app_instance_id,omitempty"`
+	Details            string `json:"details,omitempty"`
+	ErrorMessage       string `json:"error_message,omitempty"`
+	CreatedAt          string `json:"created_at,omitempty"`
+}
+
+// AuditRecordsResult is returned by ListAuditRecords.
+type AuditRecordsResult struct {
+	Success bool          `json:"success"`
+	Error   string        `json:"error,omitempty"`
+	Records []AuditRecord `json:"records,omitempty"`
+	Total   int           `json:"total,omitempty"`
+	Page    int           `json:"page,omitempty"`
+	Limit   int           `json:"limit,omitempty"`
+}
+
+// PolicyLevel describes one approval level in a permission policy.
+type PolicyLevel struct {
+	LevelIndex int    `json:"level_index"`
+	Threshold  int    `json:"threshold"`
+	MemberIDs  []uint `json:"member_ids"`
+}
+
+// PolicyRequest contains the parameters for creating/updating a permission policy.
+type PolicyRequest struct {
+	// PublicKeyName is the name of the public key this policy applies to.
+	PublicKeyName string `json:"public_key_name"`
+
+	// Enabled enables or disables the policy.
+	Enabled bool `json:"enabled"`
+
+	// TimeoutSeconds sets how long the approval request stays open (0 = server default).
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+
+	// Levels defines the ordered approval levels. Each level must be satisfied in order.
+	Levels []PolicyLevel `json:"levels"`
+}
+
+// Policy describes a stored permission policy.
+type Policy struct {
+	ID             uint          `json:"id"`
+	ApplicationID  uint          `json:"application_id"`
+	PublicKeyID    uint          `json:"public_key_id"`
+	PublicKeyName  string        `json:"public_key_name,omitempty"`
+	Enabled        bool          `json:"enabled"`
+	TimeoutSeconds int           `json:"timeout_seconds"`
+	Levels         []PolicyLevel `json:"levels,omitempty"`
+}
+
+// PolicyResult is returned by GetPermissionPolicy.
+type PolicyResult struct {
+	Success bool    `json:"success"`
+	Error   string  `json:"error,omitempty"`
+	Policy  *Policy `json:"policy,omitempty"`
+}
+
+// AdminResult is returned by admin operations that produce no specific payload.
+type AdminResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// CreateAPIKeyRequest contains parameters for creating an API key via the admin bridge.
+type CreateAPIKeyRequest struct {
+	// Name is the unique name for this API key.
+	Name string `json:"name"`
+
+	// Description is an optional human-readable description.
+	Description string `json:"description,omitempty"`
+
+	// APIKey is the key value to store (optional if APISecret is set).
+	APIKey string `json:"api_key,omitempty"`
+
+	// APISecret is the HMAC signing secret to store (optional if APIKey is set).
+	APISecret string `json:"api_secret,omitempty"`
+}
+
+// CreateAPIKeyResult is returned by CreateAPIKey.
+type CreateAPIKeyResult struct {
+	Success      bool   `json:"success"`
+	Error        string `json:"error,omitempty"`
+	ID           uint   `json:"id,omitempty"`
+	Name         string `json:"name,omitempty"`
+	HasAPIKey    bool   `json:"has_api_key,omitempty"`
+	HasAPISecret bool   `json:"has_api_secret,omitempty"`
 }
 
 // APISignResult contains the result of a SignWithAPISecret operation.

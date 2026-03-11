@@ -19,21 +19,14 @@ import (
 	"strings"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/crypto"
+	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 	"github.com/TEENet-io/teenet-sdk/go/internal/util"
 )
 
 var ErrPublicKeyNameNotFound = errors.New("public key name not found in bound keys")
 
-type PublicKeyMeta struct {
-	ID       uint32
-	Name     string
-	KeyData  string
-	Protocol string
-	Curve    string
-}
-
 // GetPublicKeys retrieves all bound public keys for the default App ID.
-func (c *Client) GetPublicKeys() ([]PublicKeyMeta, error) {
+func (c *Client) GetPublicKeys() ([]types.PublicKeyInfo, error) {
 	if c.defaultAppID == "" {
 		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID)")
 	}
@@ -41,20 +34,20 @@ func (c *Client) GetPublicKeys() ([]PublicKeyMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]PublicKeyMeta, 0, len(keys))
-	for _, key := range keys {
-		result = append(result, PublicKeyMeta{
-			ID:       key.ID,
-			Name:     key.Name,
-			KeyData:  key.KeyData,
-			Protocol: key.Protocol,
-			Curve:    key.Curve,
-		})
+	result := make([]types.PublicKeyInfo, len(keys))
+	for i, k := range keys {
+		result[i] = types.PublicKeyInfo{
+			ID:       k.ID,
+			Name:     k.Name,
+			KeyData:  k.KeyData,
+			Protocol: k.Protocol,
+			Curve:    k.Curve,
+		}
 	}
 	return result, nil
 }
 
-func (c *Client) getBoundPublicKeyByName(publicKeyName string) (*PublicKeyMeta, error) {
+func (c *Client) getBoundPublicKeyByName(publicKeyName string) (*types.PublicKeyInfo, error) {
 	name := strings.TrimSpace(publicKeyName)
 	if name == "" {
 		return nil, fmt.Errorf("public key name is required")
@@ -109,12 +102,9 @@ func (c *Client) Verify(message, signature []byte, publicKeyName string) (bool, 
 	if err != nil {
 		return false, fmt.Errorf("failed to resolve public key by name: %w", err)
 	}
-	publicKeyHex := key.KeyData
-	protocolStr := key.Protocol
-	curveStr := key.Curve
 
 	// Decode public key from hex string
-	publicKeyHex = strings.TrimPrefix(publicKeyHex, "0x")
+	publicKeyHex := strings.TrimPrefix(key.KeyData, "0x")
 	publicKey, err := util.DecodeHexSignature(publicKeyHex)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode public key: %w", err)
@@ -122,5 +112,5 @@ func (c *Client) Verify(message, signature []byte, publicKeyName string) (bool, 
 
 	// Verify the signature using the appropriate algorithm
 	// Note: VerifySignature will hash the message internally
-	return crypto.VerifySignature(message, publicKey, signature, protocolStr, curveStr)
+	return crypto.VerifySignature(message, publicKey, signature, key.Protocol, key.Curve)
 }

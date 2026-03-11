@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/TEENet-io/teenet-sdk/go/internal/network"
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
@@ -33,20 +34,23 @@ func toApprovalResult(respStatus int, data map[string]interface{}, err error) (*
 	return result, nil
 }
 
-func (c *Client) ApprovalRequestInit(payload []byte, approvalToken string) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalRequestInit(payload, approvalToken)
+// approvalCall is a generic helper that wraps the nil-check pattern for all approval methods.
+func approvalCall(fn func() (*network.ApprovalBridgeResponse, error)) (*types.ApprovalResult, error) {
+	resp, err := fn()
 	if resp == nil {
 		return toApprovalResult(0, nil, err)
 	}
 	return toApprovalResult(resp.StatusCode, resp.Data, err)
 }
 
+func (c *Client) ApprovalRequestInit(payload []byte, approvalToken string) (*types.ApprovalResult, error) {
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.ApprovalRequestInit(payload, approvalToken)
+	})
+}
+
 func (c *Client) PasskeyLoginOptions() (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.PasskeyLoginOptions()
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
-	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(c.httpClient.PasskeyLoginOptions)
 }
 
 func (c *Client) PasskeyLoginVerify(loginSessionID uint64, credential []byte) (*types.ApprovalResult, error) {
@@ -72,49 +76,61 @@ func (c *Client) PasskeyLoginVerify(loginSessionID uint64, credential []byte) (*
 			Error:      "failed to build login verify payload",
 		}, err
 	}
-	resp, err := c.httpClient.PasskeyLoginVerify(body)
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
-	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.PasskeyLoginVerify(body)
+	})
 }
 
 func (c *Client) ApprovalPending(approvalToken string, filter *types.ApprovalPendingFilter) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalPending(approvalToken, filter)
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
-	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.ApprovalPending(approvalToken, filter)
+	})
 }
 
 func (c *Client) ApprovalRequestChallenge(requestID uint64, approvalToken string) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalRequestChallenge(requestID, approvalToken)
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
-	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.ApprovalRequestChallenge(requestID, approvalToken)
+	})
 }
 
 func (c *Client) ApprovalRequestConfirm(requestID uint64, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalRequestConfirm(requestID, payload, approvalToken)
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
-	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.ApprovalRequestConfirm(requestID, payload, approvalToken)
+	})
 }
 
 func (c *Client) ApprovalActionChallenge(taskID uint64, approvalToken string) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalActionChallenge(taskID, approvalToken)
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
-	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.ApprovalActionChallenge(taskID, approvalToken)
+	})
 }
 
 func (c *Client) ApprovalAction(taskID uint64, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
-	resp, err := c.httpClient.ApprovalAction(taskID, payload, approvalToken)
-	if resp == nil {
-		return toApprovalResult(0, nil, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.ApprovalAction(taskID, payload, approvalToken)
+	})
+}
+
+func (c *Client) GetMyRequests(approvalToken string) (*types.ApprovalResult, error) {
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.GetMyRequests(approvalToken)
+	})
+}
+
+// CancelRequest cancels a pending approval request or session.
+// idType should be "session" (default) to cancel a request session by ID,
+// or "task" to cancel a pending approval task by ID.
+func (c *Client) CancelRequest(id uint64, idType string, approvalToken string) (*types.ApprovalResult, error) {
+	if idType == "" {
+		idType = "session"
 	}
-	return toApprovalResult(resp.StatusCode, resp.Data, err)
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.CancelRequest(id, idType, approvalToken)
+	})
+}
+
+func (c *Client) GetSignatureByTx(txID string, approvalToken string) (*types.ApprovalResult, error) {
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.GetSignatureByTx(txID, approvalToken)
+	})
 }

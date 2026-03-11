@@ -58,9 +58,6 @@ type Client struct {
 	impl *client.Client
 }
 
-// PublicKeyMeta is a bound public key descriptor returned by GetPublicKeys.
-type PublicKeyMeta = client.PublicKeyMeta
-
 // NewClient creates a new SDK client with default settings.
 //
 // This is the recommended way to create a client. It uses sensible defaults:
@@ -180,8 +177,8 @@ func (c *Client) GetDefaultAppID() string {
 // Example (using specific generated key):
 //
 //	result, err := client.Sign([]byte("important message"), "my-key")
-func (c *Client) Sign(message []byte, publicKeyName string) (*SignResult, error) {
-	return c.impl.SignAndWait(message, 0, publicKeyName)
+func (c *Client) Sign(message []byte, publicKeyName string, passkeyToken ...string) (*SignResult, error) {
+	return c.impl.Sign(message, publicKeyName, passkeyToken...)
 }
 
 // GetStatus retrieves voting status for a specific hash.
@@ -249,6 +246,23 @@ func (c *Client) PasskeyLoginWithCredential(getCredential PasskeyCredentialProvi
 		}, credErr
 	}
 	return c.PasskeyLoginVerify(loginSessionID, credential)
+}
+
+// GetMyRequests returns all approval requests initiated by the authenticated user.
+func (c *Client) GetMyRequests(approvalToken string) (*ApprovalResult, error) {
+	return c.impl.GetMyRequests(approvalToken)
+}
+
+// CancelRequest cancels a pending approval request initiated by the caller.
+// Set idType to "session" (or "") to cancel by request session ID,
+// or "task" to cancel a pending approval task by task ID.
+func (c *Client) CancelRequest(id uint64, idType string, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.CancelRequest(id, idType, approvalToken)
+}
+
+// GetSignatureByTx retrieves a completed signature by its transaction ID.
+func (c *Client) GetSignatureByTx(txID string, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.GetSignatureByTx(txID, approvalToken)
 }
 
 // ApprovalPending returns pending approvals accessible by the provided approval token.
@@ -405,7 +419,7 @@ func extractChallengeOptions(data map[string]interface{}) interface{} {
 }
 
 // GetPublicKeys retrieves all bound public keys for the default App ID.
-func (c *Client) GetPublicKeys() ([]PublicKeyMeta, error) {
+func (c *Client) GetPublicKeys() ([]PublicKeyInfo, error) {
 	return c.impl.GetPublicKeys()
 }
 
@@ -444,6 +458,94 @@ func (c *Client) Verify(message, signature []byte, publicKeyName string) (bool, 
 //	defer client.Close()
 func (c *Client) Close() error {
 	return c.impl.Close()
+}
+
+// PasskeyRegistrationOptions begins WebAuthn registration for an invited user.
+// Pass the returned Options to navigator.credentials.create() in the browser,
+// then call PasskeyRegistrationVerify with the resulting credential.
+func (c *Client) PasskeyRegistrationOptions(inviteToken string) (*PasskeyRegistrationOptionsResult, error) {
+	return c.impl.PasskeyRegistrationOptions(inviteToken)
+}
+
+// PasskeyRegistrationVerify completes WebAuthn registration.
+// credential should be the JSON-serialized PublicKeyCredential from navigator.credentials.create().
+func (c *Client) PasskeyRegistrationVerify(inviteToken string, credential interface{}) (*PasskeyRegistrationVerifyResult, error) {
+	return c.impl.PasskeyRegistrationVerify(inviteToken, credential)
+}
+
+// InvitePasskeyUser invites a new passkey user to the application.
+//
+// The returned PasskeyInviteResult contains a register_url that the invited
+// user should visit to register their passkey device.
+//
+// Example:
+//
+//	result, err := client.InvitePasskeyUser(sdk.PasskeyInviteRequest{
+//	    DisplayName:      "Alice",
+//	    ExpiresInSeconds: 86400,
+//	})
+func (c *Client) InvitePasskeyUser(req PasskeyInviteRequest) (*PasskeyInviteResult, error) {
+	return c.impl.InvitePasskeyUser(req)
+}
+
+// ListPasskeyUsers returns registered passkey users for the application.
+//
+// page and limit are optional (pass 0 for server defaults).
+func (c *Client) ListPasskeyUsers(page, limit int) (*PasskeyUsersResult, error) {
+	return c.impl.ListPasskeyUsers(page, limit)
+}
+
+// DeletePasskeyUser removes a passkey user by their ID.
+func (c *Client) DeletePasskeyUser(userID uint) (*AdminResult, error) {
+	return c.impl.DeletePasskeyUser(userID)
+}
+
+// ListAuditRecords returns audit records for the application.
+//
+// page and limit are optional (pass 0 for server defaults).
+func (c *Client) ListAuditRecords(page, limit int) (*AuditRecordsResult, error) {
+	return c.impl.ListAuditRecords(page, limit)
+}
+
+// UpsertPermissionPolicy creates or replaces the permission policy for a public key.
+//
+// Example:
+//
+//	result, err := client.UpsertPermissionPolicy(sdk.PolicyRequest{
+//	    PublicKeyName:  "my-key",
+//	    Enabled:        true,
+//	    TimeoutSeconds: 3600,
+//	    Levels: []sdk.PolicyLevel{
+//	        {LevelIndex: 1, Threshold: 2, MemberIDs: []uint{1, 2, 3}},
+//	    },
+//	})
+func (c *Client) UpsertPermissionPolicy(req PolicyRequest) (*AdminResult, error) {
+	return c.impl.UpsertPermissionPolicy(req)
+}
+
+// GetPermissionPolicy retrieves the permission policy for a named public key.
+func (c *Client) GetPermissionPolicy(publicKeyName string) (*PolicyResult, error) {
+	return c.impl.GetPermissionPolicy(publicKeyName)
+}
+
+// DeletePermissionPolicy removes the permission policy for a named public key.
+func (c *Client) DeletePermissionPolicy(publicKeyName string) (*AdminResult, error) {
+	return c.impl.DeletePermissionPolicy(publicKeyName)
+}
+
+// DeletePublicKey deletes a public key by name for the application.
+func (c *Client) DeletePublicKey(keyName string) (*AdminResult, error) {
+	return c.impl.DeletePublicKey(keyName)
+}
+
+// CreateAPIKey creates a new API key entry via the admin bridge.
+func (c *Client) CreateAPIKey(req CreateAPIKeyRequest) (*CreateAPIKeyResult, error) {
+	return c.impl.CreateAPIKey(req)
+}
+
+// DeleteAPIKey deletes an API key by name for the application.
+func (c *Client) DeleteAPIKey(keyName string) (*AdminResult, error) {
+	return c.impl.DeleteAPIKey(keyName)
 }
 
 // GetConsensusURL returns the consensus service URL.

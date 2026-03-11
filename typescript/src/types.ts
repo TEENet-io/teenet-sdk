@@ -204,6 +204,131 @@ export interface APISignResult {
   error?: string;
 }
 
+// ─── Admin management types ──────────────────────────────────────────────────
+
+/**
+ * Request parameters for inviting a passkey user.
+ */
+export interface PasskeyInviteRequest {
+  /** Human-readable name of the invited user */
+  displayName: string;
+  /** Optionally scope the user to a specific application */
+  applicationId?: number;
+  /** Invite link TTL in seconds (0 = server default) */
+  expiresInSeconds?: number;
+}
+
+/**
+ * Result of InvitePasskeyUser.
+ */
+export interface PasskeyInviteResult {
+  success: boolean;
+  error?: string;
+  inviteToken?: string;
+  registerUrl?: string;
+  expiresAt?: string;
+}
+
+/**
+ * A registered passkey user.
+ */
+export interface PasskeyUser {
+  id: number;
+  displayName: string;
+  userHandle?: string;
+  applicationId?: number;
+  createdAt?: string;
+}
+
+/**
+ * Result of ListPasskeyUsers.
+ */
+export interface PasskeyUsersResult {
+  success: boolean;
+  error?: string;
+  users: PasskeyUser[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/**
+ * A single audit log entry.
+ */
+export interface AuditRecord {
+  id: number;
+  passkeyUserId?: number;
+  action?: string;
+  resource?: string;
+  details?: string;
+  createdAt?: string;
+}
+
+/**
+ * Result of ListAuditRecords.
+ */
+export interface AuditRecordsResult {
+  success: boolean;
+  error?: string;
+  records: AuditRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/**
+ * One approval level in a permission policy.
+ */
+export interface PolicyLevel {
+  levelIndex: number;
+  threshold: number;
+  memberIds: number[];
+}
+
+/**
+ * Request parameters for UpsertPermissionPolicy.
+ */
+export interface PolicyRequest {
+  /** Name of the public key this policy applies to */
+  publicKeyName: string;
+  /** Whether this policy is active */
+  enabled: boolean;
+  /** Approval window in seconds (0 = server default) */
+  timeoutSeconds?: number;
+  /** Ordered approval levels */
+  levels: PolicyLevel[];
+}
+
+/**
+ * A stored permission policy.
+ */
+export interface Policy {
+  id: number;
+  applicationId: number;
+  publicKeyId: number;
+  publicKeyName?: string;
+  enabled: boolean;
+  timeoutSeconds: number;
+  levels?: PolicyLevel[];
+}
+
+/**
+ * Result of GetPermissionPolicy.
+ */
+export interface PolicyResult {
+  success: boolean;
+  error?: string;
+  policy?: Policy;
+}
+
+/**
+ * Generic result for admin operations with no specific payload.
+ */
+export interface AdminResult {
+  success: boolean;
+  error?: string;
+}
+
 /**
  * Bound public key information for an application.
  */

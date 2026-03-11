@@ -179,3 +179,52 @@ func TestApprovalAction_InvalidJSON(t *testing.T) {
 		t.Fatalf("expected decode error, got: %v", err)
 	}
 }
+
+func TestGetMyRequests_SendsBearerToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/requests/mine" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer tok-xyz" {
+			t.Fatalf("unexpected auth header: %s", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"requests":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	resp, err := client.GetMyRequests("tok-xyz")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetSignatureByTx_PathAndBearer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/signature/by-tx/tx-abc-123" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer tok-sig" {
+			t.Fatalf("unexpected auth header: %s", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"signature":"0xdeadbeef"}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	resp, err := client.GetSignatureByTx("tx-abc-123", "tok-sig")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if resp.Data["signature"] != "0xdeadbeef" {
+		t.Fatalf("unexpected signature: %v", resp.Data["signature"])
+	}
+}

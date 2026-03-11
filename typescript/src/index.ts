@@ -38,5 +38,16 @@ export {
   CurveType,
   ErrorCode,
   ErrorCodeType,
+  PasskeyInviteRequest,
+  PasskeyInviteResult,
+  PasskeyUser,
+  PasskeyUsersResult,
+  AuditRecord,
+  AuditRecordsResult,
+  PolicyLevel,
+  PolicyRequest,
+  Policy,
+  PolicyResult,
+  AdminResult,
 } from './types';
 export { verifySignature, verifyHMACSHA256 } from './crypto';

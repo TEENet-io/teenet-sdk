@@ -27,6 +27,13 @@ import {
   PublicKeyInfo,
   ErrorCode,
   ErrorCodeType,
+  PasskeyInviteRequest,
+  PasskeyInviteResult,
+  PasskeyUsersResult,
+  AuditRecordsResult,
+  PolicyRequest,
+  PolicyResult,
+  AdminResult,
 } from './types';
 import { verifySignature } from './crypto';
 import { sha256 } from '@noble/hashes/sha256';
@@ -624,6 +631,253 @@ export class Client {
       success: true,
       signature: response.signature || '',
       algorithm: response.algorithm || 'HMAC-SHA256',
+    };
+  }
+
+  // ─── Admin management ─────────────────────────────────────────────────────
+
+  /**
+   * Invite a new passkey user to the application.
+   */
+  async invitePasskeyUser(req: PasskeyInviteRequest): Promise<PasskeyInviteResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set. Call setDefaultAppID() first.' };
+    }
+    const body: Record<string, unknown> = {
+      app_instance_id: this.defaultAppID,
+      display_name: req.displayName,
+    };
+    if (req.applicationId && req.applicationId > 0) body.application_id = req.applicationId;
+    if (req.expiresInSeconds && req.expiresInSeconds > 0) body.expires_in_seconds = req.expiresInSeconds;
+
+    const resp = await this.requestAdmin('/api/admin/passkey/invite', 'POST', body);
+    const d = resp.data ?? {};
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(d, resp.statusCode),
+      inviteToken: typeof d.invite_token === 'string' ? d.invite_token : undefined,
+      registerUrl: typeof d.register_url === 'string' ? d.register_url : undefined,
+      expiresAt: typeof d.expires_at === 'string' ? d.expires_at : undefined,
+    };
+  }
+
+  /**
+   * List registered passkey users for this application.
+   * @param page - Page number (0 = server default)
+   * @param limit - Page size (0 = server default)
+   */
+  async listPasskeyUsers(page = 0, limit = 0): Promise<PasskeyUsersResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set.', users: [], total: 0, page: 0, limit: 0 };
+    }
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppID });
+    if (page > 0) q.set('page', String(page));
+    if (limit > 0) q.set('limit', String(limit));
+    const resp = await this.requestAdmin(`/api/admin/passkey/users?${q}`, 'GET');
+    const d = resp.data ?? {};
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(d, resp.statusCode),
+      users: Array.isArray(d.users) ? d.users.map(this.mapPasskeyUser) : [],
+      total: typeof d.total === 'number' ? d.total : 0,
+      page: typeof d.page === 'number' ? d.page : 0,
+      limit: typeof d.limit === 'number' ? d.limit : 0,
+    };
+  }
+
+  /**
+   * Delete a passkey user by their ID.
+   */
+  async deletePasskeyUser(userId: number): Promise<AdminResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set.' };
+    }
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppID });
+    const resp = await this.requestAdmin(`/api/admin/passkey/users/${userId}?${q}`, 'DELETE');
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(resp.data ?? {}, resp.statusCode),
+    };
+  }
+
+  /**
+   * List audit records for this application.
+   * @param page - Page number (0 = server default)
+   * @param limit - Page size (0 = server default)
+   */
+  async listAuditRecords(page = 0, limit = 0): Promise<AuditRecordsResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set.', records: [], total: 0, page: 0, limit: 0 };
+    }
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppID });
+    if (page > 0) q.set('page', String(page));
+    if (limit > 0) q.set('limit', String(limit));
+    const resp = await this.requestAdmin(`/api/admin/audit-records?${q}`, 'GET');
+    const d = resp.data ?? {};
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(d, resp.statusCode),
+      records: Array.isArray(d.records) ? d.records.map(this.mapAuditRecord) : [],
+      total: typeof d.total === 'number' ? d.total : 0,
+      page: typeof d.page === 'number' ? d.page : 0,
+      limit: typeof d.limit === 'number' ? d.limit : 0,
+    };
+  }
+
+  /**
+   * Create or replace the permission policy for a named public key.
+   */
+  async upsertPermissionPolicy(req: PolicyRequest): Promise<AdminResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set.' };
+    }
+    const body: Record<string, unknown> = {
+      app_instance_id: this.defaultAppID,
+      public_key_name: req.publicKeyName,
+      enabled: req.enabled,
+      levels: req.levels.map((l) => ({
+        level_index: l.levelIndex,
+        threshold: l.threshold,
+        member_ids: l.memberIds,
+      })),
+    };
+    if (req.timeoutSeconds && req.timeoutSeconds > 0) body.timeout_seconds = req.timeoutSeconds;
+
+    const resp = await this.requestAdmin('/api/admin/policy', 'PUT', body);
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(resp.data ?? {}, resp.statusCode),
+    };
+  }
+
+  /**
+   * Retrieve the permission policy for a named public key.
+   */
+  async getPermissionPolicy(publicKeyName: string): Promise<PolicyResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set.' };
+    }
+    const q = new URLSearchParams({
+      app_instance_id: this.defaultAppID,
+      public_key_name: publicKeyName,
+    });
+    const resp = await this.requestAdmin(`/api/admin/policy?${q}`, 'GET');
+    const d = resp.data ?? {};
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    if (!ok) {
+      return { success: false, error: this.adminError(d, resp.statusCode) };
+    }
+    const policyData = (d.policy as Record<string, unknown>) ?? d;
+    return { success: true, policy: this.mapPolicy(policyData) };
+  }
+
+  /**
+   * List all approval requests initiated by the authenticated user.
+   */
+  async getMyRequests(approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval('/api/requests/mine', 'GET', approvalToken);
+  }
+
+  /**
+   * Retrieve a completed signature by its transaction ID.
+   */
+  async getSignatureByTx(txId: string, approvalToken: string): Promise<ApprovalResult> {
+    return this.requestApproval(`/api/signature/by-tx/${encodeURIComponent(txId)}`, 'GET', approvalToken);
+  }
+
+  /**
+   * Delete the permission policy for a named public key.
+   */
+  async deletePermissionPolicy(publicKeyName: string): Promise<AdminResult> {
+    if (!this.defaultAppID) {
+      return { success: false, error: 'App ID not set.' };
+    }
+    const q = new URLSearchParams({
+      app_instance_id: this.defaultAppID,
+      public_key_name: publicKeyName,
+    });
+    const resp = await this.requestAdmin(`/api/admin/policy?${q}`, 'DELETE');
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(resp.data ?? {}, resp.statusCode),
+    };
+  }
+
+  // ─── Admin helpers ─────────────────────────────────────────────────────────
+
+  private async requestAdmin(
+    path: string,
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    body?: Record<string, unknown>
+  ): Promise<{ statusCode: number; data: Record<string, unknown> }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
+    try {
+      const response = await fetch(`${this.consensusURL}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: (method === 'POST' || method === 'PUT') ? JSON.stringify(body ?? {}) : undefined,
+        signal: controller.signal,
+      });
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return { statusCode: response.status, data };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private adminError(data: Record<string, unknown>, statusCode: number): string {
+    if (typeof data.message === 'string' && data.message) return data.message;
+    if (typeof data.error === 'string' && data.error) return data.error;
+    return `Admin request failed with status ${statusCode}`;
+  }
+
+  private mapPasskeyUser(raw: unknown): import('./types').PasskeyUser {
+    const u = raw as Record<string, unknown>;
+    return {
+      id: typeof u.id === 'number' ? u.id : 0,
+      displayName: typeof u.display_name === 'string' ? u.display_name : '',
+      userHandle: typeof u.user_handle === 'string' ? u.user_handle : undefined,
+      applicationId: typeof u.application_id === 'number' ? u.application_id : undefined,
+      createdAt: typeof u.created_at === 'string' ? u.created_at : undefined,
+    };
+  }
+
+  private mapAuditRecord(raw: unknown): import('./types').AuditRecord {
+    const r = raw as Record<string, unknown>;
+    return {
+      id: typeof r.id === 'number' ? r.id : 0,
+      passkeyUserId: typeof r.passkey_user_id === 'number' ? r.passkey_user_id : undefined,
+      action: typeof r.action === 'string' ? r.action : undefined,
+      resource: typeof r.resource === 'string' ? r.resource : undefined,
+      details: typeof r.details === 'string' ? r.details : undefined,
+      createdAt: typeof r.created_at === 'string' ? r.created_at : undefined,
+    };
+  }
+
+  private mapPolicy(d: Record<string, unknown>): import('./types').Policy | undefined {
+    if (!d || typeof d.id !== 'number') return undefined;
+    const levels = Array.isArray(d.levels)
+      ? (d.levels as Array<Record<string, unknown>>).map((l) => ({
+          levelIndex: typeof l.level_index === 'number' ? l.level_index : 0,
+          threshold: typeof l.threshold === 'number' ? l.threshold : 0,
+          memberIds: Array.isArray(l.member_ids) ? (l.member_ids as number[]) : [],
+        }))
+      : undefined;
+    return {
+      id: d.id as number,
+      applicationId: typeof d.application_id === 'number' ? d.application_id : 0,
+      publicKeyId: typeof d.public_key_id === 'number' ? d.public_key_id : 0,
+      publicKeyName: typeof d.public_key_name === 'string' ? d.public_key_name : undefined,
+      enabled: Boolean(d.enabled),
+      timeoutSeconds: typeof d.timeout_seconds === 'number' ? d.timeout_seconds : 0,
+      levels,
     };
   }
 

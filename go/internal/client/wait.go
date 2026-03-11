@@ -1,7 +1,6 @@
 package client
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -10,25 +9,8 @@ import (
 )
 
 const (
-	defaultSignAndWaitTimeout = 60 * time.Second
-	maxPollInterval           = 5 * time.Second
+	maxPollInterval = 5 * time.Second
 )
-
-// SignAndWait submits a sign request and blocks until it is finalized or timeout.
-func (c *Client) SignAndWait(message []byte, timeout time.Duration, publicKeyName string) (*types.SignResult, error) {
-	result, err := c.Sign(message, publicKeyName)
-	if err != nil || result == nil || result.VotingInfo == nil || result.VotingInfo.Status != "pending" {
-		return result, err
-	}
-
-	hash := result.VotingInfo.Hash
-	if hash == "" {
-		msg := "missing hash in pending signing response"
-		return signFailure(types.ErrorCodeMissingHash, msg, nil), errors.New(msg)
-	}
-
-	return c.WaitForSignResult(hash, timeout)
-}
 
 // WaitForSignResult polls voting status until signing is finalized or timeout.
 func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.SignResult, error) {
@@ -37,7 +19,7 @@ func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.S
 	}
 	waitTimeout := timeout
 	if waitTimeout <= 0 {
-		waitTimeout = defaultSignAndWaitTimeout
+		waitTimeout = c.pendingWaitTimeout
 	}
 
 	deadline := time.Now().Add(waitTimeout)
