@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -43,94 +44,92 @@ func approvalCall(fn func() (*network.ApprovalBridgeResponse, error)) (*types.Ap
 	return toApprovalResult(resp.StatusCode, resp.Data, err)
 }
 
-func (c *Client) ApprovalRequestInit(payload []byte, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) ApprovalRequestInit(ctx context.Context, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.ApprovalRequestInit(payload, approvalToken)
+		return c.httpClient.ApprovalRequestInit(ctx, payload, approvalToken)
 	})
 }
 
-func (c *Client) PasskeyLoginOptions() (*types.ApprovalResult, error) {
-	return approvalCall(c.httpClient.PasskeyLoginOptions)
+func (c *Client) PasskeyLoginOptions(ctx context.Context) (*types.ApprovalResult, error) {
+	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
+		return c.httpClient.PasskeyLoginOptions(ctx)
+	})
 }
 
-func (c *Client) PasskeyLoginVerify(loginSessionID uint64, credential []byte) (*types.ApprovalResult, error) {
-	payload := map[string]interface{}{
-		"login_session_id": loginSessionID,
+func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, credential []byte) (*types.ApprovalResult, error) {
+	if len(credential) > 0 && !json.Valid(credential) {
+		err := fmt.Errorf("invalid credential json")
+		return &types.ApprovalResult{Success: false, Error: err.Error()}, err
 	}
-	if len(credential) > 0 {
-		var decoded interface{}
-		if err := json.Unmarshal(credential, &decoded); err != nil {
-			return &types.ApprovalResult{
-				Success:    false,
-				StatusCode: 0,
-				Error:      "invalid credential json",
-			}, err
-		}
-		payload["credential"] = decoded
+	payload := struct {
+		LoginSessionID uint64          `json:"login_session_id"`
+		Credential     json.RawMessage `json:"credential,omitempty"`
+	}{
+		LoginSessionID: loginSessionID,
+		Credential:     json.RawMessage(credential),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return &types.ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "failed to build login verify payload",
+			Success: false,
+			Error:   "failed to build login verify payload",
 		}, err
 	}
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.PasskeyLoginVerify(body)
+		return c.httpClient.PasskeyLoginVerify(ctx, body)
 	})
 }
 
-func (c *Client) ApprovalPending(approvalToken string, filter *types.ApprovalPendingFilter) (*types.ApprovalResult, error) {
+func (c *Client) ApprovalPending(ctx context.Context, approvalToken string, filter *types.ApprovalPendingFilter) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.ApprovalPending(approvalToken, filter)
+		return c.httpClient.ApprovalPending(ctx, approvalToken, filter)
 	})
 }
 
-func (c *Client) ApprovalRequestChallenge(requestID uint64, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) ApprovalRequestChallenge(ctx context.Context, requestID uint64, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.ApprovalRequestChallenge(requestID, approvalToken)
+		return c.httpClient.ApprovalRequestChallenge(ctx, requestID, approvalToken)
 	})
 }
 
-func (c *Client) ApprovalRequestConfirm(requestID uint64, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) ApprovalRequestConfirm(ctx context.Context, requestID uint64, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.ApprovalRequestConfirm(requestID, payload, approvalToken)
+		return c.httpClient.ApprovalRequestConfirm(ctx, requestID, payload, approvalToken)
 	})
 }
 
-func (c *Client) ApprovalActionChallenge(taskID uint64, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) ApprovalActionChallenge(ctx context.Context, taskID uint64, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.ApprovalActionChallenge(taskID, approvalToken)
+		return c.httpClient.ApprovalActionChallenge(ctx, taskID, approvalToken)
 	})
 }
 
-func (c *Client) ApprovalAction(taskID uint64, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) ApprovalAction(ctx context.Context, taskID uint64, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.ApprovalAction(taskID, payload, approvalToken)
+		return c.httpClient.ApprovalAction(ctx, taskID, payload, approvalToken)
 	})
 }
 
-func (c *Client) GetMyRequests(approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) GetMyRequests(ctx context.Context, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.GetMyRequests(approvalToken)
+		return c.httpClient.GetMyRequests(ctx, approvalToken)
 	})
 }
 
 // CancelRequest cancels a pending approval request or session.
 // idType should be "session" (default) to cancel a request session by ID,
 // or "task" to cancel a pending approval task by ID.
-func (c *Client) CancelRequest(id uint64, idType string, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) CancelRequest(ctx context.Context, id uint64, idType string, approvalToken string) (*types.ApprovalResult, error) {
 	if idType == "" {
 		idType = "session"
 	}
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.CancelRequest(id, idType, approvalToken)
+		return c.httpClient.CancelRequest(ctx, id, idType, approvalToken)
 	})
 }
 
-func (c *Client) GetSignatureByTx(txID string, approvalToken string) (*types.ApprovalResult, error) {
+func (c *Client) GetSignatureByTx(ctx context.Context, txID string, approvalToken string) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
-		return c.httpClient.GetSignatureByTx(txID, approvalToken)
+		return c.httpClient.GetSignatureByTx(ctx, txID, approvalToken)
 	})
 }

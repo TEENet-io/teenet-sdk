@@ -23,11 +23,11 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"golang.org/x/crypto/sha3"
 )
 
 // Protocol constants
@@ -57,8 +57,8 @@ type ECDSASignature struct {
 // - SECP256R1 with ECDSA or Schnorr protocols
 func VerifySignature(message, publicKey, signature []byte, protocolStr, curveStr string) (bool, error) {
 	// Normalize to lowercase for case-insensitive comparison
-	protocol := normalizeString(protocolStr)
-	curve := normalizeString(curveStr)
+	protocol := strings.ToLower(protocolStr)
+	curve := strings.ToLower(curveStr)
 
 	switch curve {
 	case CurveED25519:
@@ -70,20 +70,6 @@ func VerifySignature(message, publicKey, signature []byte, protocolStr, curveStr
 	default:
 		return false, fmt.Errorf("unsupported curve: %s (supported: %s, %s, %s)", curveStr, CurveED25519, CurveSECP256K1, CurveSECP256R1)
 	}
-}
-
-// normalizeString converts a string to lowercase for case-insensitive comparison
-func normalizeString(s string) string {
-	// Simple lowercase conversion for ASCII strings
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		result[i] = c
-	}
-	return string(result)
 }
 
 // verifyED25519 verifies ED25519 signatures
@@ -132,52 +118,44 @@ func verifySecp256k1(message, publicKeyBytes, signature []byte, protocol string)
 	}
 }
 
-// verifySecp256k1ECDSA verifies ECDSA signature on secp256k1 using btcec
-func verifySecp256k1ECDSA(message []byte, pubKey *btcec.PublicKey, signature []byte) (bool, error) {
-	// For Ethereum-style signatures (65 bytes), use Keccak-256
-	// For other signatures, use SHA-256
-	var messageHash []byte
+// verifySecp256k1ECDSA verifies ECDSA signature on secp256k1 using btcec.
+//
+// No hashing is performed here. The TEE-DAO does NOT hash messages before
+// signing for secp256k1 ECDSA (Ethereum). The caller must pass the
+// pre-hashed message digest (e.g. a 32-byte Keccak-256 or SHA-256 hash).
+// Hashing is the caller's responsibility — this prevents algorithm-confusion
+// attacks where the verifier's hash choice depends on the signature format.
+func verifySecp256k1ECDSA(messageHash []byte, pubKey *btcec.PublicKey, signature []byte) (bool, error) {
+	ecdsaPubKey := (*ecdsa.PublicKey)(pubKey.ToECDSA())
 
-	if len(signature) == 65 {
-		// Ethereum uses Keccak-256 for message hashing
-		hasher := sha3.NewLegacyKeccak256()
-		hasher.Write(message)
-		messageHash = hasher.Sum(nil)
-	} else {
-		// Standard uses SHA-256
-		hasher := sha256.New()
-		hasher.Write(message)
-		messageHash = hasher.Sum(nil)
-	}
-
-	// Check signature format
 	switch len(signature) {
 	case 65:
-		// Ethereum-style signature with recovery id: r(32) + s(32) + v(1)
+		// 65-byte format: r(32) || s(32) || v(1) — recovery id v is not needed for verification.
 		r := new(big.Int).SetBytes(signature[:32])
 		s := new(big.Int).SetBytes(signature[32:64])
-		// Recovery id is signature[64], but we don't need it for verification
-
-		// Verify using standard ecdsa
-		ecdsaPubKey := (*ecdsa.PublicKey)(pubKey.ToECDSA())
 		return ecdsa.Verify(ecdsaPubKey, messageHash, r, s), nil
 
 	case 64:
-		// Raw r,s format without recovery id
+		// 64-byte canonical format: r(32) || s(32).
+		// Enforce low-S normalization to reject malleable signatures.
+		// Bitcoin and many protocols require s <= n/2; accepting high-S signatures
+		// allows an attacker to produce a second valid signature for the same message.
 		r := new(big.Int).SetBytes(signature[:32])
 		s := new(big.Int).SetBytes(signature[32:])
 
-		// Verify using standard ecdsa
-		ecdsaPubKey := (*ecdsa.PublicKey)(pubKey.ToECDSA())
+		halfOrder := new(big.Int).Rsh(ecdsaPubKey.Curve.Params().N, 1)
+		if s.Cmp(halfOrder) > 0 {
+			return false, fmt.Errorf("non-canonical ECDSA signature: s exceeds half the curve order (high-S)")
+		}
+
 		return ecdsa.Verify(ecdsaPubKey, messageHash, r, s), nil
 
 	default:
-		// Try parsing as DER format
+		// DER-encoded format.
 		sig, err := btcecdsa.ParseSignature(signature)
 		if err != nil {
 			return false, fmt.Errorf("failed to parse ECDSA signature (length %d): %v", len(signature), err)
 		}
-		// Verify the signature
 		return sig.Verify(messageHash, pubKey), nil
 	}
 }
@@ -270,8 +248,17 @@ func verifyP256ECDSA(message []byte, publicKey *ecdsa.PublicKey, signature []byt
 	return ecdsa.Verify(publicKey, messageHash, ecdsaSig.R, ecdsaSig.S), nil
 }
 
-// verifyP256Schnorr verifies Schnorr signature on P-256
-// Note: This is a simplified implementation as Schnorr is not commonly used with P-256
+// verifyP256Schnorr verifies a TEENet-internal Schnorr signature on P-256 (secp256r1).
+//
+// Protocol definition (must match the TEE-DAO signer exactly):
+//
+//	signature = (r, s), each 32 bytes
+//	challenge  e = SHA-256( r || P.x || message )  mod n
+//	valid if   (s·G - e·P).x == r
+//
+// NOTE: This is NOT BIP-340 (which is defined only for secp256k1 and uses tagged
+// hashes). This is a TEENet-proprietary Schnorr variant for P-256. Do not use it
+// to verify signatures produced by other Schnorr implementations.
 func verifyP256Schnorr(message []byte, publicKey *ecdsa.PublicKey, signature []byte) (bool, error) {
 	if len(signature) != 64 {
 		return false, fmt.Errorf("invalid Schnorr signature length: expected 64, got %d", len(signature))

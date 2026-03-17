@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -34,7 +35,7 @@ func TestAdminInvitePasskeyUser_MethodAndPath(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminInvitePasskeyUser("app-1", map[string]interface{}{
+	resp, err := client.AdminInvitePasskeyUser(context.Background(), "app-1", map[string]interface{}{
 		"display_name": "Alice",
 	})
 	if err != nil {
@@ -56,7 +57,7 @@ func TestAdminInvitePasskeyUser_Non2xxPropagated(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminInvitePasskeyUser("app-1", map[string]interface{}{})
+	resp, err := client.AdminInvitePasskeyUser(context.Background(), "app-1", map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestAdminListPasskeyUsers_QueryParams(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminListPasskeyUsers("app-2", 2, 5)
+	resp, err := client.AdminListPasskeyUsers(context.Background(), "app-2", 2, 5)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestAdminListPasskeyUsers_NoPageLimit(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, err := client.AdminListPasskeyUsers("app-3", 0, 0)
+	_, err := client.AdminListPasskeyUsers(context.Background(), "app-3", 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -137,7 +138,7 @@ func TestAdminDeletePasskeyUser_PathAndQuery(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminDeletePasskeyUser("app-4", 42)
+	resp, err := client.AdminDeletePasskeyUser(context.Background(), "app-4", 42)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,7 +167,7 @@ func TestAdminListAuditRecords_QueryParams(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminListAuditRecords("app-5", 1, 10)
+	resp, err := client.AdminListAuditRecords(context.Background(), "app-5", 1, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -202,7 +203,7 @@ func TestAdminUpsertPolicy_MethodAndBody(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminUpsertPolicy("app-6", map[string]interface{}{
+	resp, err := client.AdminUpsertPolicy(context.Background(), "app-6", map[string]interface{}{
 		"public_key_name": "my-key",
 		"enabled":         true,
 	})
@@ -234,7 +235,7 @@ func TestAdminGetPolicy_QueryParams(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminGetPolicy("app-7", "k1")
+	resp, err := client.AdminGetPolicy(context.Background(), "app-7", "k1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -263,7 +264,7 @@ func TestAdminDeletePolicy_MethodAndQuery(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.AdminDeletePolicy("app-8", "k2")
+	resp, err := client.AdminDeletePolicy(context.Background(), "app-8", "k2")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -276,7 +277,7 @@ func TestAdminDeletePolicy_MethodAndQuery(t *testing.T) {
 
 func TestAdminRequest_TransportError(t *testing.T) {
 	client := NewHTTPClient("http://localhost:1", &http.Client{})
-	_, err := client.AdminGetPolicy("app-x", "k")
+	_, err := client.AdminGetPolicy(context.Background(), "app-x", "k")
 	if err == nil {
 		t.Fatal("expected transport error")
 	}
@@ -292,7 +293,7 @@ func TestAdminRequest_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, err := client.AdminListAuditRecords("app-y", 1, 10)
+	_, err := client.AdminListAuditRecords(context.Background(), "app-y", 1, 10)
 	if err == nil || !strings.Contains(err.Error(), "failed to decode admin response") {
 		t.Fatalf("expected decode error, got: %v", err)
 	}

@@ -33,22 +33,26 @@
 //	defer client.Close()
 //
 //	// Sign a message
-//	result, err := client.Sign([]byte("message to sign"), "my-key")
+//	result, err := client.Sign(ctx, []byte("message to sign"), "my-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //
 //	// Verify a signature
-//	valid, err := client.Verify(message, result.Signature, "my-key")
+//	valid, err := client.Verify(ctx, message, result.Signature, "my-key")
 //
 // For more examples, see the examples/ directory.
 package client
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/crypto"
@@ -70,12 +74,14 @@ const (
 // The Client is safe for concurrent use, though typically one client per application
 // is sufficient.
 type Client struct {
-	httpClient         *network.HTTPClient // HTTP client for consensus service communication
-	consensusURL       string              // Base URL of the consensus service
-	defaultAppID       string              // Default application ID for operations
-	requestTimeout     time.Duration       // Timeout for HTTP requests (default: 30s)
-	pendingWaitTimeout time.Duration       // Max wait in Sign for pending voting completion (default: 10s)
-	debug              bool                // Enable verbose SDK trace logs
+	mu                 sync.RWMutex           // Protects defaultAppID and pkCache
+	httpClient         *network.HTTPClient    // HTTP client for consensus service communication
+	consensusURL       string                 // Base URL of the consensus service
+	defaultAppID       string                 // Default application ID for operations
+	pkCache            map[string]pkCacheEntry // Public key cache keyed by appID
+	requestTimeout     time.Duration          // Timeout for HTTP requests (default: 30s)
+	pendingWaitTimeout time.Duration          // Max wait in Sign for pending voting completion (default: 10s)
+	debug              bool                   // Enable verbose SDK trace logs
 }
 
 // NewClient creates a new SDK client with default settings.
@@ -123,6 +129,17 @@ func NewClient(consensusURL string) *Client {
 //	}
 //	client := types.NewClientWithOptions("http://localhost:8089", opts)
 func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Client {
+	// Validate the URL scheme early to surface misconfiguration immediately
+	// rather than producing confusing network errors on the first request.
+	// Only http:// and https:// are accepted; anything else (e.g. a bare
+	// "localhost:8089" with no scheme) would silently mis-route every request.
+	if parsed, err := url.Parse(consensusURL); err != nil {
+		log.Printf("[teenet-sdk] WARNING: consensusURL %q is not a valid URL: %v", consensusURL, err)
+	} else if scheme := strings.ToLower(parsed.Scheme); scheme != "http" && scheme != "https" {
+		log.Printf("[teenet-sdk] WARNING: consensusURL %q has scheme %q — only http:// and https:// are supported; "+
+			"requests will fail. Use https:// in production to protect against network-level interception.", consensusURL, parsed.Scheme)
+	}
+
 	// Set defaults
 	requestTimeout := 30 * time.Second
 	pendingWaitTimeout := defaultPendingWaitTimeout
@@ -146,6 +163,7 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 	return &Client{
 		httpClient:         network.NewHTTPClient(consensusURL, stdHTTPClient),
 		consensusURL:       consensusURL,
+		pkCache:            make(map[string]pkCacheEntry),
 		requestTimeout:     requestTimeout,
 		pendingWaitTimeout: pendingWaitTimeout,
 		debug:              debug,
@@ -178,7 +196,11 @@ func (c *Client) debugf(format string, args ...interface{}) {
 //	defer client.Close()
 func (c *Client) Init() error {
 	// Try to read default App ID from environment
-	if c.defaultAppID == "" {
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+
+	if appID == "" {
 		if err := c.SetDefaultAppIDFromEnv(); err != nil {
 			// Not an error if APP_INSTANCE_ID env var is not set
 			log.Printf("APP_INSTANCE_ID environment variable not set, you can set it later with SetDefaultAppID()")
@@ -202,7 +224,9 @@ func (c *Client) Init() error {
 //
 //	client.SetDefaultAppID("f5a8f44238cd6112b9f02f7f63a12533")
 func (c *Client) SetDefaultAppID(appID string) {
+	c.mu.Lock()
 	c.defaultAppID = appID
+	c.mu.Unlock()
 	log.Printf("Default App ID set to: %s", appID)
 }
 
@@ -240,6 +264,8 @@ func (c *Client) SetDefaultAppIDFromEnv() error {
 //	    log.Println("No App ID configured")
 //	}
 func (c *Client) GetDefaultAppID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.defaultAppID
 }
 
@@ -278,40 +304,33 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 }
 
 // generateKey calls the HTTP API to generate a key and converts the response.
-func (c *Client) generateKey(curve, protocol string) (*types.GenerateKeyResult, error) {
-	resp, err := c.httpClient.GenerateKey(c.defaultAppID, curve, protocol)
+func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*types.GenerateKeyResult, error) {
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+
+	log.Printf("Generating %s key: curve=%s, app_id=%s", protocol, curve, appID)
+	resp, err := c.httpClient.GenerateKey(ctx, appID, curve, protocol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate %s key: %w", protocol, err)
 	}
 	if !resp.Success {
 		return &types.GenerateKeyResult{Success: false, Message: resp.Message}, nil
 	}
-	result := &types.GenerateKeyResult{
-		Success: true,
-		Message: resp.Message,
-		PublicKey: &types.PublicKeyInfo{
-			ID:                  resp.PublicKey.ID,
-			Name:                resp.PublicKey.Name,
-			KeyData:             resp.PublicKey.KeyData,
-			Curve:               resp.PublicKey.Curve,
-			Protocol:            resp.PublicKey.Protocol,
-			Threshold:           resp.PublicKey.Threshold,
-			ParticipantCount:    resp.PublicKey.ParticipantCount,
-			MaxParticipantCount: resp.PublicKey.MaxParticipantCount,
-			ApplicationID:       resp.PublicKey.ApplicationID,
-			CreatedByInstanceID: resp.PublicKey.CreatedByInstanceID,
-		},
+	pubKey, err := convertJSON[types.PublicKeyInfo](resp.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode generated key: %w", err)
 	}
-	log.Printf("Successfully generated %s key (ID: %d)", protocol, result.PublicKey.ID)
-	return result, nil
+	log.Printf("Successfully generated %s key (ID: %d)", protocol, pubKey.ID)
+	return &types.GenerateKeyResult{Success: true, Message: resp.Message, PublicKey: pubKey}, nil
 }
 
 // GenerateSchnorrKey generates a new Schnorr signature key for the application.
 //
 // Supported curves: "ed25519", "secp256k1", "secp256r1"
-func (c *Client) GenerateSchnorrKey(curve string) (*types.GenerateKeyResult, error) {
-	if c.defaultAppID == "" {
-		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
+func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*types.GenerateKeyResult, error) {
+	if err := c.requireAppID(); err != nil {
+		return nil, err
 	}
 	validCurves := map[string]bool{
 		crypto.CurveED25519: true, crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
@@ -320,17 +339,16 @@ func (c *Client) GenerateSchnorrKey(curve string) (*types.GenerateKeyResult, err
 		return nil, fmt.Errorf("invalid curve '%s' for Schnorr protocol, supported: %s, %s, %s",
 			curve, crypto.CurveED25519, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
 	}
-	log.Printf("Generating Schnorr key: curve=%s, app_id=%s", curve, c.defaultAppID)
-	return c.generateKey(curve, crypto.ProtocolSchnorr)
+	return c.generateKey(ctx, curve, crypto.ProtocolSchnorr)
 }
 
 // GenerateECDSAKey generates a new ECDSA signature key for the application.
 //
 // Supported curves: "secp256k1", "secp256r1"
 // Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey).
-func (c *Client) GenerateECDSAKey(curve string) (*types.GenerateKeyResult, error) {
-	if c.defaultAppID == "" {
-		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
+func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*types.GenerateKeyResult, error) {
+	if err := c.requireAppID(); err != nil {
+		return nil, err
 	}
 	validCurves := map[string]bool{
 		crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
@@ -339,8 +357,7 @@ func (c *Client) GenerateECDSAKey(curve string) (*types.GenerateKeyResult, error
 		return nil, fmt.Errorf("invalid curve '%s' for ECDSA protocol, supported: %s, %s",
 			curve, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
 	}
-	log.Printf("Generating ECDSA key: curve=%s, app_id=%s", curve, c.defaultAppID)
-	return c.generateKey(curve, crypto.ProtocolECDSA)
+	return c.generateKey(ctx, curve, crypto.ProtocolECDSA)
 }
 
 // GetAPIKey retrieves an API key value by name from the consensus service.
@@ -350,6 +367,7 @@ func (c *Client) GenerateECDSAKey(curve string) (*types.GenerateKeyResult, error
 // with an API key value (not just a secret) for this operation to succeed.
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - name: The name of the API key to retrieve
 //
 // Returns:
@@ -358,15 +376,14 @@ func (c *Client) GenerateECDSAKey(curve string) (*types.GenerateKeyResult, error
 //
 // Example:
 //
-//	result, err := client.GetAPIKey("my-api-key")
+//	result, err := client.GetAPIKey(ctx, "my-api-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("API Key: %s\n", result.APIKey)
-func (c *Client) GetAPIKey(name string) (*types.APIKeyResult, error) {
-	// Validate that we have an App ID
-	if c.defaultAppID == "" {
-		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
+func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResult, error) {
+	if err := c.requireAppID(); err != nil {
+		return nil, err
 	}
 
 	// Validate name
@@ -374,10 +391,14 @@ func (c *Client) GetAPIKey(name string) (*types.APIKeyResult, error) {
 		return nil, fmt.Errorf("API key name cannot be empty")
 	}
 
-	log.Printf("Retrieving API key: name=%s, app_id=%s", name, c.defaultAppID)
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+
+	log.Printf("Retrieving API key: name=%s, app_id=%s", name, appID)
 
 	// Call HTTP API
-	resp, err := c.httpClient.GetAPIKey(c.defaultAppID, name)
+	resp, err := c.httpClient.GetAPIKey(ctx, appID, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
@@ -386,7 +407,7 @@ func (c *Client) GetAPIKey(name string) (*types.APIKeyResult, error) {
 		return &types.APIKeyResult{
 			Success:       false,
 			Error:         resp.Error,
-			AppInstanceID: c.defaultAppID,
+			AppInstanceID: appID,
 			Name:          name,
 		}, nil
 	}
@@ -411,6 +432,7 @@ func (c *Client) GetAPIKey(name string) (*types.APIKeyResult, error) {
 // operation to succeed.
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - name: The name of the API key/secret to use for signing
 //   - message: The message bytes to sign
 //
@@ -420,15 +442,14 @@ func (c *Client) GetAPIKey(name string) (*types.APIKeyResult, error) {
 //
 // Example:
 //
-//	result, err := client.SignWithAPISecret("my-api-key", []byte("important message"))
+//	result, err := client.SignWithAPISecret(ctx, "my-api-key", []byte("important message"))
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("Signature: %s\n", result.Signature)
-func (c *Client) SignWithAPISecret(name string, message []byte) (*types.APISignResult, error) {
-	// Validate that we have an App ID
-	if c.defaultAppID == "" {
-		return nil, fmt.Errorf("no App ID configured, call SetDefaultAppID() first")
+func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []byte) (*types.APISignResult, error) {
+	if err := c.requireAppID(); err != nil {
+		return nil, err
 	}
 
 	// Validate name
@@ -441,10 +462,14 @@ func (c *Client) SignWithAPISecret(name string, message []byte) (*types.APISignR
 		return nil, fmt.Errorf("message cannot be empty")
 	}
 
-	log.Printf("Signing with API secret: name=%s, app_id=%s, message_len=%d", name, c.defaultAppID, len(message))
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+
+	log.Printf("Signing with API secret: name=%s, app_id=%s, message_len=%d", name, appID, len(message))
 
 	// Call HTTP API
-	resp, err := c.httpClient.SignWithAPISecret(c.defaultAppID, name, message)
+	resp, err := c.httpClient.SignWithAPISecret(ctx, appID, name, message)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign with API secret: %w", err)
 	}
@@ -453,7 +478,7 @@ func (c *Client) SignWithAPISecret(name string, message []byte) (*types.APISignR
 		return &types.APISignResult{
 			Success:       false,
 			Error:         resp.Error,
-			AppInstanceID: c.defaultAppID,
+			AppInstanceID: appID,
 			Name:          name,
 			MessageLength: len(message),
 		}, nil

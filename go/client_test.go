@@ -14,6 +14,7 @@
 package sdk
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -147,11 +148,12 @@ func TestClientClose(t *testing.T) {
 
 // TestSignWithoutAppID tests that Sign returns error when App ID is not set
 func TestSignWithoutAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	// Try to sign without setting App ID
-	_, err := client.Sign([]byte("test message"), "pk1")
+	_, err := client.Sign(ctx, []byte("test message"), "pk1")
 	if err == nil {
 		t.Error("Expected error when signing without App ID, got nil")
 	}
@@ -194,10 +196,11 @@ func TestInit_NoEnvVar(t *testing.T) {
 
 // TestVerify_NoAppID tests Verify without App ID
 func TestVerify_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.Verify([]byte("message"), []byte("signature"), "pk1")
+	_, err := client.Verify(ctx, []byte("message"), []byte("signature"), "pk1")
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
@@ -241,10 +244,11 @@ func TestClientOptions_NilOptions(t *testing.T) {
 
 // TestGenerateSchnorrKey_NoAppID tests GenerateSchnorrKey without App ID
 func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GenerateSchnorrKey(CurveSECP256K1)
+	_, err := client.GenerateSchnorrKey(ctx, CurveSECP256K1)
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
@@ -252,10 +256,11 @@ func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
 
 // TestGenerateECDSAKey_NoAppID tests GenerateECDSAKey without App ID
 func TestGenerateECDSAKey_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GenerateECDSAKey(CurveSECP256K1)
+	_, err := client.GenerateECDSAKey(ctx, CurveSECP256K1)
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
@@ -263,10 +268,11 @@ func TestGenerateECDSAKey_NoAppID(t *testing.T) {
 
 // TestGetAPIKey_NoAppID tests GetAPIKey without App ID
 func TestGetAPIKey_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GetAPIKey("test-key")
+	_, err := client.GetAPIKey(ctx, "test-key")
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
@@ -274,10 +280,11 @@ func TestGetAPIKey_NoAppID(t *testing.T) {
 
 // TestSignWithAPISecret_NoAppID tests SignWithAPISecret without App ID
 func TestSignWithAPISecret_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.SignWithAPISecret("test-secret", []byte("message"))
+	_, err := client.SignWithAPISecret(ctx, "test-secret", []byte("message"))
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
@@ -285,16 +292,18 @@ func TestSignWithAPISecret_NoAppID(t *testing.T) {
 
 // TestGetPublicKeys_NoAppID tests GetPublicKeys without App ID
 func TestGetPublicKeys_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GetPublicKeys()
+	_, err := client.GetPublicKeys(ctx)
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
 func TestPasskeyLoginWithCredential(t *testing.T) {
+	ctx := context.Background()
 	var callCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -325,7 +334,7 @@ func TestPasskeyLoginWithCredential(t *testing.T) {
 	client := NewClient(server.URL)
 	defer client.Close()
 
-	res, err := client.PasskeyLoginWithCredential(func(options interface{}) ([]byte, error) {
+	res, err := client.PasskeyLoginWithCredential(ctx, func(options interface{}) ([]byte, error) {
 		opts, ok := options.(map[string]interface{})
 		if !ok || opts["challenge"] != "abc" {
 			t.Fatalf("unexpected options passed to provider: %#v", options)
@@ -344,6 +353,7 @@ func TestPasskeyLoginWithCredential(t *testing.T) {
 }
 
 func TestApprovalRequestConfirmWithCredential(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/approvals/request/12/challenge":
@@ -369,7 +379,7 @@ func TestApprovalRequestConfirmWithCredential(t *testing.T) {
 	client := NewClient(server.URL)
 	defer client.Close()
 
-	res, err := client.ApprovalRequestConfirmWithCredential(12, func(options interface{}) ([]byte, error) {
+	res, err := client.ApprovalRequestConfirmWithCredential(ctx, 12, func(options interface{}) ([]byte, error) {
 		opts, ok := options.(map[string]interface{})
 		if !ok || opts["challenge"] != "request-12" {
 			t.Fatalf("unexpected options passed to provider: %#v", options)
@@ -388,6 +398,7 @@ func TestApprovalRequestConfirmWithCredential(t *testing.T) {
 }
 
 func TestApprovalActionWithCredential(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/approvals/99/challenge":
@@ -416,7 +427,7 @@ func TestApprovalActionWithCredential(t *testing.T) {
 	client := NewClient(server.URL)
 	defer client.Close()
 
-	res, err := client.ApprovalActionWithCredential(99, "APPROVE", func(options interface{}) ([]byte, error) {
+	res, err := client.ApprovalActionWithCredential(ctx, 99, "APPROVE", func(options interface{}) ([]byte, error) {
 		opts, ok := options.(map[string]interface{})
 		if !ok || opts["challenge"] != "task-99" {
 			t.Fatalf("unexpected options passed to provider: %#v", options)

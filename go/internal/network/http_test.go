@@ -5,6 +5,7 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +56,7 @@ func TestSubmitRequest_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.SubmitRequest("test-app-id", []byte("test message"), nil, "")
+	result, err := client.SubmitRequest(context.Background(), "test-app-id", []byte("test message"), nil, "")
 	if err != nil {
 		t.Fatalf("SubmitRequest failed: %v", err)
 	}
@@ -90,7 +91,7 @@ func TestSubmitRequest_WithPublicKey(t *testing.T) {
 
 	client := NewHTTPClient(server.URL, server.Client())
 	pubKey := []byte{0x04, 0x01, 0x02, 0x03}
-	result, err := client.SubmitRequest("test-app-id", []byte("test"), pubKey, "")
+	result, err := client.SubmitRequest(context.Background(), "test-app-id", []byte("test"), pubKey, "")
 	if err != nil {
 		t.Fatalf("SubmitRequest failed: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestSubmitRequest_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, err := client.SubmitRequest("test-app-id", []byte("test"), nil, "")
+	_, err := client.SubmitRequest(context.Background(), "test-app-id", []byte("test"), nil, "")
 	if err == nil {
 		t.Error("Expected error for server error response")
 	}
@@ -139,7 +140,7 @@ func TestGetPublicKeys_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	keys, err := client.GetPublicKeys("test-app-id")
+	keys, err := client.GetPublicKeys(context.Background(), "test-app-id")
 	if err != nil {
 		t.Fatalf("GetPublicKeys failed: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestGetPublicKeys_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, err := client.GetPublicKeys("nonexistent")
+	_, err := client.GetPublicKeys(context.Background(), "nonexistent")
 	if err == nil {
 		t.Error("Expected error for not found response")
 	}
@@ -206,7 +207,7 @@ func TestGenerateKey_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.GenerateKey("test-app-id", "secp256k1", "schnorr")
+	result, err := client.GenerateKey(context.Background(), "test-app-id", "secp256k1", "schnorr")
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
 	}
@@ -244,7 +245,7 @@ func TestGetAPIKey_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.GetAPIKey("test-app-id", "my-key")
+	result, err := client.GetAPIKey(context.Background(), "test-app-id", "my-key")
 	if err != nil {
 		t.Fatalf("GetAPIKey failed: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestGetAPIKey_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.GetAPIKey("test-app-id", "nonexistent")
+	result, err := client.GetAPIKey(context.Background(), "test-app-id", "nonexistent")
 	if err != nil {
 		t.Fatalf("GetAPIKey failed: %v", err)
 	}
@@ -302,7 +303,7 @@ func TestSignWithAPISecret_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.SignWithAPISecret("test-app-id", "my-secret", []byte("test message"))
+	result, err := client.SignWithAPISecret(context.Background(), "test-app-id", "my-secret", []byte("test message"))
 	if err != nil {
 		t.Fatalf("SignWithAPISecret failed: %v", err)
 	}
@@ -317,92 +318,31 @@ func TestSignWithAPISecret_Success(t *testing.T) {
 	}
 }
 
-func TestVerifyWithAPISecret_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("Expected POST method, got '%s'", r.Method)
-		}
-
-		var payload verifyWithAPISecretPayload
-		json.NewDecoder(r.Body).Decode(&payload)
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(apiVerifyResponse{
-			Success:       true,
-			AppInstanceID: "test-app-id",
-			Name:          "my-secret",
-			Valid:         true,
-			Algorithm:     "HMAC-SHA256",
-		})
-	}))
-	defer server.Close()
-
-	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.VerifyWithAPISecret("test-app-id", "my-secret", []byte("message"), []byte("signature"))
-	if err != nil {
-		t.Fatalf("VerifyWithAPISecret failed: %v", err)
-	}
-	if !result.Success {
-		t.Error("Expected Success to be true")
-	}
-	if !result.Valid {
-		t.Error("Expected Valid to be true")
-	}
-}
-
-func TestVerifyWithAPISecret_Invalid(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(apiVerifyResponse{
-			Success:       true,
-			AppInstanceID: "test-app-id",
-			Name:          "my-secret",
-			Valid:         false,
-			Algorithm:     "HMAC-SHA256",
-		})
-	}))
-	defer server.Close()
-
-	client := NewHTTPClient(server.URL, server.Client())
-	result, err := client.VerifyWithAPISecret("test-app-id", "my-secret", []byte("message"), []byte("wrong-sig"))
-	if err != nil {
-		t.Fatalf("VerifyWithAPISecret failed: %v", err)
-	}
-	if result.Valid {
-		t.Error("Expected Valid to be false")
-	}
-}
-
 func TestHTTPClient_ConnectionError(t *testing.T) {
 	// Use invalid URL to trigger connection error
 	client := NewHTTPClient("http://localhost:99999", &http.Client{})
 
-	_, err := client.SubmitRequest("test", []byte("msg"), nil, "")
+	_, err := client.SubmitRequest(context.Background(), "test", []byte("msg"), nil, "")
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
 
-	_, err = client.GetPublicKeys("test")
+	_, err = client.GetPublicKeys(context.Background(), "test")
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
 
-	_, err = client.GenerateKey("test", "secp256k1", "schnorr")
+	_, err = client.GenerateKey(context.Background(), "test", "secp256k1", "schnorr")
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
 
-	_, err = client.GetAPIKey("test", "key")
+	_, err = client.GetAPIKey(context.Background(), "test", "key")
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
 
-	_, err = client.SignWithAPISecret("test", "secret", []byte("msg"))
-	if err == nil {
-		t.Error("Expected error for connection failure")
-	}
-
-	_, err = client.VerifyWithAPISecret("test", "secret", []byte("msg"), []byte("sig"))
+	_, err = client.SignWithAPISecret(context.Background(), "test", "secret", []byte("msg"))
 	if err == nil {
 		t.Error("Expected error for connection failure")
 	}
@@ -417,17 +357,17 @@ func TestHTTPClient_InvalidJSON(t *testing.T) {
 
 	client := NewHTTPClient(server.URL, server.Client())
 
-	_, err := client.SubmitRequest("test", []byte("msg"), nil, "")
+	_, err := client.SubmitRequest(context.Background(), "test", []byte("msg"), nil, "")
 	if err == nil {
 		t.Error("Expected error for invalid JSON response")
 	}
 
-	_, err = client.GetPublicKeys("test")
+	_, err = client.GetPublicKeys(context.Background(), "test")
 	if err == nil {
 		t.Error("Expected error for invalid JSON response")
 	}
 
-	_, err = client.GenerateKey("test", "secp256k1", "schnorr")
+	_, err = client.GenerateKey(context.Background(), "test", "secp256k1", "schnorr")
 	if err == nil {
 		t.Error("Expected error for invalid JSON response")
 	}

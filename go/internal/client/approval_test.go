@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,6 +50,7 @@ func TestToApprovalResult_TransportError(t *testing.T) {
 }
 
 func TestClientApprovalRequestInit_Success(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/approvals/request/init" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -60,9 +62,10 @@ func TestClientApprovalRequestInit_Success(t *testing.T) {
 
 	c := &Client{
 		httpClient: network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:    make(map[string]pkCacheEntry),
 	}
 
-	result, err := c.ApprovalRequestInit([]byte(`{"tx_id":"tx-1"}`), "tok.1")
+	result, err := c.ApprovalRequestInit(ctx, []byte(`{"tx_id":"tx-1"}`), "tok.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,6 +78,7 @@ func TestClientApprovalRequestInit_Success(t *testing.T) {
 }
 
 func TestClientApprovalAction_Non2xxMapsToFailure(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Header().Set("Content-Type", "application/json")
@@ -84,9 +88,10 @@ func TestClientApprovalAction_Non2xxMapsToFailure(t *testing.T) {
 
 	c := &Client{
 		httpClient: network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:    make(map[string]pkCacheEntry),
 	}
 
-	result, err := c.ApprovalAction(99, []byte(`{"action":"APPROVE"}`), "tok.1")
+	result, err := c.ApprovalAction(ctx, 99, []byte(`{"action":"APPROVE"}`), "tok.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,11 +107,13 @@ func TestClientApprovalAction_Non2xxMapsToFailure(t *testing.T) {
 }
 
 func TestClientApprovalActionChallenge_TransportError(t *testing.T) {
+	ctx := context.Background()
 	c := &Client{
 		httpClient: network.NewHTTPClient("http://localhost:99999", &http.Client{}),
+		pkCache:    make(map[string]pkCacheEntry),
 	}
 
-	result, err := c.ApprovalActionChallenge(1, "tok.1")
+	result, err := c.ApprovalActionChallenge(ctx, 1, "tok.1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -119,6 +126,7 @@ func TestClientApprovalActionChallenge_TransportError(t *testing.T) {
 }
 
 func TestClientPasskeyLoginVerify_SetsToken(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/passkey/verify" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -130,8 +138,9 @@ func TestClientPasskeyLoginVerify_SetsToken(t *testing.T) {
 
 	c := &Client{
 		httpClient: network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:    make(map[string]pkCacheEntry),
 	}
-	res, err := c.PasskeyLoginVerify(123, []byte(`{"id":"cred"}`))
+	res, err := c.PasskeyLoginVerify(ctx, 123, []byte(`{"id":"cred"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

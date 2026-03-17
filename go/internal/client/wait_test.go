@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestSign_FinalSigned(t *testing.T) {
+	ctx := context.Background()
 	statusCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -70,12 +72,12 @@ func TestSign_FinalSigned(t *testing.T) {
 	defer server.Close()
 
 	client := NewClientWithOptions(server.URL, &types.ClientOptions{
-		PendingWaitTimeout: 1 * time.Millisecond,
+		PendingWaitTimeout: 5 * time.Second,
 	})
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("wait-message"), "pk1")
+	result, err := client.Sign(ctx, []byte("wait-message"), "pk1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,6 +93,7 @@ func TestSign_FinalSigned(t *testing.T) {
 }
 
 func TestWaitForSignResult_Timeout(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/api/cache/0xtimeout" {
@@ -115,7 +118,7 @@ func TestWaitForSignResult_Timeout(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	result, err := client.WaitForSignResult("0xtimeout", 100*time.Millisecond)
+	result, err := client.WaitForSignResult(ctx, "0xtimeout", 100*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -128,8 +131,11 @@ func TestWaitForSignResult_Timeout(t *testing.T) {
 	if result.VotingInfo == nil || result.VotingInfo.Status != "pending" {
 		t.Fatalf("expected pending voting info on timeout, got %#v", result.VotingInfo)
 	}
-	if result.ErrorCode != types.ErrorCodeThresholdTimeout {
-		t.Fatalf("expected error code %s, got %s", types.ErrorCodeThresholdTimeout, result.ErrorCode)
+	// Either THRESHOLD_TIMEOUT (deadline exceeded between polls) or
+	// STATUS_QUERY_FAILED (context cancelled during an in-progress HTTP poll) is acceptable.
+	if result.ErrorCode != types.ErrorCodeThresholdTimeout && result.ErrorCode != types.ErrorCodeStatusQueryFailed {
+		t.Fatalf("expected error code %s or %s, got %s",
+			types.ErrorCodeThresholdTimeout, types.ErrorCodeStatusQueryFailed, result.ErrorCode)
 	}
 }
 

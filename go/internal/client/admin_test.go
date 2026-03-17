@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +16,7 @@ func newAdminClient(t *testing.T, handler http.HandlerFunc) (*Client, func()) {
 	c := &Client{
 		defaultAppID: "app-test",
 		httpClient:   network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:      make(map[string]pkCacheEntry),
 	}
 	return c, server.Close
 }
@@ -22,13 +24,14 @@ func newAdminClient(t *testing.T, handler http.HandlerFunc) (*Client, func()) {
 // ─── InvitePasskeyUser ────────────────────────────────────────────────────────
 
 func TestClientInvitePasskeyUser_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"invite_token":"tok-1","register_url":"/register?invite=tok-1","expires_at":"2099-01-01T00:00:00Z"}`))
 	})
 	defer close()
 
-	res, err := c.InvitePasskeyUser(types.PasskeyInviteRequest{DisplayName: "Alice"})
+	res, err := c.InvitePasskeyUser(ctx, types.PasskeyInviteRequest{DisplayName: "Alice"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -44,21 +47,26 @@ func TestClientInvitePasskeyUser_Success(t *testing.T) {
 }
 
 func TestClientInvitePasskeyUser_NoAppID(t *testing.T) {
-	c := &Client{httpClient: network.NewHTTPClient("http://localhost:1", &http.Client{})}
-	_, err := c.InvitePasskeyUser(types.PasskeyInviteRequest{DisplayName: "Bob"})
+	ctx := context.Background()
+	c := &Client{
+		httpClient: network.NewHTTPClient("http://localhost:1", &http.Client{}),
+		pkCache:    make(map[string]pkCacheEntry),
+	}
+	_, err := c.InvitePasskeyUser(ctx, types.PasskeyInviteRequest{DisplayName: "Bob"})
 	if err == nil {
 		t.Fatal("expected error when no App ID configured")
 	}
 }
 
 func TestClientInvitePasskeyUser_ServerError(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"message":"display_name required"}`))
 	})
 	defer close()
 
-	res, err := c.InvitePasskeyUser(types.PasskeyInviteRequest{})
+	res, err := c.InvitePasskeyUser(ctx, types.PasskeyInviteRequest{})
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -73,13 +81,14 @@ func TestClientInvitePasskeyUser_ServerError(t *testing.T) {
 // ─── ListPasskeyUsers ─────────────────────────────────────────────────────────
 
 func TestClientListPasskeyUsers_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"users":[{"id":1,"display_name":"Alice"}],"total":1,"page":1,"limit":10}`))
 	})
 	defer close()
 
-	res, err := c.ListPasskeyUsers(1, 10)
+	res, err := c.ListPasskeyUsers(ctx, 1, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,13 +104,14 @@ func TestClientListPasskeyUsers_Success(t *testing.T) {
 }
 
 func TestClientListPasskeyUsers_EmptyList(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"users":[],"total":0}`))
 	})
 	defer close()
 
-	res, err := c.ListPasskeyUsers(0, 0)
+	res, err := c.ListPasskeyUsers(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,13 +126,14 @@ func TestClientListPasskeyUsers_EmptyList(t *testing.T) {
 // ─── DeletePasskeyUser ────────────────────────────────────────────────────────
 
 func TestClientDeletePasskeyUser_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"success":true}`))
 	})
 	defer close()
 
-	res, err := c.DeletePasskeyUser(42)
+	res, err := c.DeletePasskeyUser(ctx, 42)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,13 +143,14 @@ func TestClientDeletePasskeyUser_Success(t *testing.T) {
 }
 
 func TestClientDeletePasskeyUser_NotFound(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"passkey user not found"}`))
 	})
 	defer close()
 
-	res, err := c.DeletePasskeyUser(99)
+	res, err := c.DeletePasskeyUser(ctx, 99)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -153,13 +165,14 @@ func TestClientDeletePasskeyUser_NotFound(t *testing.T) {
 // ─── ListAuditRecords ─────────────────────────────────────────────────────────
 
 func TestClientListAuditRecords_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"records":[{"id":1,"action":"APPROVE"}],"total":1,"page":1,"limit":10}`))
 	})
 	defer close()
 
-	res, err := c.ListAuditRecords(1, 10)
+	res, err := c.ListAuditRecords(ctx, 1, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,6 +187,7 @@ func TestClientListAuditRecords_Success(t *testing.T) {
 // ─── UpsertPermissionPolicy ───────────────────────────────────────────────────
 
 func TestClientUpsertPermissionPolicy_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
 			t.Fatalf("expected PUT, got %s", r.Method)
@@ -183,7 +197,7 @@ func TestClientUpsertPermissionPolicy_Success(t *testing.T) {
 	})
 	defer close()
 
-	res, err := c.UpsertPermissionPolicy(types.PolicyRequest{
+	res, err := c.UpsertPermissionPolicy(ctx, types.PolicyRequest{
 		PublicKeyName: "my-key",
 		Enabled:       true,
 		Levels: []types.PolicyLevel{
@@ -199,13 +213,14 @@ func TestClientUpsertPermissionPolicy_Success(t *testing.T) {
 }
 
 func TestClientUpsertPermissionPolicy_ServerRejectsEmpty(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"message":"public_key_name required"}`))
 	})
 	defer close()
 
-	res, err := c.UpsertPermissionPolicy(types.PolicyRequest{})
+	res, err := c.UpsertPermissionPolicy(ctx, types.PolicyRequest{})
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -217,6 +232,7 @@ func TestClientUpsertPermissionPolicy_ServerRejectsEmpty(t *testing.T) {
 // ─── GetPermissionPolicy ──────────────────────────────────────────────────────
 
 func TestClientGetPermissionPolicy_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"policy":{
@@ -231,7 +247,7 @@ func TestClientGetPermissionPolicy_Success(t *testing.T) {
 	})
 	defer close()
 
-	res, err := c.GetPermissionPolicy("my-key")
+	res, err := c.GetPermissionPolicy(ctx, "my-key")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,13 +269,14 @@ func TestClientGetPermissionPolicy_Success(t *testing.T) {
 }
 
 func TestClientGetPermissionPolicy_NotFound(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"policy not found"}`))
 	})
 	defer close()
 
-	res, err := c.GetPermissionPolicy("missing-key")
+	res, err := c.GetPermissionPolicy(ctx, "missing-key")
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -274,6 +291,7 @@ func TestClientGetPermissionPolicy_NotFound(t *testing.T) {
 // ─── DeletePermissionPolicy ───────────────────────────────────────────────────
 
 func TestClientDeletePermissionPolicy_Success(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Fatalf("expected DELETE, got %s", r.Method)
@@ -283,7 +301,7 @@ func TestClientDeletePermissionPolicy_Success(t *testing.T) {
 	})
 	defer close()
 
-	res, err := c.DeletePermissionPolicy("my-key")
+	res, err := c.DeletePermissionPolicy(ctx, "my-key")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -293,13 +311,14 @@ func TestClientDeletePermissionPolicy_Success(t *testing.T) {
 }
 
 func TestClientDeletePermissionPolicy_NotFound(t *testing.T) {
+	ctx := context.Background()
 	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"policy not found"}`))
 	})
 	defer close()
 
-	res, err := c.DeletePermissionPolicy("ghost-key")
+	res, err := c.DeletePermissionPolicy(ctx, "ghost-key")
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -311,24 +330,26 @@ func TestClientDeletePermissionPolicy_NotFound(t *testing.T) {
 // ─── transport errors ─────────────────────────────────────────────────────────
 
 func TestClientAdminMethods_TransportError(t *testing.T) {
+	ctx := context.Background()
 	c := &Client{
 		defaultAppID: "app-x",
 		httpClient:   network.NewHTTPClient("http://localhost:1", &http.Client{}),
+		pkCache:      make(map[string]pkCacheEntry),
 	}
 
-	if res, err := c.ListPasskeyUsers(0, 0); err == nil || res.Success {
+	if res, err := c.ListPasskeyUsers(ctx, 0, 0); err == nil || res.Success {
 		t.Fatal("expected error from ListPasskeyUsers")
 	}
-	if res, err := c.DeletePasskeyUser(1); err == nil || res.Success {
+	if res, err := c.DeletePasskeyUser(ctx, 1); err == nil || res.Success {
 		t.Fatal("expected error from DeletePasskeyUser")
 	}
-	if res, err := c.ListAuditRecords(0, 0); err == nil || res.Success {
+	if res, err := c.ListAuditRecords(ctx, 0, 0); err == nil || res.Success {
 		t.Fatal("expected error from ListAuditRecords")
 	}
-	if res, err := c.GetPermissionPolicy("k"); err == nil || res.Success {
+	if res, err := c.GetPermissionPolicy(ctx, "k"); err == nil || res.Success {
 		t.Fatal("expected error from GetPermissionPolicy")
 	}
-	if res, err := c.DeletePermissionPolicy("k"); err == nil || res.Success {
+	if res, err := c.DeletePermissionPolicy(ctx, "k"); err == nil || res.Success {
 		t.Fatal("expected error from DeletePermissionPolicy")
 	}
 }

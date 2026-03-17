@@ -16,6 +16,7 @@ package util
 
 import (
 	"encoding/hex"
+	"strings"
 )
 
 // DecodeHexSignature decodes a hex-encoded string to raw bytes.
@@ -37,9 +38,5 @@ import (
 //	bytes2, _ := DecodeHexSignature("1234abcd")
 //	// bytes1 and bytes2 are identical
 func DecodeHexSignature(sigHex string) ([]byte, error) {
-	// Remove 0x prefix if present
-	if len(sigHex) >= 2 && sigHex[0:2] == "0x" {
-		sigHex = sigHex[2:]
-	}
-	return hex.DecodeString(sigHex)
+	return hex.DecodeString(strings.TrimPrefix(sigHex, "0x"))
 }

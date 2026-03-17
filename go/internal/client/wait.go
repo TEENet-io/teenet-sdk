@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -13,7 +15,7 @@ const (
 )
 
 // WaitForSignResult polls voting status until signing is finalized or timeout.
-func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.SignResult, error) {
+func (c *Client) WaitForSignResult(ctx context.Context, hash string, timeout time.Duration) (*types.SignResult, error) {
 	if hash == "" {
 		return nil, fmt.Errorf("hash is required")
 	}
@@ -22,6 +24,9 @@ func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.S
 		waitTimeout = c.pendingWaitTimeout
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+
 	deadline := time.Now().Add(waitTimeout)
 	start := time.Now()
 	lastVotes := 0
@@ -29,9 +34,45 @@ func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.S
 	attempt := 0
 
 	for {
+		// Check if context is already done before each attempt
+		select {
+		case <-ctx.Done():
+			timeoutMsg := fmt.Sprintf("threshold not met before timeout for hash %s: votes %d/%d",
+				hash, lastVotes, lastRequired)
+			return signFailure(
+				types.ErrorCodeThresholdTimeout,
+				timeoutMsg,
+				&types.VotingInfo{
+					NeedsVoting:   true,
+					CurrentVotes:  lastVotes,
+					RequiredVotes: lastRequired,
+					Status:        "pending",
+					Hash:          hash,
+				},
+			), errors.New(timeoutMsg)
+		default:
+		}
+
 		attempt++
-		status, err := c.GetStatus(hash)
+		status, err := c.GetStatus(ctx, hash)
 		if err != nil {
+			// If the context itself timed out or was cancelled during the HTTP call,
+			// surface a clean threshold-timeout result rather than a raw network error.
+			if ctx.Err() != nil {
+				timeoutMsg := fmt.Sprintf("threshold not met before timeout for hash %s: votes %d/%d",
+					hash, lastVotes, lastRequired)
+				return signFailure(
+					types.ErrorCodeThresholdTimeout,
+					timeoutMsg,
+					&types.VotingInfo{
+						NeedsVoting:   true,
+						CurrentVotes:  lastVotes,
+						RequiredVotes: lastRequired,
+						Status:        "pending",
+						Hash:          hash,
+					},
+				), errors.New(timeoutMsg)
+			}
 			return signFailure(
 				types.ErrorCodeStatusQueryFailed,
 				fmt.Sprintf("failed to query voting status: %v", err),
@@ -80,7 +121,7 @@ func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.S
 							Status:        "failed",
 							Hash:          hash,
 						},
-					), fmt.Errorf("%s", errMsg)
+					), errors.New(errMsg)
 				}
 			}
 		}
@@ -95,7 +136,25 @@ func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.S
 			sleepFor = remaining
 		}
 		if sleepFor > 0 {
-			time.Sleep(sleepFor)
+			timer := time.NewTimer(sleepFor)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				timeoutMsg := fmt.Sprintf("threshold not met before timeout for hash %s: votes %d/%d",
+					hash, lastVotes, lastRequired)
+				return signFailure(
+					types.ErrorCodeThresholdTimeout,
+					timeoutMsg,
+					&types.VotingInfo{
+						NeedsVoting:   true,
+						CurrentVotes:  lastVotes,
+						RequiredVotes: lastRequired,
+						Status:        "pending",
+						Hash:          hash,
+					},
+				), errors.New(timeoutMsg)
+			case <-timer.C:
+			}
 		}
 	}
 
@@ -111,7 +170,7 @@ func (c *Client) WaitForSignResult(hash string, timeout time.Duration) (*types.S
 			Status:        "pending",
 			Hash:          hash,
 		},
-	), fmt.Errorf("%s", timeoutMsg)
+	), errors.New(timeoutMsg)
 }
 
 func nextPollInterval(attempt int) time.Duration {

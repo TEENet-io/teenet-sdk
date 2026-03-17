@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,7 +24,7 @@ func TestApprovalRequestInit_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalRequestInit([]byte(`{"tx_id":"tx-1"}`), "tok-1")
+	resp, err := client.ApprovalRequestInit(context.Background(), []byte(`{"tx_id":"tx-1"}`), "tok-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestApprovalRequestChallenge_Path(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalRequestChallenge(22, "tok-1")
+	resp, err := client.ApprovalRequestChallenge(context.Background(), 22, "tok-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestApprovalActionChallenge_Path(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalActionChallenge(77, "tok-1")
+	resp, err := client.ApprovalActionChallenge(context.Background(), 77, "tok-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestApprovalPending_SendsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalPending("tok-123", nil)
+	resp, err := client.ApprovalPending(context.Background(), "tok-123", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestApprovalPending_WithFilterQuery(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalPending("tok-123", &types.ApprovalPendingFilter{
+	resp, err := client.ApprovalPending(context.Background(), "tok-123", &types.ApprovalPendingFilter{
 		ApplicationID: 42,
 		PublicKeyName: "pk-alpha",
 	})
@@ -135,7 +136,7 @@ func TestApprovalPending_WithFilterQuery(t *testing.T) {
 
 func TestApprovalPending_FilterValidation(t *testing.T) {
 	client := NewHTTPClient("http://127.0.0.1:1", &http.Client{})
-	_, err := client.ApprovalPending("tok-123", &types.ApprovalPendingFilter{
+	_, err := client.ApprovalPending(context.Background(), "tok-123", &types.ApprovalPendingFilter{
 		PublicKeyName: "pk-alpha",
 	})
 	if err == nil || !strings.Contains(err.Error(), "application_id is required when public_key_name is provided") {
@@ -158,7 +159,7 @@ func TestApprovalRequestConfirm_PropagatesHTTPStatus(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.ApprovalRequestConfirm(5, []byte(`{"passkey_user_id":1}`), "tok-1")
+	resp, err := client.ApprovalRequestConfirm(context.Background(), 5, []byte(`{"passkey_user_id":1}`), "tok-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,7 +175,7 @@ func TestApprovalAction_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	_, err := client.ApprovalAction(1, []byte(`{"action":"APPROVE"}`), "tok-1")
+	_, err := client.ApprovalAction(context.Background(), 1, []byte(`{"action":"APPROVE"}`), "tok-1")
 	if err == nil || !strings.Contains(err.Error(), "failed to decode approval response") {
 		t.Fatalf("expected decode error, got: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestGetMyRequests_SendsBearerToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.GetMyRequests("tok-xyz")
+	resp, err := client.GetMyRequests(context.Background(), "tok-xyz")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -217,7 +218,7 @@ func TestGetSignatureByTx_PathAndBearer(t *testing.T) {
 	defer server.Close()
 
 	client := NewHTTPClient(server.URL, server.Client())
-	resp, err := client.GetSignatureByTx("tx-abc-123", "tok-sig")
+	resp, err := client.GetSignatureByTx(context.Background(), "tx-abc-123", "tok-sig")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

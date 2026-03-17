@@ -5,6 +5,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -187,96 +188,105 @@ func TestClose(t *testing.T) {
 }
 
 func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GenerateSchnorrKey("secp256k1")
+	_, err := client.GenerateSchnorrKey(ctx, "secp256k1")
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
 func TestGenerateSchnorrKey_InvalidCurve(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, err := client.GenerateSchnorrKey("invalid-curve")
+	_, err := client.GenerateSchnorrKey(ctx, "invalid-curve")
 	if err == nil {
 		t.Error("Expected error for invalid curve")
 	}
 }
 
 func TestGenerateECDSAKey_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GenerateECDSAKey("secp256k1")
+	_, err := client.GenerateECDSAKey(ctx, "secp256k1")
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
 func TestGenerateECDSAKey_InvalidCurve(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
 	// ed25519 is not valid for ECDSA
-	_, err := client.GenerateECDSAKey("ed25519")
+	_, err := client.GenerateECDSAKey(ctx, "ed25519")
 	if err == nil {
 		t.Error("Expected error for ed25519 with ECDSA")
 	}
 }
 
 func TestGetAPIKey_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GetAPIKey("test-key")
+	_, err := client.GetAPIKey(ctx, "test-key")
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
 func TestGetAPIKey_EmptyName(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, err := client.GetAPIKey("")
+	_, err := client.GetAPIKey(ctx, "")
 	if err == nil {
 		t.Error("Expected error for empty name")
 	}
 }
 
 func TestSignWithAPISecret_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.SignWithAPISecret("test-secret", []byte("message"))
+	_, err := client.SignWithAPISecret(ctx, "test-secret", []byte("message"))
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
 func TestSignWithAPISecret_EmptyName(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, err := client.SignWithAPISecret("", []byte("message"))
+	_, err := client.SignWithAPISecret(ctx, "", []byte("message"))
 	if err == nil {
 		t.Error("Expected error for empty name")
 	}
 }
 
 func TestSignWithAPISecret_EmptyMessage(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	_, err := client.SignWithAPISecret("test-secret", []byte{})
+	_, err := client.SignWithAPISecret(ctx, "test-secret", []byte{})
 	if err == nil {
 		t.Error("Expected error for empty message")
 	}
@@ -285,6 +295,7 @@ func TestSignWithAPISecret_EmptyMessage(t *testing.T) {
 // Integration-style tests with mock server
 
 func TestGenerateSchnorrKey_WithMockServer(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/generate-key" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
@@ -309,7 +320,7 @@ func TestGenerateSchnorrKey_WithMockServer(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.GenerateSchnorrKey("secp256k1")
+	result, err := client.GenerateSchnorrKey(ctx, "secp256k1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -325,6 +336,7 @@ func TestGenerateSchnorrKey_WithMockServer(t *testing.T) {
 }
 
 func TestGenerateECDSAKey_WithMockServer(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -345,7 +357,7 @@ func TestGenerateECDSAKey_WithMockServer(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.GenerateECDSAKey("secp256k1")
+	result, err := client.GenerateECDSAKey(ctx, "secp256k1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -358,6 +370,7 @@ func TestGenerateECDSAKey_WithMockServer(t *testing.T) {
 }
 
 func TestGenerateKey_ServerError(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -371,7 +384,7 @@ func TestGenerateKey_ServerError(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.GenerateSchnorrKey("secp256k1")
+	result, err := client.GenerateSchnorrKey(ctx, "secp256k1")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -381,6 +394,7 @@ func TestGenerateKey_ServerError(t *testing.T) {
 }
 
 func TestGetAPIKey_WithMockServer(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -396,7 +410,7 @@ func TestGetAPIKey_WithMockServer(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.GetAPIKey("my-key")
+	result, err := client.GetAPIKey(ctx, "my-key")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -409,6 +423,7 @@ func TestGetAPIKey_WithMockServer(t *testing.T) {
 }
 
 func TestGetAPIKey_NotFound(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -422,7 +437,7 @@ func TestGetAPIKey_NotFound(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.GetAPIKey("nonexistent")
+	result, err := client.GetAPIKey(ctx, "nonexistent")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -435,6 +450,7 @@ func TestGetAPIKey_NotFound(t *testing.T) {
 }
 
 func TestSignWithAPISecret_WithMockServer(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -452,7 +468,7 @@ func TestSignWithAPISecret_WithMockServer(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.SignWithAPISecret("my-secret", []byte("test message"))
+	result, err := client.SignWithAPISecret(ctx, "my-secret", []byte("test message"))
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -468,6 +484,7 @@ func TestSignWithAPISecret_WithMockServer(t *testing.T) {
 }
 
 func TestSignWithAPISecret_Failure(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -481,7 +498,7 @@ func TestSignWithAPISecret_Failure(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.SignWithAPISecret("nonexistent", []byte("message"))
+	result, err := client.SignWithAPISecret(ctx, "nonexistent", []byte("message"))
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -491,6 +508,7 @@ func TestSignWithAPISecret_Failure(t *testing.T) {
 }
 
 func TestGenerateSchnorrKey_ValidCurves(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -510,7 +528,7 @@ func TestGenerateSchnorrKey_ValidCurves(t *testing.T) {
 
 	validCurves := []string{"ed25519", "secp256k1", "secp256r1"}
 	for _, curve := range validCurves {
-		result, err := client.GenerateSchnorrKey(curve)
+		result, err := client.GenerateSchnorrKey(ctx, curve)
 		if err != nil {
 			t.Errorf("Unexpected error for curve %s: %v", curve, err)
 		}
@@ -521,6 +539,7 @@ func TestGenerateSchnorrKey_ValidCurves(t *testing.T) {
 }
 
 func TestGenerateECDSAKey_ValidCurves(t *testing.T) {
+	ctx := context.Background()
 	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -541,7 +560,7 @@ func TestGenerateECDSAKey_ValidCurves(t *testing.T) {
 	// Only secp256k1 and secp256r1 are valid for ECDSA
 	validCurves := []string{"secp256k1", "secp256r1"}
 	for _, curve := range validCurves {
-		result, err := client.GenerateECDSAKey(curve)
+		result, err := client.GenerateECDSAKey(ctx, curve)
 		if err != nil {
 			t.Errorf("Unexpected error for curve %s: %v", curve, err)
 		}

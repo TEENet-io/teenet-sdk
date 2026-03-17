@@ -18,6 +18,8 @@ package network
 
 import (
 	"bytes"
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -105,7 +107,7 @@ type publicKeysResponse struct {
 
 // SubmitRequest submits a signature request to the consensus module.
 // publicKey must be provided as raw key bytes.
-func (c *HTTPClient) SubmitRequest(appID string, message []byte, publicKey []byte, passkeyToken string) (*submitRequestResponse, error) {
+func (c *HTTPClient) SubmitRequest(ctx context.Context, appID string, message []byte, publicKey []byte, passkeyToken string) (*submitRequestResponse, error) {
 	payload := submitRequestPayload{
 		AppInstanceID: appID,
 		Message:       message,
@@ -118,11 +120,13 @@ func (c *HTTPClient) SubmitRequest(appID string, message []byte, publicKey []byt
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	resp, err := c.client.Post(
-		c.baseURL+"/api/submit-request",
-		"application/json",
-		bytes.NewBuffer(body),
-	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/submit-request", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build submit request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to submit request: %w", err)
 	}
@@ -137,8 +141,14 @@ func (c *HTTPClient) SubmitRequest(appID string, message []byte, publicKey []byt
 }
 
 // GetCacheDetail retrieves the cache entry for a specific hash.
-func (c *HTTPClient) GetCacheDetail(hash string) (*cacheDetailResponse, error) {
-	resp, err := c.client.Get(c.baseURL + "/api/cache/" + hash)
+func (c *HTTPClient) GetCacheDetail(ctx context.Context, hash string) (*cacheDetailResponse, error) {
+	reqURL := c.baseURL + "/api/cache/" + url.PathEscape(hash)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build cache request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cache entry: %w", err)
 	}
@@ -153,8 +163,14 @@ func (c *HTTPClient) GetCacheDetail(hash string) (*cacheDetailResponse, error) {
 }
 
 // GetPublicKeys retrieves bound public key information for an App ID.
-func (c *HTTPClient) GetPublicKeys(appID string) ([]publicKeyResponse, error) {
-	resp, err := c.client.Get(c.baseURL + "/api/publickeys/" + appID)
+func (c *HTTPClient) GetPublicKeys(ctx context.Context, appID string) ([]publicKeyResponse, error) {
+	reqURL := c.baseURL + "/api/publickeys/" + url.PathEscape(appID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build public keys request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get public keys: %w", err)
 	}
@@ -201,7 +217,7 @@ type GeneratedKeyInfo struct {
 }
 
 // GenerateKey generates a new cryptographic key for an App ID.
-func (c *HTTPClient) GenerateKey(appID, curve, protocol string) (*generateKeyResponse, error) {
+func (c *HTTPClient) GenerateKey(ctx context.Context, appID, curve, protocol string) (*generateKeyResponse, error) {
 	payload := generateKeyPayload{
 		AppInstanceID: appID,
 		Curve:         curve,
@@ -213,11 +229,13 @@ func (c *HTTPClient) GenerateKey(appID, curve, protocol string) (*generateKeyRes
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	resp, err := c.client.Post(
-		c.baseURL+"/api/generate-key",
-		"application/json",
-		bytes.NewBuffer(body),
-	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/generate-key", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build generate key request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate key: %w", err)
 	}
@@ -241,10 +259,17 @@ type apiKeyResponse struct {
 }
 
 // GetAPIKey retrieves an API key value by name for an App ID.
-func (c *HTTPClient) GetAPIKey(appID, name string) (*apiKeyResponse, error) {
-	url := fmt.Sprintf("%s/api/apikey/%s?app_instance_id=%s", c.baseURL, name, appID)
+func (c *HTTPClient) GetAPIKey(ctx context.Context, appID, name string) (*apiKeyResponse, error) {
+	q := url.Values{}
+	q.Set("app_instance_id", appID)
+	reqURL := fmt.Sprintf("%s/api/apikey/%s?%s", c.baseURL, url.PathEscape(name), q.Encode())
 
-	resp, err := c.client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build API key request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
@@ -276,9 +301,9 @@ type apiSignResponse struct {
 }
 
 // SignWithAPISecret signs a message using an API secret stored in TEE.
-func (c *HTTPClient) SignWithAPISecret(appID, name string, message []byte) (*apiSignResponse, error) {
+func (c *HTTPClient) SignWithAPISecret(ctx context.Context, appID, name string, message []byte) (*apiSignResponse, error) {
 	// Convert message to hex string for JSON transport
-	messageHex := fmt.Sprintf("%x", message)
+	messageHex := hex.EncodeToString(message)
 
 	payload := signWithAPISecretPayload{
 		AppInstanceID: appID,
@@ -290,71 +315,20 @@ func (c *HTTPClient) SignWithAPISecret(appID, name string, message []byte) (*api
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/apikey/%s/sign", c.baseURL, name)
-	resp, err := c.client.Post(
-		url,
-		"application/json",
-		bytes.NewBuffer(body),
-	)
+	reqURL := fmt.Sprintf("%s/api/apikey/%s/sign", c.baseURL, url.PathEscape(name))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build sign request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign with API secret: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var result apiSignResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// verifyWithAPISecretPayload is the request body for verifying with API secret
-type verifyWithAPISecretPayload struct {
-	AppInstanceID string `json:"app_instance_id"`
-	Message       string `json:"message"`   // Hex-encoded or plain text message
-	Signature     string `json:"signature"` // Hex-encoded signature
-}
-
-// apiVerifyResponse is the response from verifying with API secret
-type apiVerifyResponse struct {
-	Success       bool   `json:"success"`
-	Error         string `json:"error,omitempty"`
-	AppInstanceID string `json:"app_instance_id"`
-	Name          string `json:"name"`
-	Valid         bool   `json:"valid"`
-	Algorithm     string `json:"algorithm,omitempty"`
-}
-
-// VerifyWithAPISecret verifies an HMAC-SHA256 signature using an API secret stored in TEE.
-func (c *HTTPClient) VerifyWithAPISecret(appID, name string, message, signature []byte) (*apiVerifyResponse, error) {
-	// Convert to hex strings for JSON transport
-	messageHex := fmt.Sprintf("%x", message)
-	signatureHex := fmt.Sprintf("%x", signature)
-
-	payload := verifyWithAPISecretPayload{
-		AppInstanceID: appID,
-		Message:       messageHex,
-		Signature:     signatureHex,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/api/apikey/%s/verify", c.baseURL, name)
-	resp, err := c.client.Post(
-		url,
-		"application/json",
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify with API secret: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result apiVerifyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -372,15 +346,8 @@ type ApprovalBridgeResponse struct {
 // errContext is used as a prefix for error messages (e.g., "approval", "admin").
 // If token is non-empty, an Authorization: Bearer header is added.
 // Content-Type: application/json is set when payload is non-empty.
-func (c *HTTPClient) doRawRequest(method, path, token string, payload []byte, errContext string) (*ApprovalBridgeResponse, error) {
-	var body *bytes.Reader
-	if len(payload) > 0 {
-		body = bytes.NewReader(payload)
-	} else {
-		body = bytes.NewReader(nil)
-	}
-
-	req, err := http.NewRequest(method, c.baseURL+path, body)
+func (c *HTTPClient) doRawRequest(ctx context.Context, method, path, token string, payload []byte, errContext string) (*ApprovalBridgeResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build %s request: %w", errContext, err)
 	}
@@ -404,19 +371,19 @@ func (c *HTTPClient) doRawRequest(method, path, token string, payload []byte, er
 	return &ApprovalBridgeResponse{StatusCode: resp.StatusCode, Data: decoded}, nil
 }
 
-func (c *HTTPClient) doApprovalRequest(method, path, approvalToken string, payload []byte) (*ApprovalBridgeResponse, error) {
-	return c.doRawRequest(method, path, approvalToken, payload, "approval")
+func (c *HTTPClient) doApprovalRequest(ctx context.Context, method, path, approvalToken string, payload []byte) (*ApprovalBridgeResponse, error) {
+	return c.doRawRequest(ctx, method, path, approvalToken, payload, "approval")
 }
 
-func (c *HTTPClient) PasskeyLoginOptions() (*ApprovalBridgeResponse, error) {
-	return c.doRawRequest(http.MethodGet, "/api/auth/passkey/options", "", nil, "approval")
+func (c *HTTPClient) PasskeyLoginOptions(ctx context.Context) (*ApprovalBridgeResponse, error) {
+	return c.doRawRequest(ctx, http.MethodGet, "/api/auth/passkey/options", "", nil, "approval")
 }
 
-func (c *HTTPClient) PasskeyLoginVerify(payload []byte) (*ApprovalBridgeResponse, error) {
-	return c.doRawRequest(http.MethodPost, "/api/auth/passkey/verify", "", payload, "approval")
+func (c *HTTPClient) PasskeyLoginVerify(ctx context.Context, payload []byte) (*ApprovalBridgeResponse, error) {
+	return c.doRawRequest(ctx, http.MethodPost, "/api/auth/passkey/verify", "", payload, "approval")
 }
 
-func (c *HTTPClient) ApprovalPending(approvalToken string, filter *types.ApprovalPendingFilter) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) ApprovalPending(ctx context.Context, approvalToken string, filter *types.ApprovalPendingFilter) (*ApprovalBridgeResponse, error) {
 	path := "/api/approvals/pending"
 	if filter != nil {
 		publicKeyName := strings.TrimSpace(filter.PublicKeyName)
@@ -435,43 +402,43 @@ func (c *HTTPClient) ApprovalPending(approvalToken string, filter *types.Approva
 			path += "?" + encoded
 		}
 	}
-	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
+	return c.doApprovalRequest(ctx, http.MethodGet, path, approvalToken, nil)
 }
 
-func (c *HTTPClient) ApprovalRequestInit(payload []byte, approvalToken string) (*ApprovalBridgeResponse, error) {
-	return c.doApprovalRequest(http.MethodPost, "/api/approvals/request/init", approvalToken, payload)
+func (c *HTTPClient) ApprovalRequestInit(ctx context.Context, payload []byte, approvalToken string) (*ApprovalBridgeResponse, error) {
+	return c.doApprovalRequest(ctx, http.MethodPost, "/api/approvals/request/init", approvalToken, payload)
 }
 
-func (c *HTTPClient) ApprovalRequestChallenge(requestID uint64, approvalToken string) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) ApprovalRequestChallenge(ctx context.Context, requestID uint64, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/approvals/request/%d/challenge", requestID)
-	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
+	return c.doApprovalRequest(ctx, http.MethodGet, path, approvalToken, nil)
 }
 
-func (c *HTTPClient) ApprovalRequestConfirm(requestID uint64, payload []byte, approvalToken string) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) ApprovalRequestConfirm(ctx context.Context, requestID uint64, payload []byte, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/approvals/request/%d/confirm", requestID)
-	return c.doApprovalRequest(http.MethodPost, path, approvalToken, payload)
+	return c.doApprovalRequest(ctx, http.MethodPost, path, approvalToken, payload)
 }
 
-func (c *HTTPClient) ApprovalActionChallenge(taskID uint64, approvalToken string) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) ApprovalActionChallenge(ctx context.Context, taskID uint64, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/approvals/%d/challenge", taskID)
-	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
+	return c.doApprovalRequest(ctx, http.MethodGet, path, approvalToken, nil)
 }
 
-func (c *HTTPClient) ApprovalAction(taskID uint64, payload []byte, approvalToken string) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) ApprovalAction(ctx context.Context, taskID uint64, payload []byte, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/approvals/%d/action", taskID)
-	return c.doApprovalRequest(http.MethodPost, path, approvalToken, payload)
+	return c.doApprovalRequest(ctx, http.MethodPost, path, approvalToken, payload)
 }
 
-func (c *HTTPClient) GetMyRequests(approvalToken string) (*ApprovalBridgeResponse, error) {
-	return c.doApprovalRequest(http.MethodGet, "/api/requests/mine", approvalToken, nil)
+func (c *HTTPClient) GetMyRequests(ctx context.Context, approvalToken string) (*ApprovalBridgeResponse, error) {
+	return c.doApprovalRequest(ctx, http.MethodGet, "/api/requests/mine", approvalToken, nil)
 }
 
-func (c *HTTPClient) CancelRequest(id uint64, idType string, approvalToken string) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) CancelRequest(ctx context.Context, id uint64, idType string, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/requests/%d?type=%s", id, url.QueryEscape(idType))
-	return c.doApprovalRequest(http.MethodDelete, path, approvalToken, nil)
+	return c.doApprovalRequest(ctx, http.MethodDelete, path, approvalToken, nil)
 }
 
-func (c *HTTPClient) GetSignatureByTx(txID string, approvalToken string) (*ApprovalBridgeResponse, error) {
+func (c *HTTPClient) GetSignatureByTx(ctx context.Context, txID string, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/signature/by-tx/%s", url.PathEscape(txID))
-	return c.doApprovalRequest(http.MethodGet, path, approvalToken, nil)
+	return c.doApprovalRequest(ctx, http.MethodGet, path, approvalToken, nil)
 }

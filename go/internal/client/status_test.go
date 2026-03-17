@@ -5,6 +5,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestGetStatus_Found(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/cache/0xabc" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -38,7 +40,7 @@ func TestGetStatus_Found(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	status, err := client.GetStatus("0xabc")
+	status, err := client.GetStatus(ctx, "0xabc")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,6 +62,7 @@ func TestGetStatus_Found(t *testing.T) {
 }
 
 func TestGetStatus_NotFound(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -73,7 +76,7 @@ func TestGetStatus_NotFound(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	status, err := client.GetStatus("0xmissing")
+	status, err := client.GetStatus(ctx, "0xmissing")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

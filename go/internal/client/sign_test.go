@@ -5,7 +5,9 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,21 +53,23 @@ func TestMin(t *testing.T) {
 }
 
 func TestSign_NoAppID(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.Sign([]byte("test message"), testSigningKeyName)
+	_, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err == nil {
 		t.Error("Expected error when no App ID set")
 	}
 }
 
 func TestSign_EmptyMessage(t *testing.T) {
+	ctx := context.Background()
 	client := NewClientWithOptions("http://localhost:8080", nil)
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign(nil, testSigningKeyName)
+	result, err := client.Sign(ctx, nil, testSigningKeyName)
 	if err == nil {
 		t.Fatal("Expected error for empty message")
 	}
@@ -78,6 +82,7 @@ func TestSign_EmptyMessage(t *testing.T) {
 }
 
 func TestSign_PollingOnly(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/publickeys/test-app" {
@@ -100,7 +105,7 @@ func TestSign_PollingOnly(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test message"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err != nil {
 		t.Fatalf("Unexpected error in polling mode: %v", err)
 	}
@@ -110,6 +115,7 @@ func TestSign_PollingOnly(t *testing.T) {
 }
 
 func TestSign_DirectSigning(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/publickeys/test-app" {
@@ -135,7 +141,7 @@ func TestSign_DirectSigning(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test message"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -154,6 +160,7 @@ func TestSign_DirectSigning(t *testing.T) {
 }
 
 func TestSign_WithPublicKey(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/publickeys/test-app" {
 			writeBoundKeysResponse(w)
@@ -181,7 +188,7 @@ func TestSign_WithPublicKey(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -191,6 +198,7 @@ func TestSign_WithPublicKey(t *testing.T) {
 }
 
 func TestSign_ServerError(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/publickeys/test-app" {
@@ -209,7 +217,7 @@ func TestSign_ServerError(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
 		t.Error("Expected error for server error")
 	}
@@ -222,6 +230,7 @@ func TestSign_ServerError(t *testing.T) {
 }
 
 func TestSign_InvalidSignatureHex(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/publickeys/test-app" {
@@ -241,7 +250,7 @@ func TestSign_InvalidSignatureHex(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
 		t.Error("Expected error for invalid hex signature")
 	}
@@ -254,6 +263,7 @@ func TestSign_InvalidSignatureHex(t *testing.T) {
 }
 
 func TestSign_UnexpectedStatus(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/publickeys/test-app" {
@@ -272,7 +282,7 @@ func TestSign_UnexpectedStatus(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
 		t.Error("Expected error for unexpected status")
 	}
@@ -285,6 +295,7 @@ func TestSign_UnexpectedStatus(t *testing.T) {
 }
 
 func TestSign_VotingPendingTimeout(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -327,7 +338,7 @@ func TestSign_VotingPendingTimeout(t *testing.T) {
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
 		t.Fatal("Expected timeout error")
 	}
@@ -340,19 +351,23 @@ func TestSign_VotingPendingTimeout(t *testing.T) {
 	if result.VotingInfo.Status != "pending" {
 		t.Errorf("Expected status 'pending', got '%s'", result.VotingInfo.Status)
 	}
-	if result.ErrorCode != types.ErrorCodeThresholdTimeout {
-		t.Errorf("Expected error code %s, got %s", types.ErrorCodeThresholdTimeout, result.ErrorCode)
+	// Either THRESHOLD_TIMEOUT (deadline exceeded between polls) or
+	// STATUS_QUERY_FAILED (context cancelled during an in-progress HTTP poll) is acceptable.
+	if result.ErrorCode != types.ErrorCodeThresholdTimeout && result.ErrorCode != types.ErrorCodeStatusQueryFailed {
+		t.Errorf("Expected error code %s or %s, got %s",
+			types.ErrorCodeThresholdTimeout, types.ErrorCodeStatusQueryFailed, result.ErrorCode)
 	}
 }
 
 func TestSign_NetworkError(t *testing.T) {
+	ctx := context.Background()
 	// Use invalid URL to trigger network error
 	client := NewClientWithOptions("http://localhost:99999", nil)
 	defer client.Close()
 
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
 		t.Error("Expected network error")
 	}
@@ -365,6 +380,7 @@ func TestSign_NetworkError(t *testing.T) {
 }
 
 func TestSign_UsesServerHash(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/publickeys/test-app" {
@@ -384,7 +400,7 @@ func TestSign_UsesServerHash(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test message"), testSigningKeyName)
+	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -397,6 +413,7 @@ func TestSign_UsesServerHash(t *testing.T) {
 }
 
 func TestSign_ApprovalPending(t *testing.T) {
+	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -423,9 +440,12 @@ func TestSign_ApprovalPending(t *testing.T) {
 	defer client.Close()
 	client.SetDefaultAppID("test-app")
 
-	result, err := client.Sign([]byte("test message"), testSigningKeyName)
-	if err != nil {
-		t.Fatalf("expected nil error for pending approval, got %v", err)
+	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
+	if err == nil {
+		t.Fatal("expected non-nil error for pending approval")
+	}
+	if !errors.Is(err, types.ErrApprovalPending) {
+		t.Fatalf("expected ErrApprovalPending, got %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")

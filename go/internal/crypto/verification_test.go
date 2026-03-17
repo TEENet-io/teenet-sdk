@@ -131,7 +131,9 @@ func TestVerifyED25519_InvalidSignatureSize(t *testing.T) {
 	}
 }
 
-// TestVerifySecp256k1ECDSA tests SECP256K1 ECDSA signature verification
+// TestVerifySecp256k1ECDSA tests SECP256K1 ECDSA signature verification.
+// The TEE-DAO does not hash for secp256k1 ECDSA, so the caller passes the
+// pre-hashed digest as the message argument to VerifySignature.
 func TestVerifySecp256k1ECDSA(t *testing.T) {
 	// Generate a key pair using btcec
 	privateKey, err := btcec.NewPrivateKey()
@@ -140,19 +142,19 @@ func TestVerifySecp256k1ECDSA(t *testing.T) {
 	}
 	publicKey := privateKey.PubKey()
 
-	message := []byte("test message for secp256k1 ECDSA")
+	rawMessage := []byte("test message for secp256k1 ECDSA")
 
-	// Hash the message with SHA256
+	// Caller is responsible for hashing; here we use SHA-256.
 	hasher := sha256.New()
-	hasher.Write(message)
+	hasher.Write(rawMessage)
 	messageHash := hasher.Sum(nil)
 
-	// Sign the message
+	// Sign the hash directly (TEE-DAO behaviour: no internal hashing).
 	signature := btcecdsa.Sign(privateKey, messageHash)
 	sigBytes := signature.Serialize() // DER format
 
-	// Verify the signature
-	valid, err := VerifySignature(message, publicKey.SerializeCompressed(), sigBytes, ProtocolECDSA, CurveSECP256K1)
+	// Pass the hash — not the raw message — to VerifySignature.
+	valid, err := VerifySignature(messageHash, publicKey.SerializeCompressed(), sigBytes, ProtocolECDSA, CurveSECP256K1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -161,7 +163,9 @@ func TestVerifySecp256k1ECDSA(t *testing.T) {
 	}
 }
 
-// TestVerifySecp256k1ECDSA_EthereumStyle tests Ethereum-style signatures (65 bytes with recovery id)
+// TestVerifySecp256k1ECDSA_EthereumStyle tests 65-byte (r||s||v) format signatures
+// using Keccak-256 — the real Ethereum hash. The caller hashes with Keccak-256
+// and passes the digest to VerifySignature (no internal hashing by the verifier).
 func TestVerifySecp256k1ECDSA_EthereumStyle(t *testing.T) {
 	// Generate a key pair
 	privateKey, err := btcec.NewPrivateKey()
@@ -170,27 +174,27 @@ func TestVerifySecp256k1ECDSA_EthereumStyle(t *testing.T) {
 	}
 	publicKey := privateKey.PubKey()
 
-	message := []byte("test message for Ethereum-style signature")
+	rawMessage := []byte("test message for Ethereum-style signature")
 
-	// Hash with Keccak-256 (Ethereum style)
-	hasher := sha3.NewLegacyKeccak256()
-	hasher.Write(message)
-	messageHash := hasher.Sum(nil)
+	// Ethereum uses Keccak-256; the caller computes this before calling VerifySignature.
+	keccak := sha3.NewLegacyKeccak256()
+	keccak.Write(rawMessage)
+	messageHash := keccak.Sum(nil)
 
-	// Sign the message
+	// Sign the Keccak-256 hash.
 	signature := btcecdsa.Sign(privateKey, messageHash)
 
 	// Extract r and s from DER signature
 	r, s := extractRSFromSignature(signature.Serialize())
 
-	// Pad r and s to 32 bytes
+	// Build 65-byte r||s||v format.
 	ethSig := make([]byte, 65)
 	copy(ethSig[32-len(r):32], r)
 	copy(ethSig[64-len(s):64], s)
-	ethSig[64] = 27 // Recovery ID (simplified)
+	ethSig[64] = 27 // Recovery ID
 
-	// Verify the signature
-	valid, err := VerifySignature(message, publicKey.SerializeCompressed(), ethSig, ProtocolECDSA, CurveSECP256K1)
+	// Pass the Keccak-256 hash (not the raw message) — verifier uses it as-is.
+	valid, err := VerifySignature(messageHash, publicKey.SerializeCompressed(), ethSig, ProtocolECDSA, CurveSECP256K1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -199,7 +203,8 @@ func TestVerifySecp256k1ECDSA_EthereumStyle(t *testing.T) {
 	}
 }
 
-// TestVerifySecp256k1ECDSA_RawFormat tests raw r,s format (64 bytes)
+// TestVerifySecp256k1ECDSA_RawFormat tests raw r||s format (64 bytes).
+// The caller pre-hashes with SHA-256 and passes the digest to VerifySignature.
 func TestVerifySecp256k1ECDSA_RawFormat(t *testing.T) {
 	// Generate a key pair
 	privateKey, err := btcec.NewPrivateKey()
@@ -208,25 +213,25 @@ func TestVerifySecp256k1ECDSA_RawFormat(t *testing.T) {
 	}
 	publicKey := privateKey.PubKey()
 
-	message := []byte("test message for raw format")
+	rawMessage := []byte("test message for raw format")
 
-	// Hash with SHA256
+	// Caller hashes with SHA-256 before signing/verifying.
 	hasher := sha256.New()
-	hasher.Write(message)
+	hasher.Write(rawMessage)
 	messageHash := hasher.Sum(nil)
 
-	// Sign the message
+	// Sign the hash.
 	signature := btcecdsa.Sign(privateKey, messageHash)
 
-	// Extract r and s from DER signature
+	// Extract r and s from DER signature.
 	rBytes, sBytes := extractRSFromSignature(signature.Serialize())
 
 	rawSig := make([]byte, 64)
 	copy(rawSig[32-len(rBytes):32], rBytes)
 	copy(rawSig[64-len(sBytes):64], sBytes)
 
-	// Verify the signature
-	valid, err := VerifySignature(message, publicKey.SerializeCompressed(), rawSig, ProtocolECDSA, CurveSECP256K1)
+	// Pass the hash — not the raw message — to VerifySignature.
+	valid, err := VerifySignature(messageHash, publicKey.SerializeCompressed(), rawSig, ProtocolECDSA, CurveSECP256K1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -268,7 +273,8 @@ func TestVerifySecp256k1Schnorr(t *testing.T) {
 	}
 }
 
-// TestVerifySecp256k1_UncompressedPubKey tests with uncompressed public key (65 bytes)
+// TestVerifySecp256k1_UncompressedPubKey tests with uncompressed public key (65 bytes).
+// Caller passes the pre-hashed digest (secp256k1 ECDSA does not hash internally).
 func TestVerifySecp256k1_UncompressedPubKey(t *testing.T) {
 	privateKey, err := btcec.NewPrivateKey()
 	if err != nil {
@@ -276,16 +282,14 @@ func TestVerifySecp256k1_UncompressedPubKey(t *testing.T) {
 	}
 	publicKey := privateKey.PubKey()
 
-	message := []byte("test with uncompressed pubkey")
-
 	hasher := sha256.New()
-	hasher.Write(message)
+	hasher.Write([]byte("test with uncompressed pubkey"))
 	messageHash := hasher.Sum(nil)
 
 	signature := btcecdsa.Sign(privateKey, messageHash)
 
-	// Use uncompressed public key (65 bytes)
-	valid, err := VerifySignature(message, publicKey.SerializeUncompressed(), signature.Serialize(), ProtocolECDSA, CurveSECP256K1)
+	// Use uncompressed public key (65 bytes); pass the hash, not the raw message.
+	valid, err := VerifySignature(messageHash, publicKey.SerializeUncompressed(), signature.Serialize(), ProtocolECDSA, CurveSECP256K1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -294,7 +298,8 @@ func TestVerifySecp256k1_UncompressedPubKey(t *testing.T) {
 	}
 }
 
-// TestVerifySecp256k1_RawPubKey tests with raw public key (64 bytes, no prefix)
+// TestVerifySecp256k1_RawPubKey tests with raw public key (64 bytes, no prefix).
+// Caller passes the pre-hashed digest (secp256k1 ECDSA does not hash internally).
 func TestVerifySecp256k1_RawPubKey(t *testing.T) {
 	privateKey, err := btcec.NewPrivateKey()
 	if err != nil {
@@ -302,19 +307,17 @@ func TestVerifySecp256k1_RawPubKey(t *testing.T) {
 	}
 	publicKey := privateKey.PubKey()
 
-	message := []byte("test with raw pubkey")
-
 	hasher := sha256.New()
-	hasher.Write(message)
+	hasher.Write([]byte("test with raw pubkey"))
 	messageHash := hasher.Sum(nil)
 
 	signature := btcecdsa.Sign(privateKey, messageHash)
 
-	// Use raw public key (64 bytes - without 0x04 prefix)
+	// Use raw public key (64 bytes - without 0x04 prefix); pass the hash.
 	uncompressed := publicKey.SerializeUncompressed()
 	rawPubKey := uncompressed[1:] // Remove 0x04 prefix
 
-	valid, err := VerifySignature(message, rawPubKey, signature.Serialize(), ProtocolECDSA, CurveSECP256K1)
+	valid, err := VerifySignature(messageHash, rawPubKey, signature.Serialize(), ProtocolECDSA, CurveSECP256K1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -497,28 +500,6 @@ func TestVerifyHMACSHA256(t *testing.T) {
 	}
 	if valid {
 		t.Error("Expected HMAC with wrong secret to be invalid")
-	}
-}
-
-// TestNormalizeString tests case normalization
-func TestNormalizeString(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"ECDSA", "ecdsa"},
-		{"Schnorr", "schnorr"},
-		{"ED25519", "ed25519"},
-		{"SECP256K1", "secp256k1"},
-		{"secp256r1", "secp256r1"},
-		{"P256", "p256"},
-	}
-
-	for _, tt := range tests {
-		result := normalizeString(tt.input)
-		if result != tt.expected {
-			t.Errorf("normalizeString(%s) = %s, expected %s", tt.input, result, tt.expected)
-		}
 	}
 }
 

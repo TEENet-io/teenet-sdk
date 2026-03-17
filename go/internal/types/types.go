@@ -14,8 +14,14 @@
 package types
 
 import (
+	"errors"
 	"time"
 )
+
+// ErrApprovalPending is returned by Sign when a human passkey approval is required.
+// Use errors.Is(err, ErrApprovalPending) to detect this case. The SignResult still
+// contains VotingInfo with the RequestID and TxID needed to drive the approval flow.
+var ErrApprovalPending = errors.New("approval pending: human approval required")
 
 // ClientOptions holds optional configuration for the Client.
 //

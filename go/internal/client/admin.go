@@ -14,9 +14,11 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/TEENet-io/teenet-sdk/go/internal/network"
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
@@ -31,10 +33,26 @@ func toAdminError(data map[string]interface{}, status int) string {
 }
 
 func (c *Client) requireAppID() error {
-	if c.defaultAppID == "" {
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	if appID == "" {
 		return fmt.Errorf("no App ID configured: call SetDefaultAppID first")
 	}
 	return nil
+}
+
+// adminSimpleResult converts an admin HTTP response into an AdminResult.
+func adminSimpleResult(resp *network.ApprovalBridgeResponse, err error) (*types.AdminResult, error) {
+	if err != nil {
+		return &types.AdminResult{Success: false, Error: err.Error()}, err
+	}
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
+	result := &types.AdminResult{Success: ok}
+	if !ok {
+		result.Error = toAdminError(resp.Data, resp.StatusCode)
+	}
+	return result, nil
 }
 
 // decodeAdminData unmarshals an admin response Data map into a typed result T.
@@ -50,22 +68,25 @@ func decodeAdminData[T any](data map[string]interface{}) (*T, error) {
 	return &result, nil
 }
 
+// convertJSON marshals src to JSON then unmarshals it into T.
+func convertJSON[T any](src interface{}) (*T, error) {
+	raw, err := json.Marshal(src)
+	if err != nil {
+		return nil, err
+	}
+	var result T
+	return &result, json.Unmarshal(raw, &result)
+}
+
 // InvitePasskeyUser invites a new passkey user via the admin bridge.
-func (c *Client) InvitePasskeyUser(req types.PasskeyInviteRequest) (*types.PasskeyInviteResult, error) {
+func (c *Client) InvitePasskeyUser(ctx context.Context, req types.PasskeyInviteRequest) (*types.PasskeyInviteResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	payload := map[string]interface{}{
-		"display_name": req.DisplayName,
-	}
-	if req.ApplicationID > 0 {
-		payload["application_id"] = req.ApplicationID
-	}
-	if req.ExpiresInSeconds > 0 {
-		payload["expires_in_seconds"] = req.ExpiresInSeconds
-	}
-
-	resp, err := c.httpClient.AdminInvitePasskeyUser(c.defaultAppID, payload)
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminInvitePasskeyUser(ctx, appID, req)
 	if err != nil {
 		return &types.PasskeyInviteResult{Success: false, Error: err.Error()}, err
 	}
@@ -82,11 +103,14 @@ func (c *Client) InvitePasskeyUser(req types.PasskeyInviteRequest) (*types.Passk
 }
 
 // ListPasskeyUsers returns all registered passkey users via the admin bridge.
-func (c *Client) ListPasskeyUsers(page, limit int) (*types.PasskeyUsersResult, error) {
+func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*types.PasskeyUsersResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminListPasskeyUsers(c.defaultAppID, page, limit)
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminListPasskeyUsers(ctx, appID, page, limit)
 	if err != nil {
 		return &types.PasskeyUsersResult{Success: false, Error: err.Error()}, err
 	}
@@ -103,28 +127,26 @@ func (c *Client) ListPasskeyUsers(page, limit int) (*types.PasskeyUsersResult, e
 }
 
 // DeletePasskeyUser deletes a passkey user by ID via the admin bridge.
-func (c *Client) DeletePasskeyUser(userID uint) (*types.AdminResult, error) {
+func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*types.AdminResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminDeletePasskeyUser(c.defaultAppID, userID)
-	if err != nil {
-		return &types.AdminResult{Success: false, Error: err.Error()}, err
-	}
-	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
-	result := &types.AdminResult{Success: ok}
-	if !ok {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
-	}
-	return result, nil
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminDeletePasskeyUser(ctx, appID, userID)
+	return adminSimpleResult(resp, err)
 }
 
 // ListAuditRecords returns audit records for the application via the admin bridge.
-func (c *Client) ListAuditRecords(page, limit int) (*types.AuditRecordsResult, error) {
+func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*types.AuditRecordsResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminListAuditRecords(c.defaultAppID, page, limit)
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminListAuditRecords(ctx, appID, page, limit)
 	if err != nil {
 		return &types.AuditRecordsResult{Success: false, Error: err.Error()}, err
 	}
@@ -141,37 +163,26 @@ func (c *Client) ListAuditRecords(page, limit int) (*types.AuditRecordsResult, e
 }
 
 // UpsertPermissionPolicy creates or replaces a permission policy for a key via the admin bridge.
-func (c *Client) UpsertPermissionPolicy(req types.PolicyRequest) (*types.AdminResult, error) {
+func (c *Client) UpsertPermissionPolicy(ctx context.Context, req types.PolicyRequest) (*types.AdminResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(req)
-	if err != nil {
-		return &types.AdminResult{Success: false, Error: err.Error()}, err
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return &types.AdminResult{Success: false, Error: err.Error()}, err
-	}
-
-	resp, netErr := c.httpClient.AdminUpsertPolicy(c.defaultAppID, payload)
-	if netErr != nil {
-		return &types.AdminResult{Success: false, Error: netErr.Error()}, netErr
-	}
-	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
-	result := &types.AdminResult{Success: ok}
-	if !ok {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
-	}
-	return result, nil
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminUpsertPolicy(ctx, appID, req)
+	return adminSimpleResult(resp, err)
 }
 
 // GetPermissionPolicy retrieves the permission policy for a named key via the admin bridge.
-func (c *Client) GetPermissionPolicy(publicKeyName string) (*types.PolicyResult, error) {
+func (c *Client) GetPermissionPolicy(ctx context.Context, publicKeyName string) (*types.PolicyResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminGetPolicy(c.defaultAppID, publicKeyName)
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminGetPolicy(ctx, appID, publicKeyName)
 	if err != nil {
 		return &types.PolicyResult{Success: false, Error: err.Error()}, err
 	}
@@ -189,8 +200,8 @@ func (c *Client) GetPermissionPolicy(publicKeyName string) (*types.PolicyResult,
 
 // PasskeyRegistrationOptions begins WebAuthn registration for the given invite token.
 // The browser should pass the returned Options to navigator.credentials.create().
-func (c *Client) PasskeyRegistrationOptions(inviteToken string) (*types.PasskeyRegistrationOptionsResult, error) {
-	resp, err := c.httpClient.AdminPasskeyRegistrationOptions(inviteToken)
+func (c *Client) PasskeyRegistrationOptions(ctx context.Context, inviteToken string) (*types.PasskeyRegistrationOptionsResult, error) {
+	resp, err := c.httpClient.AdminPasskeyRegistrationOptions(ctx, inviteToken)
 	if err != nil {
 		return &types.PasskeyRegistrationOptionsResult{Success: false, Error: err.Error()}, err
 	}
@@ -208,8 +219,8 @@ func (c *Client) PasskeyRegistrationOptions(inviteToken string) (*types.PasskeyR
 
 // PasskeyRegistrationVerify completes WebAuthn registration using the credential returned
 // by navigator.credentials.create().
-func (c *Client) PasskeyRegistrationVerify(inviteToken string, credential interface{}) (*types.PasskeyRegistrationVerifyResult, error) {
-	resp, err := c.httpClient.AdminPasskeyRegistrationVerify(inviteToken, credential)
+func (c *Client) PasskeyRegistrationVerify(ctx context.Context, inviteToken string, credential interface{}) (*types.PasskeyRegistrationVerifyResult, error) {
+	resp, err := c.httpClient.AdminPasskeyRegistrationVerify(ctx, inviteToken, credential)
 	if err != nil {
 		return &types.PasskeyRegistrationVerifyResult{Success: false, Error: err.Error()}, err
 	}
@@ -226,53 +237,38 @@ func (c *Client) PasskeyRegistrationVerify(inviteToken string, credential interf
 }
 
 // DeletePermissionPolicy deletes the permission policy for a named key via the admin bridge.
-func (c *Client) DeletePermissionPolicy(publicKeyName string) (*types.AdminResult, error) {
+func (c *Client) DeletePermissionPolicy(ctx context.Context, publicKeyName string) (*types.AdminResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminDeletePolicy(c.defaultAppID, publicKeyName)
-	if err != nil {
-		return &types.AdminResult{Success: false, Error: err.Error()}, err
-	}
-	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
-	result := &types.AdminResult{Success: ok}
-	if !ok {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
-	}
-	return result, nil
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminDeletePolicy(ctx, appID, publicKeyName)
+	return adminSimpleResult(resp, err)
 }
 
 // DeletePublicKey deletes a public key by name via the admin bridge.
-func (c *Client) DeletePublicKey(keyName string) (*types.AdminResult, error) {
+func (c *Client) DeletePublicKey(ctx context.Context, keyName string) (*types.AdminResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminDeletePublicKey(c.defaultAppID, keyName)
-	if err != nil {
-		return &types.AdminResult{Success: false, Error: err.Error()}, err
-	}
-	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
-	result := &types.AdminResult{Success: ok}
-	if !ok {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
-	}
-	return result, nil
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminDeletePublicKey(ctx, appID, keyName)
+	return adminSimpleResult(resp, err)
 }
 
 // CreateAPIKey creates a new API key via the admin bridge.
-func (c *Client) CreateAPIKey(req types.CreateAPIKeyRequest) (*types.CreateAPIKeyResult, error) {
+func (c *Client) CreateAPIKey(ctx context.Context, req types.CreateAPIKeyRequest) (*types.CreateAPIKeyResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(req)
-	if err != nil {
-		return &types.CreateAPIKeyResult{Success: false, Error: err.Error()}, err
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return &types.CreateAPIKeyResult{Success: false, Error: err.Error()}, err
-	}
-	resp, netErr := c.httpClient.AdminCreateAPIKey(c.defaultAppID, payload)
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, netErr := c.httpClient.AdminCreateAPIKey(ctx, appID, req)
 	if netErr != nil {
 		return &types.CreateAPIKeyResult{Success: false, Error: netErr.Error()}, netErr
 	}
@@ -289,18 +285,13 @@ func (c *Client) CreateAPIKey(req types.CreateAPIKeyRequest) (*types.CreateAPIKe
 }
 
 // DeleteAPIKey deletes an API key by name via the admin bridge.
-func (c *Client) DeleteAPIKey(keyName string) (*types.AdminResult, error) {
+func (c *Client) DeleteAPIKey(ctx context.Context, keyName string) (*types.AdminResult, error) {
 	if err := c.requireAppID(); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.AdminDeleteAPIKey(c.defaultAppID, keyName)
-	if err != nil {
-		return &types.AdminResult{Success: false, Error: err.Error()}, err
-	}
-	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
-	result := &types.AdminResult{Success: ok}
-	if !ok {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
-	}
-	return result, nil
+	c.mu.RLock()
+	appID := c.defaultAppID
+	c.mu.RUnlock()
+	resp, err := c.httpClient.AdminDeleteAPIKey(ctx, appID, keyName)
+	return adminSimpleResult(resp, err)
 }

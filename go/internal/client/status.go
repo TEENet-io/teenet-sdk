@@ -5,6 +5,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
@@ -12,12 +13,12 @@ import (
 )
 
 // GetStatus retrieves voting status for a specific hash from the consensus service.
-func (c *Client) GetStatus(hash string) (*types.VoteStatus, error) {
+func (c *Client) GetStatus(ctx context.Context, hash string) (*types.VoteStatus, error) {
 	if hash == "" {
 		return nil, fmt.Errorf("hash is required")
 	}
 
-	resp, err := c.httpClient.GetCacheDetail(hash)
+	resp, err := c.httpClient.GetCacheDetail(ctx, hash)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,10 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 )
 
+// ErrApprovalPending is returned by Sign when the request requires human passkey approval.
+// Use errors.Is(err, sdk.ErrApprovalPending) to detect this condition.
+var ErrApprovalPending = types.ErrApprovalPending
+
 // Re-export all types from internal/types for public API.
 
 type (

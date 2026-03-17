@@ -33,20 +33,22 @@
 //	defer client.Close()
 //
 //	// Sign a message
-//	result, err := client.Sign([]byte("message to sign"), "my-key")
+//	result, err := client.Sign(ctx, []byte("message to sign"), "my-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //
 //	// Verify a signature
-//	valid, err := client.Verify(message, result.Signature, "my-key")
+//	valid, err := client.Verify(ctx, message, result.Signature, "my-key")
 //
 // For more examples, see the examples/ directory.
 package sdk
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
+	"strconv"
 	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/client"
@@ -167,6 +169,7 @@ func (c *Client) GetDefaultAppID() string {
 // final signed/failed result (or timeout) so application code only needs one Sign call.
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - message: The raw bytes to sign
 //   - publicKeyName: Bound public key name to use for signing (required)
 //
@@ -176,9 +179,9 @@ func (c *Client) GetDefaultAppID() string {
 //
 // Example (using specific generated key):
 //
-//	result, err := client.Sign([]byte("important message"), "my-key")
-func (c *Client) Sign(message []byte, publicKeyName string, passkeyToken ...string) (*SignResult, error) {
-	return c.impl.Sign(message, publicKeyName, passkeyToken...)
+//	result, err := client.Sign(ctx, []byte("important message"), "my-key")
+func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string, passkeyToken ...string) (*SignResult, error) {
+	return c.impl.Sign(ctx, message, publicKeyName, passkeyToken...)
 }
 
 // GetStatus retrieves voting status for a specific hash.
@@ -188,36 +191,36 @@ func (c *Client) Sign(message []byte, publicKeyName string, passkeyToken ...stri
 // Returns:
 //   - VoteStatus: Current status and vote counts
 //   - error: Error if the request fails
-func (c *Client) GetStatus(hash string) (*VoteStatus, error) {
-	return c.impl.GetStatus(hash)
+func (c *Client) GetStatus(ctx context.Context, hash string) (*VoteStatus, error) {
+	return c.impl.GetStatus(ctx, hash)
 }
 
 // ApprovalRequestInit starts a passkey approval request session.
 // payload should match user-management-system approval init JSON body.
-func (c *Client) ApprovalRequestInit(payload []byte, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.ApprovalRequestInit(payload, approvalToken)
+func (c *Client) ApprovalRequestInit(ctx context.Context, payload []byte, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.ApprovalRequestInit(ctx, payload, approvalToken)
 }
 
 // PasskeyLoginOptions starts passkey login challenge generation.
-func (c *Client) PasskeyLoginOptions() (*ApprovalResult, error) {
-	return c.impl.PasskeyLoginOptions()
+func (c *Client) PasskeyLoginOptions(ctx context.Context) (*ApprovalResult, error) {
+	return c.impl.PasskeyLoginOptions(ctx)
 }
 
 // PasskeyLoginVerify verifies passkey assertion and stores returned bearer token in client.
-func (c *Client) PasskeyLoginVerify(loginSessionID uint64, credential []byte) (*ApprovalResult, error) {
-	return c.impl.PasskeyLoginVerify(loginSessionID, credential)
+func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, credential []byte) (*ApprovalResult, error) {
+	return c.impl.PasskeyLoginVerify(ctx, loginSessionID, credential)
 }
 
 // PasskeyLoginWithCredential executes login options -> WebAuthn credential provider -> verify.
-func (c *Client) PasskeyLoginWithCredential(getCredential PasskeyCredentialProvider) (*ApprovalResult, error) {
+func (c *Client) PasskeyLoginWithCredential(ctx context.Context, getCredential PasskeyCredentialProvider) (*ApprovalResult, error) {
 	if getCredential == nil {
 		return &ApprovalResult{
 			Success:    false,
 			StatusCode: 0,
 			Error:      "credential provider is required",
-		}, fmt.Errorf("credential provider is required")
+		}, errors.New("credential provider is required")
 	}
-	loginOpts, err := c.PasskeyLoginOptions()
+	loginOpts, err := c.PasskeyLoginOptions(ctx)
 	if err != nil || loginOpts == nil || !loginOpts.Success {
 		return loginOpts, err
 	}
@@ -245,69 +248,58 @@ func (c *Client) PasskeyLoginWithCredential(getCredential PasskeyCredentialProvi
 			Error:      "credential provider failed: " + credErr.Error(),
 		}, credErr
 	}
-	return c.PasskeyLoginVerify(loginSessionID, credential)
+	return c.PasskeyLoginVerify(ctx, loginSessionID, credential)
 }
 
 // GetMyRequests returns all approval requests initiated by the authenticated user.
-func (c *Client) GetMyRequests(approvalToken string) (*ApprovalResult, error) {
-	return c.impl.GetMyRequests(approvalToken)
+func (c *Client) GetMyRequests(ctx context.Context, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.GetMyRequests(ctx, approvalToken)
 }
 
 // CancelRequest cancels a pending approval request initiated by the caller.
 // Set idType to "session" (or "") to cancel by request session ID,
 // or "task" to cancel a pending approval task by task ID.
-func (c *Client) CancelRequest(id uint64, idType string, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.CancelRequest(id, idType, approvalToken)
+func (c *Client) CancelRequest(ctx context.Context, id uint64, idType string, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.CancelRequest(ctx, id, idType, approvalToken)
 }
 
 // GetSignatureByTx retrieves a completed signature by its transaction ID.
-func (c *Client) GetSignatureByTx(txID string, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.GetSignatureByTx(txID, approvalToken)
+func (c *Client) GetSignatureByTx(ctx context.Context, txID string, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.GetSignatureByTx(ctx, txID, approvalToken)
 }
 
 // ApprovalPending returns pending approvals accessible by the provided approval token.
-func (c *Client) ApprovalPending(approvalToken string, filter *ApprovalPendingFilter) (*ApprovalResult, error) {
-	return c.impl.ApprovalPending(approvalToken, filter)
+func (c *Client) ApprovalPending(ctx context.Context, approvalToken string, filter *ApprovalPendingFilter) (*ApprovalResult, error) {
+	return c.impl.ApprovalPending(ctx, approvalToken, filter)
 }
 
 // ApprovalRequestChallenge fetches WebAuthn assertion challenge options for request confirmation.
-func (c *Client) ApprovalRequestChallenge(requestID uint64, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.ApprovalRequestChallenge(requestID, approvalToken)
+func (c *Client) ApprovalRequestChallenge(ctx context.Context, requestID uint64, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.ApprovalRequestChallenge(ctx, requestID, approvalToken)
 }
 
 // ApprovalRequestConfirm submits passkey assertion and creates an approval task.
-func (c *Client) ApprovalRequestConfirm(requestID uint64, payload []byte, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.ApprovalRequestConfirm(requestID, payload, approvalToken)
+func (c *Client) ApprovalRequestConfirm(ctx context.Context, requestID uint64, payload []byte, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.ApprovalRequestConfirm(ctx, requestID, payload, approvalToken)
 }
 
 // ApprovalRequestConfirmWithCredential executes challenge -> WebAuthn credential provider -> confirm.
-func (c *Client) ApprovalRequestConfirmWithCredential(requestID uint64, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
+func (c *Client) ApprovalRequestConfirmWithCredential(ctx context.Context, requestID uint64, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
 	if getCredential == nil {
 		return &ApprovalResult{
 			Success:    false,
 			StatusCode: 0,
 			Error:      "credential provider is required",
-		}, fmt.Errorf("credential provider is required")
+		}, errors.New("credential provider is required")
 	}
-	challenge, err := c.ApprovalRequestChallenge(requestID, approvalToken)
+	challenge, err := c.ApprovalRequestChallenge(ctx, requestID, approvalToken)
 	if err != nil || challenge == nil || !challenge.Success {
 		return challenge, err
 	}
 	options := extractChallengeOptions(challenge.Data)
-	credential, credErr := getCredential(options)
-	if credErr != nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "credential provider failed: " + credErr.Error(),
-		}, credErr
-	}
-	if !json.Valid(credential) {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "invalid credential json",
-		}, fmt.Errorf("invalid credential json")
+	credential, errResult, credErr := getAndValidateCredential(getCredential, options)
+	if errResult != nil {
+		return errResult, credErr
 	}
 	payload, marshalErr := json.Marshal(struct {
 		Credential json.RawMessage `json:"credential"`
@@ -321,47 +313,36 @@ func (c *Client) ApprovalRequestConfirmWithCredential(requestID uint64, getCrede
 			Error:      "failed to build request confirm payload",
 		}, marshalErr
 	}
-	return c.ApprovalRequestConfirm(requestID, payload, approvalToken)
+	return c.ApprovalRequestConfirm(ctx, requestID, payload, approvalToken)
 }
 
 // ApprovalActionChallenge fetches WebAuthn assertion challenge options for task action.
-func (c *Client) ApprovalActionChallenge(taskID uint64, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.ApprovalActionChallenge(taskID, approvalToken)
+func (c *Client) ApprovalActionChallenge(ctx context.Context, taskID uint64, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.ApprovalActionChallenge(ctx, taskID, approvalToken)
 }
 
 // ApprovalAction submits an APPROVE/REJECT action with passkey assertion.
-func (c *Client) ApprovalAction(taskID uint64, payload []byte, approvalToken string) (*ApprovalResult, error) {
-	return c.impl.ApprovalAction(taskID, payload, approvalToken)
+func (c *Client) ApprovalAction(ctx context.Context, taskID uint64, payload []byte, approvalToken string) (*ApprovalResult, error) {
+	return c.impl.ApprovalAction(ctx, taskID, payload, approvalToken)
 }
 
 // ApprovalActionWithCredential executes challenge -> WebAuthn credential provider -> action.
-func (c *Client) ApprovalActionWithCredential(taskID uint64, action string, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
+func (c *Client) ApprovalActionWithCredential(ctx context.Context, taskID uint64, action string, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
 	if getCredential == nil {
 		return &ApprovalResult{
 			Success:    false,
 			StatusCode: 0,
 			Error:      "credential provider is required",
-		}, fmt.Errorf("credential provider is required")
+		}, errors.New("credential provider is required")
 	}
-	challenge, err := c.ApprovalActionChallenge(taskID, approvalToken)
+	challenge, err := c.ApprovalActionChallenge(ctx, taskID, approvalToken)
 	if err != nil || challenge == nil || !challenge.Success {
 		return challenge, err
 	}
 	options := extractChallengeOptions(challenge.Data)
-	credential, credErr := getCredential(options)
-	if credErr != nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "credential provider failed: " + credErr.Error(),
-		}, credErr
-	}
-	if !json.Valid(credential) {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "invalid credential json",
-		}, fmt.Errorf("invalid credential json")
+	credential, errResult, credErr := getAndValidateCredential(getCredential, options)
+	if errResult != nil {
+		return errResult, credErr
 	}
 	payload, marshalErr := json.Marshal(struct {
 		Action     string          `json:"action"`
@@ -377,7 +358,7 @@ func (c *Client) ApprovalActionWithCredential(taskID uint64, action string, getC
 			Error:      "failed to build action payload",
 		}, marshalErr
 	}
-	return c.ApprovalAction(taskID, payload, approvalToken)
+	return c.ApprovalAction(ctx, taskID, payload, approvalToken)
 }
 
 func toUint64(v interface{}) (uint64, bool) {
@@ -397,8 +378,7 @@ func toUint64(v interface{}) (uint64, bool) {
 		}
 		return uint64(parsed), true
 	case string:
-		var parsed uint64
-		_, err := fmt.Sscanf(n, "%d", &parsed)
+		parsed, err := strconv.ParseUint(n, 10, 64)
 		if err != nil || parsed == 0 {
 			return 0, false
 		}
@@ -406,6 +386,20 @@ func toUint64(v interface{}) (uint64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// getAndValidateCredential calls provider(options), ensures the result is valid JSON,
+// and returns either the raw credential bytes or a ready-to-return ApprovalResult + error.
+func getAndValidateCredential(provider PasskeyCredentialProvider, options interface{}) ([]byte, *ApprovalResult, error) {
+	credential, credErr := provider(options)
+	if credErr != nil {
+		return nil, &ApprovalResult{Success: false, Error: "credential provider failed: " + credErr.Error()}, credErr
+	}
+	if !json.Valid(credential) {
+		err := errors.New("invalid credential json")
+		return nil, &ApprovalResult{Success: false, Error: err.Error()}, err
+	}
+	return credential, nil, nil
 }
 
 func extractChallengeOptions(data map[string]interface{}) interface{} {
@@ -419,13 +413,14 @@ func extractChallengeOptions(data map[string]interface{}) interface{} {
 }
 
 // GetPublicKeys retrieves all bound public keys for the default App ID.
-func (c *Client) GetPublicKeys() ([]PublicKeyInfo, error) {
-	return c.impl.GetPublicKeys()
+func (c *Client) GetPublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
+	return c.impl.GetPublicKeys(ctx)
 }
 
 // Verify verifies a cryptographic signature against a message using a bound key name.
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - message: The original message that was signed
 //   - signature: The signature to verify (raw bytes)
 //   - publicKeyName: Bound public key name to use for verification
@@ -436,15 +431,15 @@ func (c *Client) GetPublicKeys() ([]PublicKeyInfo, error) {
 //
 // Example:
 //
-//	valid, err := client.Verify(message, signature, "my-key")
+//	valid, err := client.Verify(ctx, message, signature, "my-key")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	if valid {
 //	    fmt.Println("Signature is valid")
 //	}
-func (c *Client) Verify(message, signature []byte, publicKeyName string) (bool, error) {
-	return c.impl.Verify(message, signature, publicKeyName)
+func (c *Client) Verify(ctx context.Context, message, signature []byte, publicKeyName string) (bool, error) {
+	return c.impl.Verify(ctx, message, signature, publicKeyName)
 }
 
 // Close gracefully shuts down the client and releases resources.
@@ -463,14 +458,14 @@ func (c *Client) Close() error {
 // PasskeyRegistrationOptions begins WebAuthn registration for an invited user.
 // Pass the returned Options to navigator.credentials.create() in the browser,
 // then call PasskeyRegistrationVerify with the resulting credential.
-func (c *Client) PasskeyRegistrationOptions(inviteToken string) (*PasskeyRegistrationOptionsResult, error) {
-	return c.impl.PasskeyRegistrationOptions(inviteToken)
+func (c *Client) PasskeyRegistrationOptions(ctx context.Context, inviteToken string) (*PasskeyRegistrationOptionsResult, error) {
+	return c.impl.PasskeyRegistrationOptions(ctx, inviteToken)
 }
 
 // PasskeyRegistrationVerify completes WebAuthn registration.
 // credential should be the JSON-serialized PublicKeyCredential from navigator.credentials.create().
-func (c *Client) PasskeyRegistrationVerify(inviteToken string, credential interface{}) (*PasskeyRegistrationVerifyResult, error) {
-	return c.impl.PasskeyRegistrationVerify(inviteToken, credential)
+func (c *Client) PasskeyRegistrationVerify(ctx context.Context, inviteToken string, credential interface{}) (*PasskeyRegistrationVerifyResult, error) {
+	return c.impl.PasskeyRegistrationVerify(ctx, inviteToken, credential)
 }
 
 // InvitePasskeyUser invites a new passkey user to the application.
@@ -480,38 +475,38 @@ func (c *Client) PasskeyRegistrationVerify(inviteToken string, credential interf
 //
 // Example:
 //
-//	result, err := client.InvitePasskeyUser(sdk.PasskeyInviteRequest{
+//	result, err := client.InvitePasskeyUser(ctx, sdk.PasskeyInviteRequest{
 //	    DisplayName:      "Alice",
 //	    ExpiresInSeconds: 86400,
 //	})
-func (c *Client) InvitePasskeyUser(req PasskeyInviteRequest) (*PasskeyInviteResult, error) {
-	return c.impl.InvitePasskeyUser(req)
+func (c *Client) InvitePasskeyUser(ctx context.Context, req PasskeyInviteRequest) (*PasskeyInviteResult, error) {
+	return c.impl.InvitePasskeyUser(ctx, req)
 }
 
 // ListPasskeyUsers returns registered passkey users for the application.
 //
 // page and limit are optional (pass 0 for server defaults).
-func (c *Client) ListPasskeyUsers(page, limit int) (*PasskeyUsersResult, error) {
-	return c.impl.ListPasskeyUsers(page, limit)
+func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*PasskeyUsersResult, error) {
+	return c.impl.ListPasskeyUsers(ctx, page, limit)
 }
 
 // DeletePasskeyUser removes a passkey user by their ID.
-func (c *Client) DeletePasskeyUser(userID uint) (*AdminResult, error) {
-	return c.impl.DeletePasskeyUser(userID)
+func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*AdminResult, error) {
+	return c.impl.DeletePasskeyUser(ctx, userID)
 }
 
 // ListAuditRecords returns audit records for the application.
 //
 // page and limit are optional (pass 0 for server defaults).
-func (c *Client) ListAuditRecords(page, limit int) (*AuditRecordsResult, error) {
-	return c.impl.ListAuditRecords(page, limit)
+func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*AuditRecordsResult, error) {
+	return c.impl.ListAuditRecords(ctx, page, limit)
 }
 
 // UpsertPermissionPolicy creates or replaces the permission policy for a public key.
 //
 // Example:
 //
-//	result, err := client.UpsertPermissionPolicy(sdk.PolicyRequest{
+//	result, err := client.UpsertPermissionPolicy(ctx, sdk.PolicyRequest{
 //	    PublicKeyName:  "my-key",
 //	    Enabled:        true,
 //	    TimeoutSeconds: 3600,
@@ -519,33 +514,33 @@ func (c *Client) ListAuditRecords(page, limit int) (*AuditRecordsResult, error) 
 //	        {LevelIndex: 1, Threshold: 2, MemberIDs: []uint{1, 2, 3}},
 //	    },
 //	})
-func (c *Client) UpsertPermissionPolicy(req PolicyRequest) (*AdminResult, error) {
-	return c.impl.UpsertPermissionPolicy(req)
+func (c *Client) UpsertPermissionPolicy(ctx context.Context, req PolicyRequest) (*AdminResult, error) {
+	return c.impl.UpsertPermissionPolicy(ctx, req)
 }
 
 // GetPermissionPolicy retrieves the permission policy for a named public key.
-func (c *Client) GetPermissionPolicy(publicKeyName string) (*PolicyResult, error) {
-	return c.impl.GetPermissionPolicy(publicKeyName)
+func (c *Client) GetPermissionPolicy(ctx context.Context, publicKeyName string) (*PolicyResult, error) {
+	return c.impl.GetPermissionPolicy(ctx, publicKeyName)
 }
 
 // DeletePermissionPolicy removes the permission policy for a named public key.
-func (c *Client) DeletePermissionPolicy(publicKeyName string) (*AdminResult, error) {
-	return c.impl.DeletePermissionPolicy(publicKeyName)
+func (c *Client) DeletePermissionPolicy(ctx context.Context, publicKeyName string) (*AdminResult, error) {
+	return c.impl.DeletePermissionPolicy(ctx, publicKeyName)
 }
 
 // DeletePublicKey deletes a public key by name for the application.
-func (c *Client) DeletePublicKey(keyName string) (*AdminResult, error) {
-	return c.impl.DeletePublicKey(keyName)
+func (c *Client) DeletePublicKey(ctx context.Context, keyName string) (*AdminResult, error) {
+	return c.impl.DeletePublicKey(ctx, keyName)
 }
 
 // CreateAPIKey creates a new API key entry via the admin bridge.
-func (c *Client) CreateAPIKey(req CreateAPIKeyRequest) (*CreateAPIKeyResult, error) {
-	return c.impl.CreateAPIKey(req)
+func (c *Client) CreateAPIKey(ctx context.Context, req CreateAPIKeyRequest) (*CreateAPIKeyResult, error) {
+	return c.impl.CreateAPIKey(ctx, req)
 }
 
 // DeleteAPIKey deletes an API key by name for the application.
-func (c *Client) DeleteAPIKey(keyName string) (*AdminResult, error) {
-	return c.impl.DeleteAPIKey(keyName)
+func (c *Client) DeleteAPIKey(ctx context.Context, keyName string) (*AdminResult, error) {
+	return c.impl.DeleteAPIKey(ctx, keyName)
 }
 
 // GetConsensusURL returns the consensus service URL.
@@ -578,6 +573,7 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 //   - "secp256r1": NIST P-256 curve
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - curve: Elliptic curve to use (see supported curves above)
 //
 // Returns:
@@ -586,14 +582,14 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 //
 // Example:
 //
-//	result, err := client.GenerateSchnorrKey("secp256k1")
+//	result, err := client.GenerateSchnorrKey(ctx, "secp256k1")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
 //	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
-func (c *Client) GenerateSchnorrKey(curve string) (*GenerateKeyResult, error) {
-	return c.impl.GenerateSchnorrKey(curve)
+func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*GenerateKeyResult, error) {
+	return c.impl.GenerateSchnorrKey(ctx, curve)
 }
 
 // GenerateECDSAKey generates a new ECDSA signature key for the application.
@@ -609,6 +605,7 @@ func (c *Client) GenerateSchnorrKey(curve string) (*GenerateKeyResult, error) {
 // Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey for ed25519)
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - curve: Elliptic curve to use (see supported curves above)
 //
 // Returns:
@@ -617,14 +614,14 @@ func (c *Client) GenerateSchnorrKey(curve string) (*GenerateKeyResult, error) {
 //
 // Example:
 //
-//	result, err := client.GenerateECDSAKey("secp256k1")
+//	result, err := client.GenerateECDSAKey(ctx, "secp256k1")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
 //	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
-func (c *Client) GenerateECDSAKey(curve string) (*GenerateKeyResult, error) {
-	return c.impl.GenerateECDSAKey(curve)
+func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*GenerateKeyResult, error) {
+	return c.impl.GenerateECDSAKey(ctx, curve)
 }
 
 // GetAPIKey retrieves an API key value by name from the consensus service.
@@ -634,6 +631,7 @@ func (c *Client) GenerateECDSAKey(curve string) (*GenerateKeyResult, error) {
 // with an API key value (not just a secret) for this operation to succeed.
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - name: The name of the API key to retrieve
 //
 // Returns:
@@ -642,13 +640,13 @@ func (c *Client) GenerateECDSAKey(curve string) (*GenerateKeyResult, error) {
 //
 // Example:
 //
-//	result, err := client.GetAPIKey("my-api-key")
+//	result, err := client.GetAPIKey(ctx, "my-api-key")
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("API Key: %s\n", result.APIKey)
-func (c *Client) GetAPIKey(name string) (*APIKeyResult, error) {
-	return c.impl.GetAPIKey(name)
+func (c *Client) GetAPIKey(ctx context.Context, name string) (*APIKeyResult, error) {
+	return c.impl.GetAPIKey(ctx, name)
 }
 
 // SignWithAPISecret signs a message using an API secret stored in the TEE.
@@ -659,6 +657,7 @@ func (c *Client) GetAPIKey(name string) (*APIKeyResult, error) {
 // operation to succeed.
 //
 // Parameters:
+//   - ctx: Context for the request
 //   - name: The name of the API key/secret to use for signing
 //   - message: The message bytes to sign
 //
@@ -668,11 +667,11 @@ func (c *Client) GetAPIKey(name string) (*APIKeyResult, error) {
 //
 // Example:
 //
-//	result, err := client.SignWithAPISecret("my-api-key", []byte("important message"))
+//	result, err := client.SignWithAPISecret(ctx, "my-api-key", []byte("important message"))
 //	if err != nil || !result.Success {
 //	    log.Fatal(err)
 //	}
 //	fmt.Printf("Signature: %s\n", result.Signature)
-func (c *Client) SignWithAPISecret(name string, message []byte) (*APISignResult, error) {
-	return c.impl.SignWithAPISecret(name, message)
+func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []byte) (*APISignResult, error) {
+	return c.impl.SignWithAPISecret(ctx, name, message)
 }
