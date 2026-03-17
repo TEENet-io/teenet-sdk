@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -78,7 +79,7 @@ func main() {
 			client := sdk.NewClient(url)
 			client.SetDefaultAppID(voterAppID)
 
-			result, err := client.Sign(message, publicKeyName)
+			result, err := client.Sign(context.Background(), message, publicKeyName)
 
 			if err != nil {
 				fmt.Printf("❌ Vote %d failed: %v\n\n", voteNum+1, err)

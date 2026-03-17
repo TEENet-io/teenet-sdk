@@ -24,6 +24,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -67,7 +68,7 @@ func main() {
 
 	// Example 1: Generate a Schnorr key with ed25519 curve
 	fmt.Println("\n📝 Generating Schnorr key (ed25519)...")
-	schnorrResult, err := client.GenerateSchnorrKey(sdk.CurveED25519)
+	schnorrResult, err := client.GenerateSchnorrKey(context.Background(), sdk.CurveED25519)
 	if err != nil {
 		log.Fatal("Failed to generate ed25519 key:", err)
 	}
@@ -81,7 +82,7 @@ func main() {
 
 	// Example 2: Generate an ECDSA key with secp256k1 curve
 	fmt.Println("\n📝 Generating ECDSA key (secp256k1)...")
-	ecdsaResult, err := client.GenerateECDSAKey(sdk.CurveSECP256K1)
+	ecdsaResult, err := client.GenerateECDSAKey(context.Background(), sdk.CurveSECP256K1)
 	if err != nil {
 		log.Fatal("Failed to generate ECDSA key:", err)
 	}
@@ -109,7 +110,7 @@ func main() {
 	schnorrKeyName := schnorrResult.PublicKey.Name
 
 	fmt.Println("\n📝 Signing with Schnorr key...")
-	schnorrSig, err := client.Sign(message, schnorrKeyName)
+	schnorrSig, err := client.Sign(context.Background(), message, schnorrKeyName)
 	if err != nil {
 		fmt.Printf("❌ Schnorr signing failed: %v\n", err)
 	} else if !schnorrSig.Success {
@@ -121,7 +122,7 @@ func main() {
 
 		// Verify Schnorr signature using SDK
 		fmt.Println("\n🔍 Verifying Schnorr signature...")
-		valid, err := client.Verify(message, schnorrSig.Signature, schnorrKeyName)
+		valid, err := client.Verify(context.Background(), message, schnorrSig.Signature, schnorrKeyName)
 		if err != nil {
 			fmt.Printf("❌ Schnorr signature verification error: %v\n", err)
 		} else if valid {
@@ -141,7 +142,7 @@ func main() {
 	ecdsaKeyName := ecdsaResult.PublicKey.Name
 
 	fmt.Println("\n📝 Signing with ECDSA key...")
-	ecdsaSig, err := client.Sign(message, ecdsaKeyName)
+	ecdsaSig, err := client.Sign(context.Background(), message, ecdsaKeyName)
 	if err != nil {
 		fmt.Printf("❌ ECDSA signing failed: %v\n", err)
 	} else if !ecdsaSig.Success {
@@ -153,7 +154,7 @@ func main() {
 
 		// Verify ECDSA signature using SDK
 		fmt.Println("\n🔍 Verifying ECDSA signature...")
-		valid, err := client.Verify(message, ecdsaSig.Signature, ecdsaKeyName)
+		valid, err := client.Verify(context.Background(), message, ecdsaSig.Signature, ecdsaKeyName)
 		if err != nil {
 			fmt.Printf("❌ ECDSA signature verification error: %v\n", err)
 		} else if valid {
@@ -198,7 +199,7 @@ func main() {
 	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
 
 	testMessage := []byte("Cross-app signing test message")
-	crossAppSig, err := client.Sign(testMessage, firstAppKeyName)
+	crossAppSig, err := client.Sign(context.Background(), testMessage, firstAppKeyName)
 
 	if err != nil {
 		fmt.Printf("❌ Cross-app signing FAILED (Error): %v\n", err)
@@ -225,7 +226,7 @@ func main() {
 		fmt.Printf("   Signature length: %d bytes\n", len(crossAppSig.Signature))
 
 		// Verify the signature
-		valid, err := client.Verify(testMessage, crossAppSig.Signature, firstAppKeyName)
+		valid, err := client.Verify(context.Background(), testMessage, crossAppSig.Signature, firstAppKeyName)
 
 		if err != nil {
 			fmt.Printf("❌ Verification error: %v\n", err)
@@ -255,7 +256,7 @@ func main() {
 	fmt.Printf("\n🔄 Switching to third App ID: %s\n", thirdAppID)
 	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
 
-	crossAppSig3, err := client.Sign(testMessage, firstAppKeyName)
+	crossAppSig3, err := client.Sign(context.Background(), testMessage, firstAppKeyName)
 
 	if err != nil {
 		fmt.Printf("❌ Cross-app signing FAILED (Error): %v\n", err)
@@ -282,7 +283,7 @@ func main() {
 		fmt.Printf("   Signature length: %d bytes\n", len(crossAppSig3.Signature))
 
 		// Verify the signature
-		valid, err := client.Verify(testMessage, crossAppSig3.Signature, firstAppKeyName)
+		valid, err := client.Verify(context.Background(), testMessage, crossAppSig3.Signature, firstAppKeyName)
 
 		if err != nil {
 			fmt.Printf("❌ Verification error: %v\n", err)

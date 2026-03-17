@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -120,7 +121,7 @@ func testSignAndVerify(serverURL, appID string) error {
 	message := []byte("Hello, TEENet! This is a test message.")
 
 	// Get bound public keys
-	keys, err := client.GetPublicKeys()
+	keys, err := client.GetPublicKeys(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to get public keys: %v", err)
 	}
@@ -136,7 +137,7 @@ func testSignAndVerify(serverURL, appID string) error {
 	keyName := key.Name
 
 	// Sign
-	result, err := client.Sign(message, keyName)
+	result, err := client.Sign(context.Background(), message, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to sign: %v", err)
 	}
@@ -147,7 +148,7 @@ func testSignAndVerify(serverURL, appID string) error {
 	fmt.Printf("   Signature: %s... (%d bytes)\n", shortHex(result.Signature, 8), len(result.Signature))
 
 	// Verify
-	valid, err := client.Verify(message, result.Signature, keyName)
+	valid, err := client.Verify(context.Background(), message, result.Signature, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to verify: %v", err)
 	}
@@ -181,9 +182,9 @@ func testKeyGeneration(serverURL string) error {
 		var err error
 
 		if kc.protocol == "ecdsa" {
-			result, err = client.GenerateECDSAKey(kc.curve)
+			result, err = client.GenerateECDSAKey(context.Background(), kc.curve)
 		} else {
-			result, err = client.GenerateSchnorrKey(kc.curve)
+			result, err = client.GenerateSchnorrKey(context.Background(), kc.curve)
 		}
 
 		if err != nil {
@@ -200,7 +201,7 @@ func testKeyGeneration(serverURL string) error {
 			result.PublicKey.KeyData[len(result.PublicKey.KeyData)-8:])
 
 		message := []byte("Test message for generated key")
-		signResult, err := client.Sign(message, result.PublicKey.Name)
+		signResult, err := client.Sign(context.Background(), message, result.PublicKey.Name)
 		if err != nil {
 			return fmt.Errorf("failed to sign with %s key: %v", kc.name, err)
 		}
@@ -209,7 +210,7 @@ func testKeyGeneration(serverURL string) error {
 		}
 
 		// Verify the signature
-		valid, err := client.Verify(message, signResult.Signature, result.PublicKey.Name)
+		valid, err := client.Verify(context.Background(), message, signResult.Signature, result.PublicKey.Name)
 		if err != nil {
 			return fmt.Errorf("failed to verify %s signature: %v", kc.name, err)
 		}
@@ -228,7 +229,7 @@ func testAPIKey(serverURL string) error {
 	defer client.Close()
 
 	// Get API Key
-	result, err := client.GetAPIKey("test-api-key")
+	result, err := client.GetAPIKey(context.Background(), "test-api-key")
 	if err != nil {
 		return fmt.Errorf("failed to get API key: %v", err)
 	}
@@ -248,7 +249,7 @@ func testAPISecretSign(serverURL string) error {
 
 	// Sign with API Secret
 	message := []byte("Message to sign with API secret")
-	result, err := client.SignWithAPISecret("test-api-secret", message)
+	result, err := client.SignWithAPISecret(context.Background(), "test-api-secret", message)
 	if err != nil {
 		return fmt.Errorf("failed to sign with API secret: %v", err)
 	}

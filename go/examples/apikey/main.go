@@ -26,6 +26,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -66,7 +67,7 @@ func main() {
 	fmt.Println("-----------------------------------")
 	apiKeyName := "test" // This key is bound to the application
 
-	result, err := client.GetAPIKey(apiKeyName)
+	result, err := client.GetAPIKey(context.Background(), apiKeyName)
 	if err != nil {
 		log.Fatalf("Failed to get API key: %v", err)
 	}
@@ -83,7 +84,7 @@ func main() {
 	fmt.Println("--------------------------------------------")
 	unboundKeyName := "test2" // This key is NOT bound to the application
 
-	unboundResult, err := client.GetAPIKey(unboundKeyName)
+	unboundResult, err := client.GetAPIKey(context.Background(), unboundKeyName)
 	if err != nil {
 		fmt.Printf("✗ Error calling API: %v\n\n", err)
 	} else if !unboundResult.Success {
@@ -99,7 +100,7 @@ func main() {
 	apiSecretName := "test" // This key is bound to the application
 	message := []byte("Hello, TEENet!")
 
-	signResult, err := client.SignWithAPISecret(apiSecretName, message)
+	signResult, err := client.SignWithAPISecret(context.Background(), apiSecretName, message)
 	if err != nil {
 		log.Fatalf("Failed to sign with API secret: %v", err)
 	}
@@ -119,7 +120,7 @@ func main() {
 	fmt.Println("------------------------------------------------")
 	unboundSecretName := "test2" // This key is NOT bound to the application
 
-	unboundSignResult, err := client.SignWithAPISecret(unboundSecretName, message)
+	unboundSignResult, err := client.SignWithAPISecret(context.Background(), unboundSecretName, message)
 	if err != nil {
 		fmt.Printf("✗ Error calling API: %v\n\n", err)
 	} else if !unboundSignResult.Success {

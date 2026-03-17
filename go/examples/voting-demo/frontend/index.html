@@ -17,10 +17,8 @@
     <script>
         // Set CSS path dynamically based on current URL (synchronously)
         (function() {
-            const currentPath = window.location.pathname;
-            const cssPath = currentPath.endsWith('/') ? currentPath + 'styles.css' : currentPath + '/styles.css';
-            // Write the link tag directly to ensure it blocks rendering
-            document.write('<link rel="stylesheet" href="' + cssPath + '">');
+            const base = window.location.pathname.replace(/\/+$/, '');
+            document.write('<link rel="stylesheet" href="' + base + '/styles.css">');
         })();
     </script>
 </head>
@@ -202,15 +200,14 @@
         // Initialize app and load APP_ID
         console.log('Inline script executing');
 
-        const currentPath = window.location.pathname;
+        const currentPath = window.location.pathname.replace(/\/+$/, '');
 
         // Load APP_ID from config API
         async function loadConfig() {
             try {
-                const apiBase = currentPath.endsWith('/') ? currentPath + 'api' : currentPath + '/api';
-                console.log('API base:', apiBase);
+                console.log('API base:', currentPath);
 
-                const response = await fetch(apiBase + '/config');
+                const response = await fetch(currentPath + '/api/config');
                 const config = await response.json();
                 console.log('Config response:', config);
 

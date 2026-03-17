@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -34,8 +35,8 @@ var (
 	consensusURL string
 )
 
-func getPrimaryKeyName() (string, error) {
-	keys, err := sdkClient.GetPublicKeys()
+func getPrimaryKeyName(ctx context.Context) (string, error) {
+	keys, err := sdkClient.GetPublicKeys(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -182,7 +183,7 @@ func handleSign(c *gin.Context) {
 	hashedMessage := keccak256Hash(messageBytes)
 	log.Printf("🔐 [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
-	keyName, err := getPrimaryKeyName()
+	keyName, err := getPrimaryKeyName(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, SignResponse{
 			Success: false,
@@ -192,7 +193,7 @@ func handleSign(c *gin.Context) {
 	}
 
 	// Call SDK Sign method - single signing interface for both direct and voting apps.
-	result, err := sdkClient.Sign(hashedMessage, keyName)
+	result, err := sdkClient.Sign(c.Request.Context(), hashedMessage, keyName)
 	if err != nil {
 		log.Printf("❌ [%s] Sign failed: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, SignResponse{
@@ -256,7 +257,7 @@ func handleVote(c *gin.Context) {
 	hashedMessage := keccak256Hash(messageBytes)
 	log.Printf("🗳️  [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
-	keyName, err := getPrimaryKeyName()
+	keyName, err := getPrimaryKeyName(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, VoteResponse{
 			Success: false,
@@ -267,7 +268,7 @@ func handleVote(c *gin.Context) {
 
 	// Call SDK Sign method - this will handle voting automatically
 	// with internal status polling until final result.
-	result, err := sdkClient.Sign(hashedMessage, keyName)
+	result, err := sdkClient.Sign(c.Request.Context(), hashedMessage, keyName)
 	if err != nil {
 		log.Printf("❌ [%s] Vote failed: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, VoteResponse{
@@ -337,7 +338,7 @@ func handleVerify(c *gin.Context) {
 	log.Printf("🔍 [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
 	// Get bound public keys for this app
-	keys, err := sdkClient.GetPublicKeys()
+	keys, err := sdkClient.GetPublicKeys(c.Request.Context())
 	if err != nil {
 		log.Printf("❌ [%s] Failed to get public keys: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, VerifyResponse{
@@ -358,7 +359,7 @@ func handleVerify(c *gin.Context) {
 	protocol := selected.Protocol
 	curve := selected.Curve
 	// Verify the signature using selected key name
-	valid, err := sdkClient.Verify(hashedMessage, signatureBytes, selected.Name)
+	valid, err := sdkClient.Verify(c.Request.Context(), hashedMessage, signatureBytes, selected.Name)
 	if err != nil {
 		log.Printf("❌ [%s] Verification error: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, VerifyResponse{
@@ -466,7 +467,7 @@ func handleGetAPIKey(c *gin.Context) {
 	log.Printf("🔑 [%s] Retrieving API key: %s", appID[:8], req.Name)
 
 	// Call SDK GetAPIKey method
-	result, err := sdkClient.GetAPIKey(req.Name)
+	result, err := sdkClient.GetAPIKey(c.Request.Context(), req.Name)
 	if err != nil {
 		log.Printf("❌ [%s] GetAPIKey failed: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, GetAPIKeyResponse{
@@ -523,7 +524,7 @@ func handleSignWithSecret(c *gin.Context) {
 	log.Printf("🔐 [%s] Message hash (Keccak-256): %s", appID[:8], hex.EncodeToString(hashedMessage))
 
 	// Call SDK SignWithAPISecret method
-	result, err := sdkClient.SignWithAPISecret(req.Name, hashedMessage)
+	result, err := sdkClient.SignWithAPISecret(c.Request.Context(), req.Name, hashedMessage)
 	if err != nil {
 		log.Printf("❌ [%s] SignWithAPISecret failed: %v", appID[:8], err)
 		c.JSON(http.StatusInternalServerError, SignWithSecretResponse{

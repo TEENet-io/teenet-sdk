@@ -83,16 +83,12 @@ let votedMessages = new Set(); // Track messages that have been voted on
 let appId = window.LOADED_APP_ID || ''; // Load from global set by index.html
 
 // Dynamic API base path detection - works for both direct access and proxy access
-function getApiBasePath() {
-    const currentPath = window.location.pathname;
-    // If accessed through proxy, keep the current path as base
-    // If accessed directly, use empty base
-    return currentPath.endsWith('/') ? currentPath : currentPath + '/';
+function getApiBase() {
+    return window.location.pathname.replace(/\/+$/, '');
 }
 
 async function makeApiCall(endpoint, options = {}) {
-    const basePath = getApiBasePath();
-    const url = basePath + 'api/' + endpoint;
+    const url = getApiBase() + '/api/' + endpoint;
     return fetch(url, options);
 }
 

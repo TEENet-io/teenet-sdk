@@ -25,6 +25,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -60,7 +61,7 @@ func main() {
 	// Get public key information
 	fmt.Println("1. Get Public Keys")
 	fmt.Println("-----------------")
-	keys, err := client.GetPublicKeys()
+	keys, err := client.GetPublicKeys(context.Background())
 	if err != nil {
 		log.Fatalf("Failed to get public keys: %v", err)
 	}
@@ -83,7 +84,7 @@ func main() {
 	fmt.Printf("Message: %s\n", string(message))
 
 	hashedMessage := crypto.Keccak256(message)
-	result, err := client.Sign(hashedMessage, keyName)
+	result, err := client.Sign(context.Background(), hashedMessage, keyName)
 	if err != nil {
 		log.Fatalf("Failed to sign message: %v", err)
 	}
@@ -104,7 +105,7 @@ func main() {
 	// Verify the signature
 	fmt.Println("3. Verify Signature")
 	fmt.Println("-------------------")
-	valid, err := client.Verify(message, result.Signature, keyName)
+	valid, err := client.Verify(context.Background(), message, result.Signature, keyName)
 	if err != nil {
 		log.Fatalf("Failed to verify signature: %v", err)
 	}
