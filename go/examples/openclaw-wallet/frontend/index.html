@@ -245,9 +245,7 @@
         <div style="position:relative;margin-bottom:0.75rem;">
           <input id="reg-display-name" type="text" placeholder="Your name or email (e.g. alice@example.com)"
             style="width:100%;padding:0.6rem 2.2rem 0.6rem 0.75rem;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9rem;box-sizing:border-box;outline:none;" />
-          <span id="reg-name-status" style="position:absolute;right:0.65rem;top:50%;transform:translateY(-50%);font-size:1rem;"></span>
         </div>
-        <div id="reg-name-msg" style="font-size:0.78rem;margin-top:-0.5rem;margin-bottom:0.6rem;"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;padding:0.65rem" onclick="registerPasskey()">Register Device</button>
         <div id="reg-result" style="margin-top:0.75rem;"></div>
       </div>
@@ -541,7 +539,7 @@ function logout() {
 }
 
 async function deleteAccount() {
-  if (!confirm('Delete your account?\n\nThis will permanently delete all wallets and TEE keys. This cannot be undone.')) return;
+  if (!await customConfirm({ title: 'Delete Account', message: 'This will permanently delete all wallets and TEE keys. This cannot be undone.', confirmText: 'Delete Account', danger: true, icon: '⚠️' })) return;
   try {
     const passkeyBody = await getFreshPasskeyCredential();
     if (!passkeyBody) return;
@@ -704,13 +702,14 @@ function renderWalletCard(w) {
 }
 
 function renderTransferPanel(w) {
-  const isEth = w.chain === 'ethereum';
-  const currency = w.chain === 'ethereum' ? 'ETH' : 'SOL';
+  const cfg = chainsMap[w.chain] || {};
+  const isEVM = cfg.family === 'evm' || w.chain === 'ethereum';
+  const currency = cfg.currency || (w.chain === 'ethereum' ? 'ETH' : 'SOL');
   return `
     <div style="margin-bottom:0.75rem">
-      ${isEth ? `<div class="segment" id="xfer-seg-${w.id}">
-        <button class="seg-btn active" id="seg-native-${w.id}" onclick="setTransferMode(${w.id},'native')">Native ${currency}</button>
-        <button class="seg-btn" id="seg-erc20-${w.id}" onclick="setTransferMode(${w.id},'erc20')">ERC-20 Token</button>
+      ${isEVM ? `<div class="segment" id="xfer-seg-${w.id}">
+        <button class="seg-btn active" id="seg-native-${w.id}" onclick="setTransferMode(${w.id},'native','${currency}')">Native ${currency}</button>
+        <button class="seg-btn" id="seg-erc20-${w.id}" onclick="setTransferMode(${w.id},'erc20','${currency}')">ERC-20 Token</button>
       </div>` : `<div style="font-size:0.75rem;color:#475569;margin-bottom:0.5rem;">Sending ${currency}</div>`}
     </div>
     <div id="erc20-row-${w.id}" style="display:none;margin-bottom:0.75rem">
@@ -823,7 +822,7 @@ async function refreshBalance(walletId) {
 
 // ─── Transfer ─────────────────────────────────────────────────────────────────
 
-function setTransferMode(walletId, mode) {
+function setTransferMode(walletId, mode, nativeCurrency) {
   const erc20Row = document.getElementById(`erc20-row-${walletId}`);
   const currencySpan = document.getElementById(`xfer-currency-${walletId}`);
   const nativeBtn = document.getElementById(`seg-native-${walletId}`);
@@ -838,7 +837,7 @@ function setTransferMode(walletId, mode) {
     erc20Row.style.display = 'none';
     nativeBtn.classList.add('active');
     erc20Btn.classList.remove('active');
-    currencySpan.textContent = 'ETH';
+    if (currencySpan && nativeCurrency) currencySpan.textContent = nativeCurrency;
   }
 }
 
@@ -875,9 +874,9 @@ async function doTransfer(walletId, chain) {
 
   if (!to || !amount) { toast('Recipient and amount are required', 'error'); return; }
 
-  // Check if ERC-20 mode (only for Ethereum).
+  // Check if ERC-20 mode (only for EVM chains).
   let token = null;
-  if (chain === 'ethereum') {
+  if ((chainsMap[chain] || {}).family === 'evm') {
     const nativeBtn = document.getElementById(`seg-native-${walletId}`);
     const isERC20 = nativeBtn && !nativeBtn.classList.contains('active');
     if (isERC20) {
@@ -1326,46 +1325,12 @@ async function reject(id) {
 
 // ─── Passkey Registration ─────────────────────────────────────────────────────
 
-// Debounced username availability check
-let _nameCheckTimer = null;
-let _nameAvailable = false;
-document.addEventListener('DOMContentLoaded', () => {
-  const inp = document.getElementById('reg-display-name');
-  if (!inp) return;
-  inp.addEventListener('input', () => {
-    clearTimeout(_nameCheckTimer);
-    const name = inp.value.trim();
-    const status = document.getElementById('reg-name-status');
-    const msg = document.getElementById('reg-name-msg');
-    if (!name) { status.textContent = ''; msg.textContent = ''; _nameAvailable = false; return; }
-    status.textContent = '⏳';
-    _nameCheckTimer = setTimeout(async () => {
-      const res = await api(`/api/auth/check-name?name=${encodeURIComponent(name)}`);
-      if (res.available) {
-        status.textContent = '✅';
-        msg.style.color = '#16a34a';
-        msg.textContent = 'Name is available.';
-        _nameAvailable = true;
-      } else {
-        status.textContent = '❌';
-        msg.style.color = '#dc2626';
-        msg.textContent = 'This name is already taken.';
-        _nameAvailable = false;
-      }
-    }, 500);
-  });
-});
 
 async function registerPasskey() {
   const el = document.getElementById('reg-result');
   const displayName = (document.getElementById('reg-display-name')?.value || '').trim();
   if (!displayName) {
     el.innerHTML = `<div class="tx-result error">Please enter your name or email.</div>`;
-    document.getElementById('reg-display-name')?.focus();
-    return;
-  }
-  if (!_nameAvailable) {
-    el.innerHTML = `<div class="tx-result error">This name is already taken. Please choose another.</div>`;
     document.getElementById('reg-display-name')?.focus();
     return;
   }

@@ -22,7 +22,7 @@ directly (via Passkey) for initial setup and large-transaction approvals. Everyt
 is automated.
 
 **Use cases:**
-- Personal multi-chain asset management (Ethereum, Solana; Bitcoin and more coming)
+- Personal multi-chain asset management (Ethereum, Solana, and all EVM-compatible chains)
 - AI-agent automated on-chain operations (scheduled transfers, DeFi interactions)
 - Team treasury management (large transactions require human Passkey approval; small ones run automatically)
 - Lightweight non-custodial wallets with no private key burden on the user
@@ -49,30 +49,35 @@ across multiple TEE nodes. The wallet app itself only stores public keys and add
 ### Transaction Flow (e.g., Send ETH)
 
 ```
-OpenClaw Skill (Python, user's machine):
-  1. Query nonce + gas price from Ethereum RPC
+Wallet App (backend):
+  1. Fetch nonce + gas price from chain RPC
   2. Construct unsigned transaction
-  3. Compute tx hash (Keccak256 of RLP-encoded tx)
+  3. Compute signing hash (EIP-155)
+  4. Sign via TEE-DAO threshold ECDSA
+  5. Assemble signed transaction and broadcast
+  6. Return tx_hash
 
-Wallet App (TEE):
-  4. Sign tx hash via TEE-DAO threshold ECDSA
-  5. Return signature (r, s)
-  6. If amount > threshold → return pending_approval
+If amount > policy threshold:
+  4. Return pending_approval + approval_url
      → user approves via Passkey in Web UI
-     → then sign and return signature
-
-OpenClaw Skill:
-  7. Assemble signed transaction (unsigned tx + r,s,v)
-  8. Broadcast via eth_sendRawTransaction
-  9. Return tx hash to user
+     → wallet signs and broadcasts
 ```
 
 ## Supported Chains
 
-| Chain | Algorithm | Address Format |
-|-------|-----------|----------------|
-| Ethereum / EVM | ECDSA secp256k1 | 0x... (EIP-55 checksum) |
-| Solana | Schnorr Ed25519 | Base58 |
+| Chain | Algorithm | Currency |
+|-------|-----------|----------|
+| Ethereum Mainnet | ECDSA secp256k1 | ETH |
+| Sepolia Testnet | ECDSA secp256k1 | ETH |
+| Holesky Testnet | ECDSA secp256k1 | ETH |
+| Optimism | ECDSA secp256k1 | ETH |
+| Base Sepolia | ECDSA secp256k1 | ETH |
+| BSC Testnet | ECDSA secp256k1 | tBNB |
+| Solana Mainnet | Schnorr Ed25519 | SOL |
+| Solana Devnet | Schnorr Ed25519 | SOL |
+
+All EVM chains support **ERC-20 token transfers** (contract address must be whitelisted per wallet).
+Custom chains can be added via `chains.json`.
 
 ## Authentication
 
@@ -83,9 +88,10 @@ after Passkey login. SHA-256 hashed at rest. Supports wallet creation, signing, 
 queries, and listing approvals.
 
 **Passkey session** (`ps_...` prefix) — for Web UI management. Uses WebAuthn (device
-biometrics or hardware security keys). Required for: generating/revoking API keys, and
-approving large transactions. **Approving large transactions via API Key is explicitly
-rejected** — only a human holding a Passkey device can approve.
+biometrics or hardware security keys). Required for: generating/revoking API keys,
+managing ERC-20 contract whitelists, approving large transactions, and account deletion.
+**Approving large transactions via API Key is explicitly rejected** — only a human holding
+a Passkey device can approve.
 
 ## API Reference
 
@@ -94,11 +100,11 @@ rejected** — only a human holding a Passkey device can approve.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check |
-| POST | `/api/auth/invite` | Invite a user (admin) |
-| GET | `/api/auth/passkey/options` | Passkey login challenge |
-| POST | `/api/auth/passkey/verify` | Passkey login → session token |
-| GET | `/api/auth/passkey/register/options` | Registration options (invite token) |
+| GET | `/api/chains` | List supported chains |
+| POST | `/api/auth/passkey/register/begin` | Start registration (auto-invite) |
 | POST | `/api/auth/passkey/register/verify` | Complete registration |
+| GET | `/api/auth/passkey/login/begin` | Passkey login challenge |
+| POST | `/api/auth/passkey/login/verify` | Passkey login → session token |
 
 ### API Key Management (Passkey session required)
 
@@ -107,6 +113,7 @@ rejected** — only a human holding a Passkey device can approve.
 | POST | `/api/auth/apikey/generate` | Generate API key (shown once) |
 | GET | `/api/auth/apikey/list` | List API key prefixes |
 | DELETE | `/api/auth/apikey` | Revoke API key |
+| DELETE | `/api/auth/account` | Delete account + all wallets + TEE keys |
 
 ### Wallet Routes (API Key or Passkey session)
 
@@ -115,66 +122,63 @@ rejected** — only a human holding a Passkey device can approve.
 | POST | `/api/wallets` | Create wallet `{"chain":"ethereum","label":"..."}` |
 | GET | `/api/wallets` | List wallets |
 | GET | `/api/wallets/:id` | Wallet details |
-| DELETE | `/api/wallets/:id` | Delete wallet |
+| DELETE | `/api/wallets/:id` | Delete wallet + TEE key (Passkey required) |
 | POST | `/api/wallets/:id/sign` | Sign message (with approval check) |
-| GET | `/api/wallets/:id/pubkey` | Raw public key |
 | GET | `/api/wallets/:id/balance` | On-chain balance |
-| PUT | `/api/wallets/:id/policy` | Set approval threshold policy |
+| POST | `/api/wallets/:id/transfer` | Build + sign + broadcast transfer |
+| PUT | `/api/wallets/:id/policy` | Set approval threshold policy (Passkey required) |
 | GET | `/api/wallets/:id/policy` | Get approval policy |
+| DELETE | `/api/wallets/:id/policy` | Delete approval policy (Passkey required) |
+
+### ERC-20 Contract Whitelist (Passkey session required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/wallets/:id/contracts` | List whitelisted contracts |
+| POST | `/api/wallets/:id/contracts` | Add contract to whitelist |
+| DELETE | `/api/wallets/:id/contracts/:cid` | Remove contract from whitelist |
 
 ### Approval Routes
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/approvals/pending` | API Key or Passkey | List pending approvals |
-| GET | `/api/approvals/:id` | API Key or Passkey | Approval status (OpenClaw polling) |
+| GET | `/api/approvals/:id` | API Key or Passkey | Approval status |
 | POST | `/api/approvals/:id/approve` | **Passkey only** | Approve (hardware auth required) |
 | POST | `/api/approvals/:id/reject` | **Passkey only** | Reject (hardware auth required) |
 
-### Sign Request / Response
+### Transfer Request / Response
 
-**Request:**
+**Native transfer:**
 ```json
-POST /api/wallets/1/sign
+POST /api/wallets/1/transfer
+{ "to": "0xAb58...eC9B", "amount": "0.1", "memo": "optional" }
+```
+
+**ERC-20 transfer:**
+```json
+POST /api/wallets/1/transfer
 {
-  "message": "0xdeadbeef...",
-  "encoding": "hex",
-  "tx_context": {
-    "type": "transfer",
-    "from": "0x742d...2bD18",
-    "to": "0xAb58...eC9B",
-    "amount": "1.5",
-    "currency": "ETH",
-    "memo": "Payment for services"
-  }
+  "to": "0xAb58...eC9B",
+  "amount": "10.5",
+  "token": { "contract": "0x1c7D...7238", "symbol": "USDC", "decimals": 6 }
 }
 ```
 
-**Direct sign response** (no policy, or amount ≤ threshold):
+**Success response:**
 ```json
-{
-  "status": "signed",
-  "signature": "0xabc123...",
-  "wallet_address": "0x742d...2bD18",
-  "chain": "ethereum"
-}
+{ "status": "completed", "tx_hash": "0xabc...", "chain": "ethereum", "amount": "0.1", "currency": "ETH" }
 ```
 
-**Approval required response** (amount > threshold):
+**Approval required response** (amount > policy threshold):
 ```json
 {
   "status": "pending_approval",
   "approval_id": 123,
-  "message": "Transfer 1.5 ETH from 0x742d... to 0xAb58... requires approval",
-  "tx_context": { "type": "transfer", "from": "...", "to": "...", "amount": "1.5", "currency": "ETH" },
-  "threshold": "0.1",
-  "approval_url": "https://your-instance/#/approve/123"
+  "approval_url": "https://your-instance/#/approve/123",
+  "tx_context": { "type": "transfer", "from": "0x...", "to": "0x...", "amount": "1.5", "currency": "ETH" }
 }
 ```
-
-When OpenClaw receives `pending_approval`, it immediately shows the user a summary
-(from, to, amount, memo) and the approval URL, then polls `/api/approvals/123` until
-the status changes to `approved` or `rejected`.
 
 ## Deployment
 
@@ -210,8 +214,7 @@ go build -o wallet-app .
 | `PORT` | Listen port | `8080` |
 | `DATA_DIR` | SQLite data directory | `/data` |
 | `BASE_URL` | Public URL of this service (used in approval links) | `http://localhost:8080` |
-| `ETH_RPC_URL` | Ethereum RPC endpoint (for balance queries) | — |
-| `SOL_RPC_URL` | Solana RPC endpoint | `https://api.mainnet-beta.solana.com` |
+| `CHAINS_FILE` | Path to custom chains.json (optional) | built-in defaults |
 
 ## OpenClaw Skill
 
@@ -226,19 +229,13 @@ Configure environment variables:
 ```bash
 export TEE_WALLET_API_URL=https://your-ums/instance/your-app-instance-id
 export TEE_WALLET_API_KEY=ocw_your_api_key
-export ETH_RPC_URL=https://mainnet.infura.io/v3/YOUR_KEY
-```
-
-**Transfer script prerequisites:**
-```bash
-pip install web3     # Ethereum transfers
-pip install solders  # Solana transfers
 ```
 
 **Example OpenClaw commands:**
 - "Create an Ethereum wallet"
 - "What are my wallets?"
 - "Send 0.1 ETH to 0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"
+- "Send 10 USDC to 0xAb58..."
 - "Check balance of wallet 1"
 - "Set approval threshold to 0.5 ETH for wallet 1"
 
@@ -250,7 +247,9 @@ pip install solders  # Solana transfers
 | Wallet App | Runs inside TEE mesh; stores only public keys and addresses |
 | API Keys | SHA-256 hashed; shown once on creation |
 | Large Transactions | Require Passkey (WebAuthn) hardware authentication |
-| Audit Trail | All signing operations logged in TEE system |
+| ERC-20 Transfers | Contract address must be whitelisted via Passkey before use |
+| Account Deletion | Requires Passkey; deletes all wallets and TEE keys atomically |
+| Audit Trail | All signing and management operations logged |
 
 ## Project Structure
 
@@ -259,36 +258,37 @@ openclaw-wallet/
 ├── main.go                  # Entry point: config, DB, SDK, routes
 ├── handler/
 │   ├── middleware.go        # Dual auth middleware + SessionStore
-│   ├── auth.go              # Passkey login/register + API key management
-│   ├── wallet.go            # Wallet CRUD + sign + approval policy
+│   ├── auth.go              # Passkey login/register + API key mgmt + account deletion
+│   ├── wallet.go            # Wallet CRUD + transfer + sign + approval policy
 │   ├── balance.go           # On-chain balance queries
+│   ├── contract.go          # ERC-20 contract whitelist management
 │   └── approval.go          # Approval lifecycle (list, get, approve, reject)
 ├── model/
 │   ├── user.go              # User (passkey_user_id + API key hash)
-│   ├── wallet.go            # Wallet (chain, address, key_name, public_key)
-│   └── policy.go            # ApprovalPolicy + ApprovalRequest
+│   ├── wallet.go            # Wallet + ChainConfig registry
+│   ├── contract.go          # AllowedContract (ERC-20 whitelist)
+│   ├── policy.go            # ApprovalPolicy + ApprovalRequest
+│   └── audit.go             # AuditLog
 ├── chain/
-│   ├── address.go           # ETH Keccak256 + SOL Base58 address derivation
+│   ├── address.go           # ETH/SOL address derivation
+│   ├── tx_eth.go            # ETH tx construction, ERC-20 encoding, broadcast
+│   ├── tx_sol.go            # SOL tx construction + broadcast
 │   └── rpc.go               # Chain RPC balance queries
 ├── frontend/
-│   └── index.html           # Web UI (Passkey login, API key mgmt, approvals)
+│   └── index.html           # Web UI (Passkey auth, wallets, transfers, approvals)
 ├── skill/
 │   └── tee-wallet/
 │       ├── SKILL.md         # OpenClaw skill definition
 │       └── scripts/
-│           ├── eth_transfer.py   # ETH transfer helper (web3.py)
-│           └── sol_transfer.py   # SOL transfer helper (solders)
 ├── Dockerfile
 ├── pack.sh
-└── go.mod                   # Module: openclaw-wallet
+└── go.mod
 ```
 
 ## Roadmap
 
-- Bitcoin address derivation + transfer script (P2WPKH)
-- EVM chain expansion (BSC, Polygon, Arbitrum — same keys, different RPC)
-- EIP-712 structured data signing (DeFi permits, multi-sig messages)
-- ERC-20 token transfers
+- Bitcoin address derivation + transfer (P2WPKH)
+- EIP-712 structured data signing (DeFi permits)
 - ClawHub publication
 
 ## License
