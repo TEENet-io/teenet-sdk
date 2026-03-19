@@ -138,6 +138,11 @@ func main() {
 	auth.GET("/wallets/:id", walletH.GetWallet)
 	passkeyOnly.DELETE("/wallets/:id", walletH.DeleteWallet) // irreversible: Passkey only
 	auth.POST("/wallets/:id/sign", walletH.Sign)
+
+	// General contract call (API Key or Passkey, with security layers).
+	contractCallH := handler.NewContractCallHandler(db, sdkClient, baseURL)
+	auth.POST("/wallets/:id/contract-call", contractCallH.ContractCall)
+
 	auth.POST("/wallets/:id/transfer", walletH.Transfer) // backend builds+broadcasts tx
 	auth.GET("/wallets/:id/pubkey", walletH.GetPubkey)
 	auth.GET("/wallets/:id/policy", walletH.GetPolicy)        // read: API Key or Passkey
