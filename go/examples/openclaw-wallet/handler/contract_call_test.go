@@ -196,6 +196,64 @@ func TestContractCall_HighRiskForceApproval_APIKey(t *testing.T) {
 	}
 }
 
+// ─── TestContractCall_ApprovalStoresETHTxParams ───────────────────────────────
+
+func TestContractCall_ApprovalStoresETHTxParams(t *testing.T) {
+	// Verify that the approval stores TxParams in ETHTxParams format
+	// (with "to", "gas_price", "nonce" fields), not a custom format.
+	// This ensures approval.go can rebuild the tx on approve.
+	db := testDB(t)
+	// AutoApprove=false so every API Key call triggers approval path.
+	user, wallet, _ := seedWalletWithContract(t, db, "", false /* autoApprove */)
+
+	rpc := mockETHRPCServer(t)
+
+	r := contractCallRouter(db, user.ID, "apikey", rpc.URL)
+	body := jsonBody(map[string]interface{}{
+		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+		"func_sig": "transfer(address,uint256)",
+		"args":     []interface{}{"0x1234567890123456789012345678901234567890", "500"},
+	})
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/contract-call", wallet.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 pending approval, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Load the ApprovalRequest from DB.
+	var ar model.ApprovalRequest
+	if err := db.Where("wallet_id = ? AND approval_type = ?", wallet.ID, "contract_call").First(&ar).Error; err != nil {
+		t.Fatalf("no approval request found in DB: %v", err)
+	}
+
+	// Verify approval_type == "contract_call".
+	if ar.ApprovalType != "contract_call" {
+		t.Errorf("expected ApprovalType='contract_call', got %q", ar.ApprovalType)
+	}
+
+	// Verify TxParams contains "to" field (ETHTxParams format).
+	var ethParams map[string]interface{}
+	if err := json.Unmarshal([]byte(ar.TxParams), &ethParams); err != nil {
+		t.Fatalf("TxParams is not valid JSON: %v", err)
+	}
+	if ethParams["to"] == nil {
+		t.Error("TxParams missing 'to' field — not ETHTxParams format")
+	}
+
+	// Verify Message is non-empty (signing hash hex).
+	if ar.Message == "" {
+		t.Error("approval Message should be the signing hash hex (non-empty)")
+	}
+
+	// Verify TxParams contains "data" field (calldata).
+	if ethParams["data"] == nil {
+		t.Error("TxParams missing 'data' field — calldata not stored")
+	}
+}
+
 // ─── TestContractCall_AutoApproveFalse_APIKey ─────────────────────────────────
 
 func TestContractCall_AutoApproveFalse_APIKey(t *testing.T) {
