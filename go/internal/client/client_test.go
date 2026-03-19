@@ -5,11 +5,16 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,8 +95,7 @@ func TestSetDefaultAppIDFromEnv(t *testing.T) {
 	defer client.Close()
 
 	// Set env var
-	os.Setenv("APP_INSTANCE_ID", "env-app-id")
-	defer os.Unsetenv("APP_INSTANCE_ID")
+	t.Setenv("APP_INSTANCE_ID", "env-app-id")
 
 	err := client.SetDefaultAppIDFromEnv()
 	if err != nil {
@@ -118,8 +122,7 @@ func TestInit(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	os.Setenv("APP_INSTANCE_ID", "init-app-id")
-	defer os.Unsetenv("APP_INSTANCE_ID")
+	t.Setenv("APP_INSTANCE_ID", "init-app-id")
 
 	err := client.Init()
 	if err != nil {
@@ -567,5 +570,97 @@ func TestGenerateECDSAKey_ValidCurves(t *testing.T) {
 		if !result.Success {
 			t.Errorf("Expected success for curve %s", curve)
 		}
+	}
+}
+
+func TestInvalidateKeyCache(t *testing.T) {
+	ctx := context.Background()
+	callCount := 0
+	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"public_keys": []map[string]interface{}{},
+		})
+	})
+	defer server.Close()
+
+	client := NewClientWithOptions(server.URL, nil)
+	defer client.Close()
+	client.SetDefaultAppID("test-app")
+
+	client.GetPublicKeys(ctx)
+	if callCount != 1 {
+		t.Fatalf("expected 1 call, got %d", callCount)
+	}
+
+	client.GetPublicKeys(ctx)
+	if callCount != 1 {
+		t.Fatalf("expected still 1 call (cached), got %d", callCount)
+	}
+
+	client.InvalidateKeyCache()
+
+	client.GetPublicKeys(ctx)
+	if callCount != 2 {
+		t.Fatalf("expected 2 calls after invalidation, got %d", callCount)
+	}
+}
+
+func TestNoLogOutputWhenDebugDisabled(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	client := NewClientWithOptions("http://localhost:8080", nil)
+	client.SetDefaultAppID("test-app")
+	client.Close()
+
+	output := buf.String()
+	if strings.Contains(output, "SDK client initialized") {
+		t.Error("Expected no lifecycle log when debug=false")
+	}
+	if strings.Contains(output, "Default App ID set to") {
+		t.Error("Expected no App ID log when debug=false")
+	}
+}
+
+func TestGetPublicKeys_Singleflight(t *testing.T) {
+	ctx := context.Background()
+	var callCount int64
+	server := mockServer(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&callCount, 1)
+		// Simulate slow response
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"public_keys": []map[string]interface{}{},
+		})
+	})
+	defer server.Close()
+
+	client := NewClientWithOptions(server.URL, &types.ClientOptions{
+		KeyCacheTTL: -1, // disable cache to test singleflight
+	})
+	defer client.Close()
+	client.SetDefaultAppID("test-app")
+
+	// Launch 10 concurrent requests
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client.GetPublicKeys(ctx)
+		}()
+	}
+	wg.Wait()
+
+	// Singleflight should collapse to 1 (or maybe 2 if timing is unlucky)
+	count := atomic.LoadInt64(&callCount)
+	if count > 2 {
+		t.Fatalf("expected at most 2 server calls (singleflight), got %d", count)
 	}
 }

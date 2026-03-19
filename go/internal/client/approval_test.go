@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -152,3 +153,43 @@ func TestClientPasskeyLoginVerify_SetsToken(t *testing.T) {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+// TestToUint64 tests the toUint64 helper with various input types.
+func TestToUint64(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  interface{}
+		wantV  uint64
+		wantOK bool
+	}{
+		{"positive float64", float64(42), 42, true},
+		{"negative float64", float64(-1), 0, false},
+		{"zero float64", float64(0), 0, false},
+		{"fractional float64", float64(1.5), 0, false},
+		{"positive int", int(10), 10, true},
+		{"negative int", int(-5), 0, false},
+		{"positive int64", int64(99), 99, true},
+		{"uint64", uint64(7), 7, true},
+		{"zero uint64", uint64(0), 0, false},
+		{"json.Number valid", json.Number("123"), 123, true},
+		{"json.Number zero", json.Number("0"), 0, false},
+		{"json.Number negative", json.Number("-1"), 0, false},
+		{"string valid", "456", 456, true},
+		{"string zero", "0", 0, false},
+		{"string invalid", "abc", 0, false},
+		{"nil", nil, 0, false},
+		{"bool", true, 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, ok := toUint64(tt.input)
+			if ok != tt.wantOK {
+				t.Errorf("toUint64(%v) ok = %v, want %v", tt.input, ok, tt.wantOK)
+			}
+			if ok && v != tt.wantV {
+				t.Errorf("toUint64(%v) = %d, want %d", tt.input, v, tt.wantV)
+			}
+		})
+	}
+}

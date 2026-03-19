@@ -55,7 +55,9 @@ type (
 )
 
 // PasskeyCredentialProvider returns credential JSON bytes for WebAuthn options.
-type PasskeyCredentialProvider func(options interface{}) ([]byte, error)
+// Pass an implementation of this type to PasskeyLoginWithCredential,
+// ApprovalRequestConfirmWithCredential, and ApprovalActionWithCredential.
+type PasskeyCredentialProvider = types.PasskeyCredentialProvider
 
 // Re-export constants from internal/crypto.
 

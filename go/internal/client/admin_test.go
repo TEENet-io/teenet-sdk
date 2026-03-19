@@ -67,8 +67,8 @@ func TestClientInvitePasskeyUser_ServerError(t *testing.T) {
 	defer close()
 
 	res, err := c.InvitePasskeyUser(ctx, types.PasskeyInviteRequest{})
-	if err != nil {
-		t.Fatalf("unexpected transport error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for non-2xx response")
 	}
 	if res.Success {
 		t.Fatal("expected success=false")
@@ -151,8 +151,8 @@ func TestClientDeletePasskeyUser_NotFound(t *testing.T) {
 	defer close()
 
 	res, err := c.DeletePasskeyUser(ctx, 99)
-	if err != nil {
-		t.Fatalf("unexpected transport error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for non-2xx response")
 	}
 	if res.Success {
 		t.Fatal("expected success=false")
@@ -221,8 +221,8 @@ func TestClientUpsertPermissionPolicy_ServerRejectsEmpty(t *testing.T) {
 	defer close()
 
 	res, err := c.UpsertPermissionPolicy(ctx, types.PolicyRequest{})
-	if err != nil {
-		t.Fatalf("unexpected transport error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for non-2xx response")
 	}
 	if res.Success {
 		t.Fatal("expected success=false")
@@ -319,8 +319,25 @@ func TestClientDeletePermissionPolicy_NotFound(t *testing.T) {
 	defer close()
 
 	res, err := c.DeletePermissionPolicy(ctx, "ghost-key")
-	if err != nil {
-		t.Fatalf("unexpected transport error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for non-2xx response")
+	}
+	if res.Success {
+		t.Fatal("expected success=false")
+	}
+}
+
+func TestClientDeletePasskeyUser_ServerError_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"internal error"}`))
+	})
+	defer close()
+
+	res, err := c.DeletePasskeyUser(ctx, 1)
+	if err == nil {
+		t.Fatal("expected non-nil error for 5xx response")
 	}
 	if res.Success {
 		t.Fatal("expected success=false")

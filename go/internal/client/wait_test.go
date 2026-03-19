@@ -118,7 +118,7 @@ func TestWaitForSignResult_Timeout(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	result, err := client.WaitForSignResult(ctx, "0xtimeout", 100*time.Millisecond)
+	result, err := client.waitForSignResult(ctx, "0xtimeout", 100*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}

@@ -58,6 +58,7 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/crypto"
 	"github.com/TEENet-io/teenet-sdk/go/internal/network"
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -79,9 +80,11 @@ type Client struct {
 	consensusURL       string                 // Base URL of the consensus service
 	defaultAppID       string                 // Default application ID for operations
 	pkCache            map[string]pkCacheEntry // Public key cache keyed by appID
+	pkGroup            singleflight.Group     // Deduplicates concurrent GetPublicKeys calls
 	requestTimeout     time.Duration          // Timeout for HTTP requests (default: 30s)
 	pendingWaitTimeout time.Duration          // Max wait in Sign for pending voting completion (default: 10s)
 	debug              bool                   // Enable verbose SDK trace logs
+	keyCacheTTL        time.Duration          // TTL for public key cache (default: 60s, -1 to disable)
 }
 
 // NewClient creates a new SDK client with default settings.
@@ -144,6 +147,7 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 	requestTimeout := 30 * time.Second
 	pendingWaitTimeout := defaultPendingWaitTimeout
 	debug := false
+	keyCacheTTL := 60 * time.Second
 
 	if opts != nil {
 		if opts.RequestTimeout > 0 {
@@ -153,6 +157,9 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 			pendingWaitTimeout = opts.PendingWaitTimeout
 		}
 		debug = opts.Debug
+		if opts.KeyCacheTTL != 0 {
+			keyCacheTTL = opts.KeyCacheTTL
+		}
 	}
 
 	// Create standard HTTP client
@@ -167,6 +174,7 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 		requestTimeout:     requestTimeout,
 		pendingWaitTimeout: pendingWaitTimeout,
 		debug:              debug,
+		keyCacheTTL:        keyCacheTTL,
 	}
 }
 
@@ -203,11 +211,11 @@ func (c *Client) Init() error {
 	if appID == "" {
 		if err := c.SetDefaultAppIDFromEnv(); err != nil {
 			// Not an error if APP_INSTANCE_ID env var is not set
-			log.Printf("APP_INSTANCE_ID environment variable not set, you can set it later with SetDefaultAppID()")
+			c.debugf("APP_INSTANCE_ID environment variable not set, you can set it later with SetDefaultAppID()")
 		}
 	}
 
-	log.Printf("SDK client initialized successfully")
+	c.debugf("SDK client initialized successfully")
 	return nil
 }
 
@@ -227,7 +235,7 @@ func (c *Client) SetDefaultAppID(appID string) {
 	c.mu.Lock()
 	c.defaultAppID = appID
 	c.mu.Unlock()
-	log.Printf("Default App ID set to: %s", appID)
+	c.debugf("Default App ID set to: %s", appID)
 }
 
 // SetDefaultAppIDFromEnv loads the default App ID from the APP_ID environment variable.
@@ -282,6 +290,7 @@ func (c *Client) GetDefaultAppID() string {
 //	client := types.NewClient("http://localhost:8089")
 //	defer client.Close()
 func (c *Client) Close() error {
+	c.httpClient.CloseIdleConnections()
 	return nil
 }
 
@@ -305,11 +314,12 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 
 // generateKey calls the HTTP API to generate a key and converts the response.
 func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*types.GenerateKeyResult, error) {
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
+	appID, err := c.getAppID()
+	if err != nil {
+		return nil, err
+	}
 
-	log.Printf("Generating %s key: curve=%s, app_id=%s", protocol, curve, appID)
+	c.debugf("Generating %s key: curve=%s, app_id=%s", protocol, curve, appID)
 	resp, err := c.httpClient.GenerateKey(ctx, appID, curve, protocol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate %s key: %w", protocol, err)
@@ -321,7 +331,7 @@ func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*type
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode generated key: %w", err)
 	}
-	log.Printf("Successfully generated %s key (ID: %d)", protocol, pubKey.ID)
+	c.debugf("Successfully generated %s key (ID: %d)", protocol, pubKey.ID)
 	return &types.GenerateKeyResult{Success: true, Message: resp.Message, PublicKey: pubKey}, nil
 }
 
@@ -329,9 +339,6 @@ func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*type
 //
 // Supported curves: "ed25519", "secp256k1", "secp256r1"
 func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*types.GenerateKeyResult, error) {
-	if err := c.requireAppID(); err != nil {
-		return nil, err
-	}
 	validCurves := map[string]bool{
 		crypto.CurveED25519: true, crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
 	}
@@ -347,9 +354,6 @@ func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*types.G
 // Supported curves: "secp256k1", "secp256r1"
 // Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey).
 func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*types.GenerateKeyResult, error) {
-	if err := c.requireAppID(); err != nil {
-		return nil, err
-	}
 	validCurves := map[string]bool{
 		crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
 	}
@@ -382,7 +386,8 @@ func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*types.Gen
 //	}
 //	fmt.Printf("API Key: %s\n", result.APIKey)
 func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
 
@@ -391,11 +396,7 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 		return nil, fmt.Errorf("API key name cannot be empty")
 	}
 
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
-
-	log.Printf("Retrieving API key: name=%s, app_id=%s", name, appID)
+	c.debugf("Retrieving API key: name=%s, app_id=%s", name, appID)
 
 	// Call HTTP API
 	resp, err := c.httpClient.GetAPIKey(ctx, appID, name)
@@ -420,7 +421,7 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 		APIKey:        resp.APIKey,
 	}
 
-	log.Printf("Successfully retrieved API key: name=%s", name)
+	c.debugf("Successfully retrieved API key: name=%s", name)
 	return result, nil
 }
 
@@ -448,7 +449,8 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 //	}
 //	fmt.Printf("Signature: %s\n", result.Signature)
 func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []byte) (*types.APISignResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
 
@@ -462,11 +464,7 @@ func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []b
 		return nil, fmt.Errorf("message cannot be empty")
 	}
 
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
-
-	log.Printf("Signing with API secret: name=%s, app_id=%s, message_len=%d", name, appID, len(message))
+	c.debugf("Signing with API secret: name=%s, app_id=%s, message_len=%d", name, appID, len(message))
 
 	// Call HTTP API
 	resp, err := c.httpClient.SignWithAPISecret(ctx, appID, name, message)
@@ -494,6 +492,6 @@ func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []b
 		MessageLength: resp.MessageLength,
 	}
 
-	log.Printf("Successfully signed message with API secret: name=%s, signature_len=%d", name, len(result.Signature))
+	c.debugf("Successfully signed message with API secret: name=%s, signature_len=%d", name, len(result.Signature))
 	return result, nil
 }

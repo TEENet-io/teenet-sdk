@@ -22,12 +22,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
+)
+
+const (
+	sdkUserAgent    = "teenet-sdk-go/1.0"
+	maxResponseSize = 10 * 1024 * 1024 // 10 MB
 )
 
 // HTTPClient wraps HTTP operations for the SDK.
@@ -45,7 +51,10 @@ func NewHTTPClient(baseURL string, client *http.Client) *HTTPClient {
 	}
 }
 
-// submitRequestPayload is the request body for submitting a signature request
+// submitRequestPayload is the request body for submitting a signature request.
+// Note: Message is []byte which Go's json.Marshal encodes as base64.
+// This differs from SignWithAPISecret which sends hex-encoded strings.
+// Both encodings are expected by the consensus server.
 type submitRequestPayload struct {
 	AppInstanceID string `json:"app_instance_id"`
 	Message       []byte `json:"message"`              // Raw message bytes (JSON auto-encodes to base64)
@@ -124,6 +133,7 @@ func (c *HTTPClient) SubmitRequest(ctx context.Context, appID string, message []
 	if err != nil {
 		return nil, fmt.Errorf("failed to build submit request: %w", err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -133,7 +143,7 @@ func (c *HTTPClient) SubmitRequest(ctx context.Context, appID string, message []
 	defer resp.Body.Close()
 
 	var result submitRequestResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.decodeJSON(resp, &result, "submit request"); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -147,6 +157,7 @@ func (c *HTTPClient) GetCacheDetail(ctx context.Context, hash string) (*cacheDet
 	if err != nil {
 		return nil, fmt.Errorf("failed to build cache request: %w", err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -155,7 +166,7 @@ func (c *HTTPClient) GetCacheDetail(ctx context.Context, hash string) (*cacheDet
 	defer resp.Body.Close()
 
 	var result cacheDetailResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.decodeJSON(resp, &result, "cache detail"); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -169,6 +180,7 @@ func (c *HTTPClient) GetPublicKeys(ctx context.Context, appID string) ([]publicK
 	if err != nil {
 		return nil, fmt.Errorf("failed to build public keys request: %w", err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -177,7 +189,7 @@ func (c *HTTPClient) GetPublicKeys(ctx context.Context, appID string) ([]publicK
 	defer resp.Body.Close()
 
 	var result publicKeysResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.decodeJSON(resp, &result, "public keys"); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -233,6 +245,7 @@ func (c *HTTPClient) GenerateKey(ctx context.Context, appID, curve, protocol str
 	if err != nil {
 		return nil, fmt.Errorf("failed to build generate key request: %w", err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -242,7 +255,7 @@ func (c *HTTPClient) GenerateKey(ctx context.Context, appID, curve, protocol str
 	defer resp.Body.Close()
 
 	var result generateKeyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.decodeJSON(resp, &result, "generate key"); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -268,6 +281,7 @@ func (c *HTTPClient) GetAPIKey(ctx context.Context, appID, name string) (*apiKey
 	if err != nil {
 		return nil, fmt.Errorf("failed to build API key request: %w", err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -276,7 +290,7 @@ func (c *HTTPClient) GetAPIKey(ctx context.Context, appID, name string) (*apiKey
 	defer resp.Body.Close()
 
 	var result apiKeyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.decodeJSON(resp, &result, "API key"); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -320,6 +334,7 @@ func (c *HTTPClient) SignWithAPISecret(ctx context.Context, appID, name string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to build sign request: %w", err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -329,7 +344,7 @@ func (c *HTTPClient) SignWithAPISecret(ctx context.Context, appID, name string, 
 	defer resp.Body.Close()
 
 	var result apiSignResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.decodeJSON(resp, &result, "API secret sign"); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -347,10 +362,16 @@ type ApprovalBridgeResponse struct {
 // If token is non-empty, an Authorization: Bearer header is added.
 // Content-Type: application/json is set when payload is non-empty.
 func (c *HTTPClient) doRawRequest(ctx context.Context, method, path, token string, payload []byte, errContext string) (*ApprovalBridgeResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(payload))
+	var body io.Reader
+	if len(payload) > 0 {
+		body = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build %s request: %w", errContext, err)
 	}
+	req.Header.Set("User-Agent", sdkUserAgent)
 	if len(payload) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -365,10 +386,23 @@ func (c *HTTPClient) doRawRequest(ctx context.Context, method, path, token strin
 	defer resp.Body.Close()
 
 	decoded := map[string]interface{}{}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, fmt.Errorf("failed to decode %s response: %w", errContext, err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("failed to decode %s response (status %d): %w", errContext, resp.StatusCode, err)
 	}
 	return &ApprovalBridgeResponse{StatusCode: resp.StatusCode, Data: decoded}, nil
+}
+
+// decodeJSON decodes an HTTP response body as JSON into out.
+// For non-2xx responses it attempts JSON decode but returns a clear error if the body is non-JSON.
+func (c *HTTPClient) decodeJSON(resp *http.Response, out interface{}, errContext string) error {
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		if err := json.Unmarshal(bodyBytes, out); err != nil {
+			return fmt.Errorf("%s: server returned status %d with non-JSON body", errContext, resp.StatusCode)
+		}
+		return nil
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(out)
 }
 
 func (c *HTTPClient) doApprovalRequest(ctx context.Context, method, path, approvalToken string, payload []byte) (*ApprovalBridgeResponse, error) {
@@ -441,4 +475,9 @@ func (c *HTTPClient) CancelRequest(ctx context.Context, id uint64, idType string
 func (c *HTTPClient) GetSignatureByTx(ctx context.Context, txID string, approvalToken string) (*ApprovalBridgeResponse, error) {
 	path := fmt.Sprintf("/api/signature/by-tx/%s", url.PathEscape(txID))
 	return c.doApprovalRequest(ctx, http.MethodGet, path, approvalToken, nil)
+}
+
+// CloseIdleConnections closes idle connections in the HTTP transport.
+func (c *HTTPClient) CloseIdleConnections() {
+	c.client.CloseIdleConnections()
 }

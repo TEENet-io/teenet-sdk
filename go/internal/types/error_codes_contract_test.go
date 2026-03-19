@@ -34,6 +34,7 @@ func TestSignErrorCodeContract(t *testing.T) {
 		ErrorCodeStatusQueryFailed,
 		ErrorCodeSignFailed,
 		ErrorCodeThresholdTimeout,
+		ErrorCodeApprovalPending,
 	}
 
 	if !reflect.DeepEqual(actual, contract.SignErrorCodes) {

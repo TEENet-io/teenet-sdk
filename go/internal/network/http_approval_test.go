@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -201,6 +202,29 @@ func TestGetMyRequests_SendsBearerToken(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestPasskeyLoginOptions_NilBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			body, _ := io.ReadAll(r.Body)
+			if len(body) > 0 {
+				t.Error("Expected nil/empty body for GET request via doRawRequest")
+			}
+		}
+		if r.Header.Get("Content-Type") == "application/json" {
+			t.Error("GET request should not set Content-Type: application/json")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"options":{}}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	_, err := client.PasskeyLoginOptions(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -53,8 +53,7 @@ func TestSetDefaultAppID(t *testing.T) {
 func TestSetDefaultAppIDFromEnv(t *testing.T) {
 	// Set environment variable (uses APP_INSTANCE_ID, not APP_ID)
 	testAppID := "env-test-app-id"
-	os.Setenv("APP_INSTANCE_ID", testAppID)
-	defer os.Unsetenv("APP_INSTANCE_ID")
+	t.Setenv("APP_INSTANCE_ID", testAppID)
 
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
@@ -165,8 +164,7 @@ func TestSignWithoutAppID(t *testing.T) {
 
 // TestInit tests client initialization
 func TestInit(t *testing.T) {
-	os.Setenv("APP_INSTANCE_ID", "init-test-id")
-	defer os.Unsetenv("APP_INSTANCE_ID")
+	t.Setenv("APP_INSTANCE_ID", "init-test-id")
 
 	client := NewClient("http://localhost:8080")
 	defer client.Close()

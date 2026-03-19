@@ -32,48 +32,62 @@ type pkCacheEntry struct {
 	expiresAt time.Time
 }
 
-const pkCacheTTL = 60 * time.Second
-
 // GetPublicKeys retrieves all bound public keys for the default App ID.
 func (c *Client) GetPublicKeys(ctx context.Context) ([]types.PublicKeyInfo, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
 
-	// Read appID while holding RLock
+	// Read cache entry while holding RLock
 	c.mu.RLock()
-	appID := c.defaultAppID
 	entry, found := c.pkCache[appID]
 	c.mu.RUnlock()
 
 	// Check cache hit
-	if found && time.Now().Before(entry.expiresAt) {
+	if found && c.keyCacheTTL > 0 && time.Now().Before(entry.expiresAt) {
 		return entry.keys, nil
 	}
 
-	// Cache miss — do HTTP call without holding lock
-	keys, err := c.httpClient.GetPublicKeys(ctx, appID)
+	// Cache miss — use singleflight to collapse concurrent requests
+	val, err, _ := c.pkGroup.Do(appID, func() (interface{}, error) {
+		keys, err := c.httpClient.GetPublicKeys(ctx, appID)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]types.PublicKeyInfo, len(keys))
+		for i, k := range keys {
+			pk, err := convertJSON[types.PublicKeyInfo](k)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode public key: %w", err)
+			}
+			result[i] = *pk
+		}
+
+		// Update cache
+		c.mu.Lock()
+		c.pkCache[appID] = pkCacheEntry{
+			keys:      result,
+			expiresAt: time.Now().Add(c.keyCacheTTL),
+		}
+		c.mu.Unlock()
+
+		return result, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]types.PublicKeyInfo, len(keys))
-	for i, k := range keys {
-		pk, err := convertJSON[types.PublicKeyInfo](k)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode public key: %w", err)
-		}
-		result[i] = *pk
-	}
 
-	// Update cache
+	return val.([]types.PublicKeyInfo), nil
+}
+
+// InvalidateKeyCache clears the in-memory public key cache, forcing the next
+// GetPublicKeys call to fetch fresh data from the consensus service.
+// Use this after key rotation to ensure stale cached keys are not used.
+func (c *Client) InvalidateKeyCache() {
 	c.mu.Lock()
-	c.pkCache[appID] = pkCacheEntry{
-		keys:      result,
-		expiresAt: time.Now().Add(pkCacheTTL),
-	}
+	c.pkCache = make(map[string]pkCacheEntry)
 	c.mu.Unlock()
-
-	return result, nil
 }
 
 func (c *Client) getBoundPublicKeyByName(ctx context.Context, publicKeyName string) (*types.PublicKeyInfo, error) {
@@ -127,7 +141,7 @@ func (c *Client) getBoundPublicKeyByName(ctx context.Context, publicKeyName stri
 //	    fmt.Println("Signature is invalid")
 //	}
 func (c *Client) Verify(ctx context.Context, message, signature []byte, publicKeyName string) (bool, error) {
-	if err := c.requireAppID(); err != nil {
+	if _, err := c.getAppID(); err != nil {
 		return false, err
 	}
 

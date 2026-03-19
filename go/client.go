@@ -46,9 +46,7 @@ package sdk
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"strconv"
 	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/client"
@@ -58,6 +56,15 @@ import (
 // It provides the public API for TEENet SDK.
 type Client struct {
 	impl *client.Client
+}
+
+var errNilClient = errors.New("teenet-sdk: client not initialized, use NewClient() or NewClientWithOptions()")
+
+func (c *Client) checkInit() error {
+	if c == nil || c.impl == nil {
+		return errNilClient
+	}
+	return nil
 }
 
 // NewClient creates a new SDK client with default settings.
@@ -181,6 +188,9 @@ func (c *Client) GetDefaultAppID() string {
 //
 //	result, err := client.Sign(ctx, []byte("important message"), "my-key")
 func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string, passkeyToken ...string) (*SignResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.Sign(ctx, message, publicKeyName, passkeyToken...)
 }
 
@@ -213,42 +223,7 @@ func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, 
 
 // PasskeyLoginWithCredential executes login options -> WebAuthn credential provider -> verify.
 func (c *Client) PasskeyLoginWithCredential(ctx context.Context, getCredential PasskeyCredentialProvider) (*ApprovalResult, error) {
-	if getCredential == nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "credential provider is required",
-		}, errors.New("credential provider is required")
-	}
-	loginOpts, err := c.PasskeyLoginOptions(ctx)
-	if err != nil || loginOpts == nil || !loginOpts.Success {
-		return loginOpts, err
-	}
-	loginSessionID, ok := toUint64(loginOpts.Data["login_session_id"])
-	if !ok || loginSessionID == 0 {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 500,
-			Error:      "invalid login_session_id in login options response",
-		}, nil
-	}
-	options, ok := loginOpts.Data["options"]
-	if !ok {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 500,
-			Error:      "missing options in login options response",
-		}, nil
-	}
-	credential, credErr := getCredential(options)
-	if credErr != nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "credential provider failed: " + credErr.Error(),
-		}, credErr
-	}
-	return c.PasskeyLoginVerify(ctx, loginSessionID, credential)
+	return c.impl.PasskeyLoginWithCredential(ctx, getCredential)
 }
 
 // GetMyRequests returns all approval requests initiated by the authenticated user.
@@ -285,35 +260,7 @@ func (c *Client) ApprovalRequestConfirm(ctx context.Context, requestID uint64, p
 
 // ApprovalRequestConfirmWithCredential executes challenge -> WebAuthn credential provider -> confirm.
 func (c *Client) ApprovalRequestConfirmWithCredential(ctx context.Context, requestID uint64, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
-	if getCredential == nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "credential provider is required",
-		}, errors.New("credential provider is required")
-	}
-	challenge, err := c.ApprovalRequestChallenge(ctx, requestID, approvalToken)
-	if err != nil || challenge == nil || !challenge.Success {
-		return challenge, err
-	}
-	options := extractChallengeOptions(challenge.Data)
-	credential, errResult, credErr := getAndValidateCredential(getCredential, options)
-	if errResult != nil {
-		return errResult, credErr
-	}
-	payload, marshalErr := json.Marshal(struct {
-		Credential json.RawMessage `json:"credential"`
-	}{
-		Credential: json.RawMessage(credential),
-	})
-	if marshalErr != nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "failed to build request confirm payload",
-		}, marshalErr
-	}
-	return c.ApprovalRequestConfirm(ctx, requestID, payload, approvalToken)
+	return c.impl.ApprovalRequestConfirmWithCredential(ctx, requestID, getCredential, approvalToken)
 }
 
 // ApprovalActionChallenge fetches WebAuthn assertion challenge options for task action.
@@ -328,93 +275,22 @@ func (c *Client) ApprovalAction(ctx context.Context, taskID uint64, payload []by
 
 // ApprovalActionWithCredential executes challenge -> WebAuthn credential provider -> action.
 func (c *Client) ApprovalActionWithCredential(ctx context.Context, taskID uint64, action string, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
-	if getCredential == nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "credential provider is required",
-		}, errors.New("credential provider is required")
-	}
-	challenge, err := c.ApprovalActionChallenge(ctx, taskID, approvalToken)
-	if err != nil || challenge == nil || !challenge.Success {
-		return challenge, err
-	}
-	options := extractChallengeOptions(challenge.Data)
-	credential, errResult, credErr := getAndValidateCredential(getCredential, options)
-	if errResult != nil {
-		return errResult, credErr
-	}
-	payload, marshalErr := json.Marshal(struct {
-		Action     string          `json:"action"`
-		Credential json.RawMessage `json:"credential"`
-	}{
-		Action:     action,
-		Credential: json.RawMessage(credential),
-	})
-	if marshalErr != nil {
-		return &ApprovalResult{
-			Success:    false,
-			StatusCode: 0,
-			Error:      "failed to build action payload",
-		}, marshalErr
-	}
-	return c.ApprovalAction(ctx, taskID, payload, approvalToken)
-}
-
-func toUint64(v interface{}) (uint64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return uint64(n), n > 0
-	case int:
-		return uint64(n), n > 0
-	case int64:
-		return uint64(n), n > 0
-	case uint64:
-		return n, n > 0
-	case json.Number:
-		parsed, err := n.Int64()
-		if err != nil || parsed <= 0 {
-			return 0, false
-		}
-		return uint64(parsed), true
-	case string:
-		parsed, err := strconv.ParseUint(n, 10, 64)
-		if err != nil || parsed == 0 {
-			return 0, false
-		}
-		return parsed, true
-	default:
-		return 0, false
-	}
-}
-
-// getAndValidateCredential calls provider(options), ensures the result is valid JSON,
-// and returns either the raw credential bytes or a ready-to-return ApprovalResult + error.
-func getAndValidateCredential(provider PasskeyCredentialProvider, options interface{}) ([]byte, *ApprovalResult, error) {
-	credential, credErr := provider(options)
-	if credErr != nil {
-		return nil, &ApprovalResult{Success: false, Error: "credential provider failed: " + credErr.Error()}, credErr
-	}
-	if !json.Valid(credential) {
-		err := errors.New("invalid credential json")
-		return nil, &ApprovalResult{Success: false, Error: err.Error()}, err
-	}
-	return credential, nil, nil
-}
-
-func extractChallengeOptions(data map[string]interface{}) interface{} {
-	if data == nil {
-		return nil
-	}
-	if options, ok := data["options"]; ok && options != nil {
-		return options
-	}
-	return data
+	return c.impl.ApprovalActionWithCredential(ctx, taskID, action, getCredential, approvalToken)
 }
 
 // GetPublicKeys retrieves all bound public keys for the default App ID.
 func (c *Client) GetPublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GetPublicKeys(ctx)
+}
+
+// InvalidateKeyCache clears the in-memory public key cache, forcing the next
+// GetPublicKeys call to fetch fresh data from the consensus service.
+// Use this after key rotation to ensure stale cached keys are not used.
+func (c *Client) InvalidateKeyCache() {
+	c.impl.InvalidateKeyCache()
 }
 
 // Verify verifies a cryptographic signature against a message using a bound key name.
@@ -439,6 +315,9 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
 //	    fmt.Println("Signature is valid")
 //	}
 func (c *Client) Verify(ctx context.Context, message, signature []byte, publicKeyName string) (bool, error) {
+	if err := c.checkInit(); err != nil {
+		return false, err
+	}
 	return c.impl.Verify(ctx, message, signature, publicKeyName)
 }
 
@@ -452,6 +331,9 @@ func (c *Client) Verify(ctx context.Context, message, signature []byte, publicKe
 //	client := sdk.NewClient("http://localhost:8089")
 //	defer client.Close()
 func (c *Client) Close() error {
+	if c == nil || c.impl == nil {
+		return nil
+	}
 	return c.impl.Close()
 }
 

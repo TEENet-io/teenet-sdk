@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/network"
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
@@ -45,6 +47,10 @@ func approvalCall(fn func() (*network.ApprovalBridgeResponse, error)) (*types.Ap
 }
 
 func (c *Client) ApprovalRequestInit(ctx context.Context, payload []byte, approvalToken string) (*types.ApprovalResult, error) {
+	if len(payload) > 0 && !json.Valid(payload) {
+		err := fmt.Errorf("invalid payload json")
+		return &types.ApprovalResult{Success: false, Error: err.Error()}, err
+	}
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
 		return c.httpClient.ApprovalRequestInit(ctx, payload, approvalToken)
 	})
@@ -132,4 +138,172 @@ func (c *Client) GetSignatureByTx(ctx context.Context, txID string, approvalToke
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
 		return c.httpClient.GetSignatureByTx(ctx, txID, approvalToken)
 	})
+}
+
+// toUint64 converts various numeric representations to uint64.
+func toUint64(v interface{}) (uint64, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n <= 0 || n != float64(uint64(n)) {
+			return 0, false
+		}
+		return uint64(n), true
+	case int:
+		if n <= 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case int64:
+		if n <= 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case uint64:
+		return n, n > 0
+	case json.Number:
+		parsed, err := n.Int64()
+		if err != nil || parsed <= 0 {
+			return 0, false
+		}
+		return uint64(parsed), true
+	case string:
+		parsed, err := strconv.ParseUint(n, 10, 64)
+		if err != nil || parsed == 0 {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+// getAndValidateCredential calls provider(options), ensures the result is valid JSON,
+// and returns either the raw credential bytes or a ready-to-return ApprovalResult + error.
+func getAndValidateCredential(provider types.PasskeyCredentialProvider, options interface{}) ([]byte, *types.ApprovalResult, error) {
+	credential, credErr := provider(options)
+	if credErr != nil {
+		return nil, &types.ApprovalResult{Success: false, Error: "credential provider failed: " + credErr.Error()}, credErr
+	}
+	if !json.Valid(credential) {
+		err := errors.New("invalid credential json")
+		return nil, &types.ApprovalResult{Success: false, Error: err.Error()}, err
+	}
+	return credential, nil, nil
+}
+
+// extractChallengeOptions extracts the options field from a challenge data map,
+// falling back to the whole map if no "options" key is present.
+func extractChallengeOptions(data map[string]interface{}) interface{} {
+	if data == nil {
+		return nil
+	}
+	if options, ok := data["options"]; ok && options != nil {
+		return options
+	}
+	return data
+}
+
+// PasskeyLoginWithCredential orchestrates the multi-step passkey login flow:
+// LoginOptions → credential provider → LoginVerify.
+func (c *Client) PasskeyLoginWithCredential(ctx context.Context, getCredential types.PasskeyCredentialProvider) (*types.ApprovalResult, error) {
+	if getCredential == nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "credential provider is required",
+		}, errors.New("credential provider is required")
+	}
+	loginOpts, err := c.PasskeyLoginOptions(ctx)
+	if err != nil || loginOpts == nil || !loginOpts.Success {
+		return loginOpts, err
+	}
+	loginSessionID, ok := toUint64(loginOpts.Data["login_session_id"])
+	if !ok || loginSessionID == 0 {
+		return &types.ApprovalResult{
+			Success:    false,
+			StatusCode: 500,
+			Error:      "invalid login_session_id in login options response",
+		}, nil
+	}
+	options, ok := loginOpts.Data["options"]
+	if !ok {
+		return &types.ApprovalResult{
+			Success:    false,
+			StatusCode: 500,
+			Error:      "missing options in login options response",
+		}, nil
+	}
+	credential, credErr := getCredential(options)
+	if credErr != nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "credential provider failed: " + credErr.Error(),
+		}, credErr
+	}
+	return c.PasskeyLoginVerify(ctx, loginSessionID, credential)
+}
+
+// ApprovalRequestConfirmWithCredential orchestrates the multi-step request confirmation flow:
+// RequestChallenge → credential provider → RequestConfirm.
+func (c *Client) ApprovalRequestConfirmWithCredential(ctx context.Context, requestID uint64, getCredential types.PasskeyCredentialProvider, approvalToken string) (*types.ApprovalResult, error) {
+	if getCredential == nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "credential provider is required",
+		}, errors.New("credential provider is required")
+	}
+	challenge, err := c.ApprovalRequestChallenge(ctx, requestID, approvalToken)
+	if err != nil || challenge == nil || !challenge.Success {
+		return challenge, err
+	}
+	options := extractChallengeOptions(challenge.Data)
+	credential, errResult, credErr := getAndValidateCredential(getCredential, options)
+	if errResult != nil {
+		return errResult, credErr
+	}
+	payload, marshalErr := json.Marshal(struct {
+		Credential json.RawMessage `json:"credential"`
+	}{
+		Credential: json.RawMessage(credential),
+	})
+	if marshalErr != nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "failed to build request confirm payload",
+		}, marshalErr
+	}
+	return c.ApprovalRequestConfirm(ctx, requestID, payload, approvalToken)
+}
+
+// ApprovalActionWithCredential orchestrates the multi-step approval action flow:
+// ActionChallenge → credential provider → ApprovalAction.
+func (c *Client) ApprovalActionWithCredential(ctx context.Context, taskID uint64, action string, getCredential types.PasskeyCredentialProvider, approvalToken string) (*types.ApprovalResult, error) {
+	if getCredential == nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "credential provider is required",
+		}, errors.New("credential provider is required")
+	}
+	challenge, err := c.ApprovalActionChallenge(ctx, taskID, approvalToken)
+	if err != nil || challenge == nil || !challenge.Success {
+		return challenge, err
+	}
+	options := extractChallengeOptions(challenge.Data)
+	credential, errResult, credErr := getAndValidateCredential(getCredential, options)
+	if errResult != nil {
+		return errResult, credErr
+	}
+	payload, marshalErr := json.Marshal(struct {
+		Action     string          `json:"action"`
+		Credential json.RawMessage `json:"credential"`
+	}{
+		Action:     action,
+		Credential: json.RawMessage(credential),
+	})
+	if marshalErr != nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "failed to build action payload",
+		}, marshalErr
+	}
+	return c.ApprovalAction(ctx, taskID, payload, approvalToken)
 }

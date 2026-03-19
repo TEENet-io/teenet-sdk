@@ -19,8 +19,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
-	"strings"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/types"
 	"github.com/TEENet-io/teenet-sdk/go/internal/util"
@@ -105,11 +103,6 @@ func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string,
 	hash := sha256.Sum256(message)
 	messageHash := "0x" + hex.EncodeToString(hash[:])
 
-	if strings.TrimSpace(publicKeyName) == "" {
-		msg := "public key name is required"
-		return signFailure(types.ErrorCodeInvalidInput, msg, nil), errors.New(msg)
-	}
-
 	selectedKey, err := c.getBoundPublicKeyByName(ctx, publicKeyName)
 	if err != nil {
 		if errors.Is(err, ErrPublicKeyNameNotFound) {
@@ -125,7 +118,7 @@ func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string,
 		return signFailure(types.ErrorCodeInvalidInput, msg, nil), errors.New(msg)
 	}
 
-	log.Printf("Signing message (length: %d bytes, hash: %s), app_id: %s, with public key name '%s' (%d bytes)",
+	c.debugf("Signing message (length: %d bytes, hash: %s), app_id: %s, with public key name '%s' (%d bytes)",
 		len(message), truncateForLog(messageHash), appID, publicKeyName, len(pubKey))
 	c.debugf("sign.submit app_id=%s hash=%s pending_wait_ms=%d poll_base_ms=%d",
 		appID, messageHash, c.pendingWaitTimeout.Milliseconds(), defaultStatusPollInterval.Milliseconds())
@@ -144,7 +137,7 @@ func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string,
 
 	// Check if signing completed immediately (direct signing mode)
 	if resp.Status == "signed" && resp.Signature != "" {
-		log.Printf("Direct signing completed, signature: %s", truncateForLog(resp.Signature))
+		c.debugf("Direct signing completed, signature: %s", truncateForLog(resp.Signature))
 
 		// Decode signature
 		signature, err := util.DecodeHexSignature(resp.Signature)
@@ -167,15 +160,15 @@ func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string,
 
 	// Voting mode - wait for final result via status polling
 	if resp.Status == "pending" {
-		log.Printf("Voting mode: request accepted (%d/%d votes), waiting up to %s",
+		c.debugf("Voting mode: request accepted (%d/%d votes), waiting up to %s",
 			resp.CurrentVotes, resp.RequiredVotes, c.pendingWaitTimeout)
 		c.debugf("sign.pending hash=%s votes=%d/%d", messageHash, resp.CurrentVotes, resp.RequiredVotes)
-		return c.WaitForSignResult(ctx, messageHash, c.pendingWaitTimeout)
+		return c.waitForSignResult(ctx, messageHash, c.pendingWaitTimeout)
 	}
 
 	// Approval mode - request is created and waiting for human approval.
 	if resp.Status == "pending_approval" {
-		log.Printf("Approval mode: request initialized (tx_id=%s request_id=%d hash=%s)",
+		c.debugf("Approval mode: request initialized (tx_id=%s request_id=%d hash=%s)",
 			resp.TxID, resp.RequestID, truncateForLog(messageHash))
 		return &types.SignResult{
 			Success:   false,

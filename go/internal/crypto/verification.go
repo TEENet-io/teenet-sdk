@@ -276,10 +276,15 @@ func verifyP256Schnorr(message []byte, publicKey *ecdsa.PublicKey, signature []b
 		return false, fmt.Errorf("invalid Schnorr signature: r or s is >= curve order")
 	}
 
-	// Hash: e = H(r || P.x || message)
+	// Hash: e = H(r || P.x || message) — fixed 32-byte big-endian encoding
+	rBytes := make([]byte, 32)
+	r.FillBytes(rBytes)
+	pxBytes := make([]byte, 32)
+	publicKey.X.FillBytes(pxBytes)
+
 	hasher := sha256.New()
-	hasher.Write(r.Bytes())
-	hasher.Write(publicKey.X.Bytes())
+	hasher.Write(rBytes)
+	hasher.Write(pxBytes)
 	hasher.Write(message)
 	e := new(big.Int).SetBytes(hasher.Sum(nil))
 	e.Mod(e, curveOrder)
@@ -297,6 +302,8 @@ func verifyP256Schnorr(message []byte, publicKey *ecdsa.PublicKey, signature []b
 
 	// Add the points
 	Rx, _ := publicKey.Curve.Add(sGx, sGy, ePx, negEPy)
+	// Note: if sG - eP is the point at infinity, Rx will be 0.
+	// This is safe because we already validated r > 0 above, so Rx == 0 won't match.
 
 	// Verify that R.x == r
 	return Rx.Cmp(r) == 0, nil

@@ -348,6 +348,20 @@ func TestHTTPClient_ConnectionError(t *testing.T) {
 	}
 }
 
+func TestSubmitRequest_Non2xxNonJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("<html>502 Bad Gateway</html>"))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	_, err := client.SubmitRequest(context.Background(), "app", []byte("msg"), nil, "")
+	if err == nil {
+		t.Error("Expected error for non-JSON 502 response")
+	}
+}
+
 func TestHTTPClient_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

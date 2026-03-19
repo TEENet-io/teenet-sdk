@@ -32,14 +32,14 @@ func toAdminError(data map[string]interface{}, status int) string {
 	return fmt.Sprintf("admin request failed with status %d", status)
 }
 
-func (c *Client) requireAppID() error {
+func (c *Client) getAppID() (string, error) {
 	c.mu.RLock()
 	appID := c.defaultAppID
 	c.mu.RUnlock()
 	if appID == "" {
-		return fmt.Errorf("no App ID configured: call SetDefaultAppID first")
+		return "", fmt.Errorf("no App ID configured: call SetDefaultAppID first")
 	}
-	return nil
+	return appID, nil
 }
 
 // adminSimpleResult converts an admin HTTP response into an AdminResult.
@@ -50,7 +50,9 @@ func adminSimpleResult(resp *network.ApprovalBridgeResponse, err error) (*types.
 	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
 	result := &types.AdminResult{Success: ok}
 	if !ok {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
+		errMsg := toAdminError(resp.Data, resp.StatusCode)
+		result.Error = errMsg
+		return result, fmt.Errorf("%s", errMsg)
 	}
 	return result, nil
 }
@@ -80,12 +82,10 @@ func convertJSON[T any](src interface{}) (*T, error) {
 
 // InvitePasskeyUser invites a new passkey user via the admin bridge.
 func (c *Client) InvitePasskeyUser(ctx context.Context, req types.PasskeyInviteRequest) (*types.PasskeyInviteResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminInvitePasskeyUser(ctx, appID, req)
 	if err != nil {
 		return &types.PasskeyInviteResult{Success: false, Error: err.Error()}, err
@@ -96,20 +96,21 @@ func (c *Client) InvitePasskeyUser(ctx context.Context, req types.PasskeyInviteR
 	}
 	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
 	result.Success = ok
-	if !ok && result.Error == "" {
-		result.Error = toAdminError(resp.Data, resp.StatusCode)
+	if !ok {
+		if result.Error == "" {
+			result.Error = toAdminError(resp.Data, resp.StatusCode)
+		}
+		return result, fmt.Errorf("%s", result.Error)
 	}
 	return result, nil
 }
 
 // ListPasskeyUsers returns all registered passkey users via the admin bridge.
 func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*types.PasskeyUsersResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminListPasskeyUsers(ctx, appID, page, limit)
 	if err != nil {
 		return &types.PasskeyUsersResult{Success: false, Error: err.Error()}, err
@@ -128,24 +129,20 @@ func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*types.
 
 // DeletePasskeyUser deletes a passkey user by ID via the admin bridge.
 func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*types.AdminResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminDeletePasskeyUser(ctx, appID, userID)
 	return adminSimpleResult(resp, err)
 }
 
 // ListAuditRecords returns audit records for the application via the admin bridge.
 func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*types.AuditRecordsResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminListAuditRecords(ctx, appID, page, limit)
 	if err != nil {
 		return &types.AuditRecordsResult{Success: false, Error: err.Error()}, err
@@ -164,24 +161,20 @@ func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*types.
 
 // UpsertPermissionPolicy creates or replaces a permission policy for a key via the admin bridge.
 func (c *Client) UpsertPermissionPolicy(ctx context.Context, req types.PolicyRequest) (*types.AdminResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminUpsertPolicy(ctx, appID, req)
 	return adminSimpleResult(resp, err)
 }
 
 // GetPermissionPolicy retrieves the permission policy for a named key via the admin bridge.
 func (c *Client) GetPermissionPolicy(ctx context.Context, publicKeyName string) (*types.PolicyResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminGetPolicy(ctx, appID, publicKeyName)
 	if err != nil {
 		return &types.PolicyResult{Success: false, Error: err.Error()}, err
@@ -238,36 +231,30 @@ func (c *Client) PasskeyRegistrationVerify(ctx context.Context, inviteToken stri
 
 // DeletePermissionPolicy deletes the permission policy for a named key via the admin bridge.
 func (c *Client) DeletePermissionPolicy(ctx context.Context, publicKeyName string) (*types.AdminResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminDeletePolicy(ctx, appID, publicKeyName)
 	return adminSimpleResult(resp, err)
 }
 
 // DeletePublicKey deletes a public key by name via the admin bridge.
 func (c *Client) DeletePublicKey(ctx context.Context, keyName string) (*types.AdminResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminDeletePublicKey(ctx, appID, keyName)
 	return adminSimpleResult(resp, err)
 }
 
 // CreateAPIKey creates a new API key via the admin bridge.
 func (c *Client) CreateAPIKey(ctx context.Context, req types.CreateAPIKeyRequest) (*types.CreateAPIKeyResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, netErr := c.httpClient.AdminCreateAPIKey(ctx, appID, req)
 	if netErr != nil {
 		return &types.CreateAPIKeyResult{Success: false, Error: netErr.Error()}, netErr
@@ -286,12 +273,10 @@ func (c *Client) CreateAPIKey(ctx context.Context, req types.CreateAPIKeyRequest
 
 // DeleteAPIKey deletes an API key by name via the admin bridge.
 func (c *Client) DeleteAPIKey(ctx context.Context, keyName string) (*types.AdminResult, error) {
-	if err := c.requireAppID(); err != nil {
+	appID, err := c.getAppID()
+	if err != nil {
 		return nil, err
 	}
-	c.mu.RLock()
-	appID := c.defaultAppID
-	c.mu.RUnlock()
 	resp, err := c.httpClient.AdminDeleteAPIKey(ctx, appID, keyName)
 	return adminSimpleResult(resp, err)
 }

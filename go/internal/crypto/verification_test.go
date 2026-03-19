@@ -426,11 +426,16 @@ func TestVerifySecp256r1Schnorr(t *testing.T) {
 	// R = k*G
 	Rx := k.X
 
-	// e = H(R.x || P.x || message)
+	// e = H(R.x || P.x || message) — fixed 32-byte big-endian encoding
+	rBytes := make([]byte, 32)
+	Rx.FillBytes(rBytes)
+	pxBytes := make([]byte, 32)
+	privateKey.X.FillBytes(pxBytes)
+
 	curveOrder := elliptic.P256().Params().N
 	hasher := sha256.New()
-	hasher.Write(Rx.Bytes())
-	hasher.Write(privateKey.X.Bytes())
+	hasher.Write(rBytes)
+	hasher.Write(pxBytes)
 	hasher.Write(message)
 	e := new(big.Int).SetBytes(hasher.Sum(nil))
 	e.Mod(e, curveOrder)
@@ -441,11 +446,9 @@ func TestVerifySecp256r1Schnorr(t *testing.T) {
 	s.Mod(s, curveOrder)
 
 	// Create 64-byte signature: r(32) + s(32)
-	rBytes := Rx.Bytes()
-	sBytes := s.Bytes()
 	signature := make([]byte, 64)
-	copy(signature[32-len(rBytes):32], rBytes)
-	copy(signature[64-len(sBytes):64], sBytes)
+	Rx.FillBytes(signature[:32])
+	s.FillBytes(signature[32:])
 
 	// Serialize public key
 	pubKeyBytes := elliptic.Marshal(elliptic.P256(), privateKey.X, privateKey.Y)
@@ -457,6 +460,21 @@ func TestVerifySecp256r1Schnorr(t *testing.T) {
 	}
 	if !valid {
 		t.Error("Expected P-256 Schnorr signature to be valid")
+	}
+}
+
+// TestVerifyP256Schnorr_LeadingZeroR verifies that FillBytes is used for
+// fixed-width encoding. big.Int.Bytes() omits leading zeros, which would
+// produce a different challenge hash when r or P.x has high-order zero bytes.
+func TestVerifyP256Schnorr_LeadingZeroR(t *testing.T) {
+	buf := make([]byte, 32)
+	val := new(big.Int).SetInt64(1)
+	val.FillBytes(buf)
+	if len(buf) != 32 {
+		t.Fatalf("expected 32 bytes, got %d", len(buf))
+	}
+	if buf[0] != 0 || buf[31] != 1 {
+		t.Fatalf("unexpected padding: %x", buf)
 	}
 }
 
@@ -626,17 +644,17 @@ func BenchmarkVerifyED25519(b *testing.B) {
 func BenchmarkVerifySecp256k1ECDSA(b *testing.B) {
 	privateKey, _ := btcec.NewPrivateKey()
 	publicKey := privateKey.PubKey()
-	message := []byte("benchmark message")
+	rawMessage := []byte("benchmark message")
 
 	hasher := sha256.New()
-	hasher.Write(message)
+	hasher.Write(rawMessage)
 	messageHash := hasher.Sum(nil)
 
 	signature := btcecdsa.Sign(privateKey, messageHash)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		VerifySignature(message, publicKey.SerializeCompressed(), signature.Serialize(), ProtocolECDSA, CurveSECP256K1)
+		VerifySignature(messageHash, publicKey.SerializeCompressed(), signature.Serialize(), ProtocolECDSA, CurveSECP256K1)
 	}
 }
 

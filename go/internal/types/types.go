@@ -39,6 +39,10 @@ type ClientOptions struct {
 	// Debug enables verbose SDK logs for sign and polling trace.
 	// Default is false.
 	Debug bool
+
+	// KeyCacheTTL specifies how long public key lists are cached.
+	// Default is 60 seconds if not specified. Set to -1 to disable caching.
+	KeyCacheTTL time.Duration
 }
 
 const (
@@ -120,6 +124,11 @@ type VoteStatus struct {
 	Signature     []byte `json:"signature,omitempty"`
 	ErrorMessage  string `json:"error_message,omitempty"`
 }
+
+// PasskeyCredentialProvider returns credential JSON bytes for a WebAuthn options object.
+// The options parameter is the decoded JSON options map from the server challenge response.
+// The returned bytes must be valid JSON (the serialized PublicKeyCredential assertion).
+type PasskeyCredentialProvider func(options interface{}) ([]byte, error)
 
 // ApprovalResult is a generic response wrapper for passkey approval APIs.
 type ApprovalResult struct {
