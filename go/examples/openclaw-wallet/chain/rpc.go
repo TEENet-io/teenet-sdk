@@ -2,6 +2,7 @@ package chain
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -97,6 +98,37 @@ func getSOLBalance(address, rpcURL string) (*BalanceResult, error) {
 		Currency: "SOL",
 		Raw:      fmt.Sprintf("%d", lamports),
 	}, nil
+}
+
+// ETHCall performs a read-only eth_call against a contract.
+// Returns the raw ABI-encoded return data.
+// This does NOT create a transaction or cost gas.
+func ETHCall(rpcURL, fromAddr, toAddr string, calldata []byte) ([]byte, error) {
+	if rpcURL == "" {
+		return nil, fmt.Errorf("RPC URL is not configured")
+	}
+	calldataHex := "0x" + hex.EncodeToString(calldata)
+	callObj := map[string]interface{}{
+		"to":   toAddr,
+		"data": calldataHex,
+	}
+	if fromAddr != "" {
+		callObj["from"] = fromAddr
+	}
+	result, err := jsonRPC(rpcURL, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "eth_call",
+		"params":  []interface{}{callObj, "latest"},
+		"id":      1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("eth_call: %w", err)
+	}
+	resultHex, ok := result["result"].(string)
+	if !ok {
+		return nil, fmt.Errorf("unexpected eth_call response: %v", result["result"])
+	}
+	return hex.DecodeString(strings.TrimPrefix(resultHex, "0x"))
 }
 
 func jsonRPC(url string, payload interface{}) (map[string]interface{}, error) {
