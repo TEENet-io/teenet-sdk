@@ -684,6 +684,7 @@ function renderWalletCard(w) {
       </div>
       <div class="sub-tabs">
         ${(isEVM || isSolana) ? `<button class="sub-tab ${sub==='transfer'?'active':''}" onclick="showSubTab(${w.id},'transfer')">Transfer</button>` : ''}
+        ${isEVM ? `<button class="sub-tab ${sub==='contract'?'active':''}" onclick="showSubTab(${w.id},'contract')">Contract</button>` : ''}
         ${isEVM ? `<button class="sub-tab ${sub==='contracts'?'active':''}" onclick="showSubTab(${w.id},'contracts')">Contracts</button>` : ''}
         <button class="sub-tab ${sub==='policy'?'active':''}" onclick="showSubTab(${w.id},'policy')">Policy</button>
         <button class="btn btn-danger btn-sm btn-icon" style="margin-left:auto" onclick="event.stopPropagation();deleteWallet(${w.id})" title="Delete wallet">🗑</button>
@@ -691,6 +692,9 @@ function renderWalletCard(w) {
       <div class="sub-panel ${sub==='transfer'?'active':''}" id="sp-transfer-${w.id}">
         ${renderTransferPanel(w)}
       </div>
+      ${isEVM ? `<div class="sub-panel ${sub==='contract'?'active':''}" id="sp-contract-${w.id}">
+        ${renderContractPanel(w)}
+      </div>` : ''}
       ${isEVM ? `<div class="sub-panel ${sub==='contracts'?'active':''}" id="sp-contracts-${w.id}">
         <div id="contracts-content-${w.id}">Loading…</div>
       </div>` : ''}
@@ -802,6 +806,206 @@ function restoreSubTabs(walletId) {
   });
   const panel = document.getElementById(`sp-${sub}-${walletId}`);
   if (panel) panel.classList.add('active');
+}
+
+// ─── Contract Panel ───────────────────────────────────────────────────────────
+
+function renderContractPanel(w) {
+  const id = w.id;
+  return `
+    <div style="margin-bottom:0.75rem">
+      <div class="segment" id="cc-seg-${id}">
+        <button class="seg-btn active" onclick="setContractMode(${id},'call')">Call</button>
+        <button class="seg-btn" onclick="setContractMode(${id},'approve')">Approve</button>
+        <button class="seg-btn" onclick="setContractMode(${id},'read')">Read</button>
+      </div>
+    </div>
+    <div id="cc-mode-call-${id}">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Contract Address</label>
+          <input id="cc-contract-${id}" placeholder="0x\u2026" />
+        </div>
+        <div class="form-group">
+          <label>Function Signature</label>
+          <input id="cc-funcsig-${id}" placeholder="transfer(address,uint256)" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Args (JSON array)</label>
+        <textarea id="cc-args-${id}" rows="2" placeholder='["0x\u2026", "1000"]' style="resize:vertical;font-family:monospace;font-size:0.8rem"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Value in ETH <span style="color:#475569;font-weight:400">(optional)</span></label>
+          <input id="cc-value-${id}" placeholder="0.0" />
+        </div>
+        <div class="form-group">
+          <label>Memo <span style="color:#475569;font-weight:400">(optional)</span></label>
+          <input id="cc-memo-${id}" placeholder="Payment for\u2026" />
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="cc-btn-${id}" onclick="doContractCall(${id})">Submit Call</button>
+      <div id="cc-result-${id}" style="margin-top:0.75rem;"></div>
+    </div>
+    <div id="cc-mode-approve-${id}" style="display:none">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Token Contract Address</label>
+          <input id="at-contract-${id}" placeholder="0x\u2026" />
+        </div>
+        <div class="form-group">
+          <label>Spender Address</label>
+          <input id="at-spender-${id}" placeholder="0x\u2026" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Amount</label>
+        <input id="at-amount-${id}" placeholder="1000000000000000000" />
+      </div>
+      <button class="btn btn-primary btn-sm" id="at-btn-${id}" onclick="doApproveToken(${id})">Approve</button>
+      <div id="at-result-${id}" style="margin-top:0.75rem;"></div>
+    </div>
+    <div id="cc-mode-read-${id}" style="display:none">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Contract Address</label>
+          <input id="cr-contract-${id}" placeholder="0x\u2026" />
+        </div>
+        <div class="form-group">
+          <label>Function Signature</label>
+          <input id="cr-funcsig-${id}" placeholder="balanceOf(address)" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Args (JSON array)</label>
+        <textarea id="cr-args-${id}" rows="2" placeholder='["0x\u2026"]' style="resize:vertical;font-family:monospace;font-size:0.8rem"></textarea>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="cr-btn-${id}" onclick="doCallRead(${id})">Read</button>
+      <div id="cr-result-${id}" style="margin-top:0.75rem;"></div>
+      <textarea id="cr-output-${id}" rows="3" readonly placeholder="Result will appear here\u2026" style="margin-top:0.5rem;resize:vertical;font-family:monospace;font-size:0.78rem;color:#94a3b8;display:none"></textarea>
+    </div>
+  `;
+}
+
+function setContractMode(walletId, mode) {
+  ['call', 'approve', 'read'].forEach(m => {
+    const el = document.getElementById('cc-mode-' + m + '-' + walletId);
+    if (el) el.style.display = m === mode ? '' : 'none';
+  });
+  const seg = document.getElementById('cc-seg-' + walletId);
+  if (seg) {
+    const modes = ['call', 'approve', 'read'];
+    seg.querySelectorAll('.seg-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', modes[i] === mode);
+    });
+  }
+}
+
+async function doContractCall(walletId) {
+  const contract  = document.getElementById('cc-contract-' + walletId).value.trim();
+  const func_sig  = document.getElementById('cc-funcsig-' + walletId).value.trim();
+  const argsStr   = document.getElementById('cc-args-' + walletId).value.trim() || '[]';
+  const value     = document.getElementById('cc-value-' + walletId).value.trim();
+  const memo      = document.getElementById('cc-memo-' + walletId).value.trim();
+  const resultEl  = document.getElementById('cc-result-' + walletId);
+  const btn       = document.getElementById('cc-btn-' + walletId);
+
+  if (!contract || !func_sig) { toast('Contract address and function signature are required', 'error'); return; }
+  let args;
+  try { args = JSON.parse(argsStr); } catch (e) { toast('Args must be a valid JSON array', 'error'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Submitting\u2026';
+  resultEl.textContent = '';
+
+  const body = { contract, func_sig, args };
+  if (value) body.value = value;
+  if (memo)  body.memo  = memo;
+
+  const res = await api('/api/wallets/' + walletId + '/contract-call', { method: 'POST', body: JSON.stringify(body) });
+
+  btn.disabled = false;
+  btn.textContent = 'Submit Call';
+
+  if (res.status === 'completed') {
+    resultEl.innerHTML = '<div class="tx-result success">\u2705 <strong>Transaction sent</strong><br><span class="tx-hash">tx: ' + res.tx_hash + '</span></div>';
+    toast('Contract call broadcast!', 'success');
+  } else if (res.status === 'pending_approval') {
+    const link = res.approval_url ? '<a href="' + res.approval_url + '" class="approval-url" target="_blank">Open approval link \u2197</a>' : 'Awaiting passkey approval\u2026';
+    resultEl.innerHTML = '<div class="tx-result pending">\uD83D\uDD10 <strong>Approval required</strong><br>' + link + '</div>';
+    toast('Contract call pending approval', 'info', 8000);
+  } else {
+    resultEl.textContent = res.error || JSON.stringify(res);
+    resultEl.className = 'tx-result error';
+  }
+}
+
+async function doApproveToken(walletId) {
+  const contract  = document.getElementById('at-contract-' + walletId).value.trim();
+  const spender   = document.getElementById('at-spender-' + walletId).value.trim();
+  const amount    = document.getElementById('at-amount-' + walletId).value.trim();
+  const resultEl  = document.getElementById('at-result-' + walletId);
+  const btn       = document.getElementById('at-btn-' + walletId);
+
+  if (!contract || !spender || !amount) { toast('Contract, spender, and amount are required', 'error'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Approving\u2026';
+  resultEl.textContent = '';
+
+  const res = await api('/api/wallets/' + walletId + '/approve-token', {
+    method: 'POST', body: JSON.stringify({ contract, spender, amount }),
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Approve';
+
+  if (res.status === 'completed') {
+    resultEl.innerHTML = '<div class="tx-result success">\u2705 <strong>Approval sent</strong><br><span class="tx-hash">tx: ' + res.tx_hash + '</span></div>';
+    toast('Token approval broadcast!', 'success');
+  } else if (res.status === 'pending_approval') {
+    const link = res.approval_url ? '<a href="' + res.approval_url + '" class="approval-url" target="_blank">Open approval link \u2197</a>' : 'Awaiting passkey approval\u2026';
+    resultEl.innerHTML = '<div class="tx-result pending">\uD83D\uDD10 <strong>Approval required</strong><br>' + link + '</div>';
+    toast('Token approve pending approval', 'info', 8000);
+  } else {
+    resultEl.textContent = res.error || JSON.stringify(res);
+    resultEl.className = 'tx-result error';
+  }
+}
+
+async function doCallRead(walletId) {
+  const contract  = document.getElementById('cr-contract-' + walletId).value.trim();
+  const func_sig  = document.getElementById('cr-funcsig-' + walletId).value.trim();
+  const argsStr   = document.getElementById('cr-args-' + walletId).value.trim() || '[]';
+  const resultEl  = document.getElementById('cr-result-' + walletId);
+  const outputEl  = document.getElementById('cr-output-' + walletId);
+  const btn       = document.getElementById('cr-btn-' + walletId);
+
+  if (!contract || !func_sig) { toast('Contract address and function signature are required', 'error'); return; }
+  let args;
+  try { args = JSON.parse(argsStr); } catch (e) { toast('Args must be a valid JSON array', 'error'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Reading\u2026';
+  resultEl.textContent = '';
+  outputEl.style.display = 'none';
+
+  const res = await api('/api/wallets/' + walletId + '/call-read', {
+    method: 'POST', body: JSON.stringify({ contract, func_sig, args }),
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Read';
+
+  if (res.success || res.result !== undefined) {
+    outputEl.style.display = '';
+    outputEl.value = res.result || res.data || '';
+    resultEl.innerHTML = '<div class="tx-result success" style="margin-bottom:0">\u2705 Read successful</div>';
+  } else {
+    resultEl.textContent = res.error || JSON.stringify(res);
+    resultEl.className = 'tx-result error';
+  }
 }
 
 // ─── Balance ──────────────────────────────────────────────────────────────────
@@ -943,21 +1147,26 @@ async function loadContracts(walletId) {
   walletContracts[walletId] = contracts;
 
   el.innerHTML = contracts.length
-    ? contracts.map(c => `
+    ? contracts.map(c => {
+        const methods = Array.isArray(c.allowed_methods) ? c.allowed_methods : (c.allowed_methods ? c.allowed_methods.split(',') : []);
+        return `
         <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 0.75rem;margin-bottom:0.4rem;background:#0a0a18;border:1px solid #1e1e35;border-radius:8px;">
           <div style="flex:1;min-width:0;">
             <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
               ${c.symbol ? `<span class="badge badge-blue">${c.symbol}</span>` : ''}
               ${c.label ? `<span style="font-size:0.75rem;color:#94a3b8">${c.label}</span>` : ''}
               ${c.decimals ? `<span style="font-size:0.7rem;color:#475569">dec: ${c.decimals}</span>` : ''}
+              ${c.auto_approve ? `<span class="badge badge-green" style="font-size:0.65rem">auto-approve</span>` : ''}
             </div>
             <div style="font-size:0.72rem;color:#64748b;margin-top:0.2rem;word-break:break-all;">
               ${c.contract_address}
               <button class="copy-btn" onclick="copyText('${c.contract_address}')" title="Copy">copy</button>
             </div>
+            ${methods.length ? `<div style="font-size:0.7rem;color:#475569;margin-top:0.2rem;">methods: ${methods.map(m => `<code style="background:#1e1e35;padding:0.05rem 0.3rem;border-radius:3px">${m}</code>`).join(' ')}</div>` : ''}
           </div>
-          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteContract(${walletId},${c.id})" title="Remove from whitelist" style="flex-shrink:0">✕</button>
-        </div>`).join('')
+          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteContract(${walletId},${c.id})" title="Remove from whitelist" style="flex-shrink:0">\u2715</button>
+        </div>`;
+      }).join('')
     : `<div class="empty-state" style="padding:1rem">No whitelisted contracts yet.</div>`;
 
   el.innerHTML += addContractForm(walletId);
@@ -965,11 +1174,11 @@ async function loadContracts(walletId) {
 
 function addContractForm(walletId) {
   return `<div class="add-contract-form">
-    <div class="card-title">＋ Whitelist Contract <span style="font-size:0.7rem;color:#64748b;font-weight:400">(requires Passkey)</span></div>
+    <div class="card-title">\uFF0B Whitelist Contract <span style="font-size:0.7rem;color:#64748b;font-weight:400">(requires Passkey)</span></div>
     <div class="form-row">
       <div class="form-group">
         <label>Contract Address</label>
-        <input id="cadd-addr-${walletId}" placeholder="0x…" />
+        <input id="cadd-addr-${walletId}" placeholder="0x\u2026" />
       </div>
       <div class="form-group">
         <label>Symbol</label>
@@ -986,24 +1195,42 @@ function addContractForm(walletId) {
         <input id="cadd-lbl-${walletId}" placeholder="Circle USD Coin" />
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Allowed Methods <span style="color:#475569;font-weight:400">(optional)</span></label>
+        <input id="cadd-methods-${walletId}" placeholder="transfer,approve,swap" />
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:0.75rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;text-transform:none;letter-spacing:0;font-size:0.82rem;cursor:pointer">
+          <input id="cadd-autoapprove-${walletId}" type="checkbox" style="width:auto;padding:0;margin:0" />
+          Auto Approve
+        </label>
+      </div>
+    </div>
     <button class="btn btn-primary btn-sm" onclick="addContract(${walletId})">Add to Whitelist</button>
   </div>`;
 }
 
 async function addContract(walletId) {
-  const addr = document.getElementById(`cadd-addr-${walletId}`).value.trim();
-  const sym = document.getElementById(`cadd-sym-${walletId}`).value.trim().toUpperCase();
-  const dec = parseInt(document.getElementById(`cadd-dec-${walletId}`).value) || 18;
-  const lbl = document.getElementById(`cadd-lbl-${walletId}`).value.trim();
+  const addr        = document.getElementById(`cadd-addr-${walletId}`).value.trim();
+  const sym         = document.getElementById(`cadd-sym-${walletId}`).value.trim().toUpperCase();
+  const dec         = parseInt(document.getElementById(`cadd-dec-${walletId}`).value) || 18;
+  const lbl         = document.getElementById(`cadd-lbl-${walletId}`).value.trim();
+  const methodsRaw  = document.getElementById(`cadd-methods-${walletId}`)?.value.trim() || '';
+  const autoApprove = document.getElementById(`cadd-autoapprove-${walletId}`)?.checked || false;
 
   if (!addr) { toast('Contract address required', 'error'); return; }
 
   const passkeyBody = await getFreshPasskeyCredential();
   if (!passkeyBody) return;
 
+  const payload = { ...passkeyBody, contract_address: addr, symbol: sym, decimals: dec, label: lbl };
+  if (methodsRaw) payload.allowed_methods = methodsRaw.split(',').map(s => s.trim()).filter(Boolean);
+  if (autoApprove) payload.auto_approve = true;
+
   const res = await api(`/api/wallets/${walletId}/contracts`, {
     method: 'POST',
-    body: JSON.stringify({ ...passkeyBody, contract_address: addr, symbol: sym, decimals: dec, label: lbl }),
+    body: JSON.stringify(payload),
   });
 
   if (res.success) {
@@ -1013,6 +1240,8 @@ async function addContract(walletId) {
     document.getElementById(`cadd-addr-${walletId}`).value = '';
     document.getElementById(`cadd-sym-${walletId}`).value = '';
     document.getElementById(`cadd-lbl-${walletId}`).value = '';
+    document.getElementById(`cadd-methods-${walletId}`).value = '';
+    if (document.getElementById(`cadd-autoapprove-${walletId}`)) document.getElementById(`cadd-autoapprove-${walletId}`).checked = false;
   } else {
     toast(res.error || 'Add failed', 'error');
   }
@@ -1228,6 +1457,83 @@ async function loadApprovals() {
         <div class="btn-group">
           <button id="btn-approve-${a.id}" class="btn btn-primary btn-sm" onclick="approve(${a.id})">✓ Add to Whitelist</button>
           <button id="btn-reject-${a.id}" class="btn btn-danger btn-sm" onclick="reject(${a.id})">✗ Reject</button>
+        </div>
+        <div id="approval-result-${a.id}" style="margin-top:0.5rem"></div>
+      </div>`;
+    }
+
+    // ── Contract Call card ──
+    if (a.approval_type === 'contract_call') {
+      let ctx = {};
+      try { ctx = JSON.parse(a.tx_context); } catch (e) {}
+      const isApproveToken  = ctx.type === 'approve_token';
+      const isRevokeApproval = ctx.type === 'revoke_approval';
+      if (isApproveToken) {
+        return `<div class="approval-card" style="border-color:#4c1d95">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
+            <div>
+              <span style="font-weight:600;font-size:0.9rem">Approval #${a.id}</span>
+              <span class="badge badge-purple" style="margin-left:0.5rem">\uD83D\uDD13 Token Approve</span>
+            </div>
+            <span class="badge badge-yellow">pending</span>
+          </div>
+          <div class="tx-grid" style="margin:0.75rem 0">
+            ${ctx.contract ? `<span class="tx-k">Contract</span><span class="tx-v" style="word-break:break-all">${ctx.contract}</span>` : ''}
+            ${ctx.spender  ? `<span class="tx-k">Spender</span><span class="tx-v" style="word-break:break-all">${ctx.spender}</span>` : ''}
+            ${ctx.amount   ? `<span class="tx-k">Amount</span><span class="tx-v">${ctx.amount}${ctx.symbol ? ' ' + ctx.symbol : ''}</span>` : ''}
+            ${ctx.symbol   ? `<span class="tx-k">Symbol</span><span class="tx-v">${ctx.symbol}</span>` : ''}
+            <span class="tx-k">Expires</span><span class="tx-v">${new Date(a.expires_at).toLocaleTimeString()}</span>
+          </div>
+          <div class="btn-group">
+            <button id="btn-approve-${a.id}" class="btn btn-primary btn-sm" onclick="approve(${a.id})">\u2713 Approve</button>
+            <button id="btn-reject-${a.id}" class="btn btn-danger btn-sm" onclick="reject(${a.id})">\u2717 Reject</button>
+          </div>
+          <div id="approval-result-${a.id}" style="margin-top:0.5rem"></div>
+        </div>`;
+      }
+      if (isRevokeApproval) {
+        return `<div class="approval-card" style="border-color:#4c1d95">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
+            <div>
+              <span style="font-weight:600;font-size:0.9rem">Approval #${a.id}</span>
+              <span class="badge badge-purple" style="margin-left:0.5rem">\uD83D\uDD12 Revoke Approval</span>
+            </div>
+            <span class="badge badge-yellow">pending</span>
+          </div>
+          <div class="tx-grid" style="margin:0.75rem 0">
+            ${ctx.contract ? `<span class="tx-k">Contract</span><span class="tx-v" style="word-break:break-all">${ctx.contract}</span>` : ''}
+            ${ctx.spender  ? `<span class="tx-k">Spender</span><span class="tx-v" style="word-break:break-all">${ctx.spender}</span>` : ''}
+            ${ctx.symbol   ? `<span class="tx-k">Symbol</span><span class="tx-v">${ctx.symbol}</span>` : ''}
+            <span class="tx-k">Expires</span><span class="tx-v">${new Date(a.expires_at).toLocaleTimeString()}</span>
+          </div>
+          <div class="btn-group">
+            <button id="btn-approve-${a.id}" class="btn btn-primary btn-sm" onclick="approve(${a.id})">\u2713 Approve</button>
+            <button id="btn-reject-${a.id}" class="btn btn-danger btn-sm" onclick="reject(${a.id})">\u2717 Reject</button>
+          </div>
+          <div id="approval-result-${a.id}" style="margin-top:0.5rem"></div>
+        </div>`;
+      }
+      // Generic contract call
+      return `<div class="approval-card" style="border-color:#4c1d95">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
+          <div>
+            <span style="font-weight:600;font-size:0.9rem">Approval #${a.id}</span>
+            <span class="badge badge-purple" style="margin-left:0.5rem">\uD83D\uDCDD Contract Call</span>
+          </div>
+          <span class="badge badge-yellow">pending</span>
+        </div>
+        <div class="tx-grid" style="margin:0.75rem 0">
+          ${ctx.method   ? `<span class="tx-k">Method</span><span class="tx-v">${ctx.method}</span>` : ''}
+          ${ctx.contract ? `<span class="tx-k">Contract</span><span class="tx-v" style="word-break:break-all">${ctx.contract}</span>` : ''}
+          ${ctx.func_sig ? `<span class="tx-k">Function</span><span class="tx-v">${ctx.func_sig}</span>` : ''}
+          ${ctx.value_eth ? `<span class="tx-k">Value</span><span class="tx-v">${ctx.value_eth} ETH</span>` : ''}
+          ${a.memo       ? `<span class="tx-k">Memo</span><span class="tx-v">${a.memo}</span>` : ''}
+          ${ctx.approval_reason ? `<span class="tx-k">Reason</span><span class="tx-v">${ctx.approval_reason}</span>` : ''}
+          <span class="tx-k">Expires</span><span class="tx-v">${new Date(a.expires_at).toLocaleTimeString()}</span>
+        </div>
+        <div class="btn-group">
+          <button id="btn-approve-${a.id}" class="btn btn-primary btn-sm" onclick="approve(${a.id})">\u2713 Approve</button>
+          <button id="btn-reject-${a.id}" class="btn btn-danger btn-sm" onclick="reject(${a.id})">\u2717 Reject</button>
         </div>
         <div id="approval-result-${a.id}" style="margin-top:0.5rem"></div>
       </div>`;
