@@ -40,6 +40,8 @@ func (h *ContractHandler) AddContract(c *gin.Context) {
 		Label           string      `json:"label"`
 		Symbol          string      `json:"symbol"`
 		Decimals        int         `json:"decimals"`
+		AllowedMethods  string      `json:"allowed_methods"`
+		AutoApprove     bool        `json:"auto_approve"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -63,6 +65,8 @@ func (h *ContractHandler) AddContract(c *gin.Context) {
 		Label:           req.Label,
 		Symbol:          strings.ToUpper(strings.TrimSpace(req.Symbol)),
 		Decimals:        req.Decimals,
+		AllowedMethods:  strings.ToLower(strings.TrimSpace(req.AllowedMethods)),
+		AutoApprove:     req.AutoApprove,
 	}
 
 	// API key path: create approval request.
