@@ -14,9 +14,49 @@ import (
 	"openclaw-wallet/model"
 )
 
+// mockETHRPCServer returns a test HTTP server that responds to ETH JSON-RPC calls
+// with plausible but fake values. This lets contract-call tests exercise the full
+// handler flow (including BuildETHContractCallTx) without hitting a live node.
+func mockETHRPCServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		method, _ := req["method"].(string)
+		var result interface{}
+		switch method {
+		case "eth_getTransactionCount":
+			result = "0x1" // nonce = 1
+		case "eth_gasPrice":
+			result = "0x3B9ACA00" // 1 Gwei
+		case "eth_chainId":
+			result = "0x1" // mainnet
+		case "eth_estimateGas":
+			result = "0xEA60" // 60000 gas
+		default:
+			result = nil
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": result})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // contractCallRouter wires a minimal gin router for ContractCall tests.
-func contractCallRouter(db *gorm.DB, userID uint, authMode string) *gin.Engine {
+// rpcURL overrides the "ethereum" chain's RPC endpoint for the duration of the test.
+func contractCallRouter(db *gorm.DB, userID uint, authMode string, rpcURL string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
+	if rpcURL != "" {
+		// Patch the in-memory chain registry so the handler uses our mock RPC.
+		if cfg, ok := model.Chains["ethereum"]; ok {
+			cfg.RPCURL = rpcURL
+			model.Chains["ethereum"] = cfg
+		}
+	}
 	r := gin.New()
 	h := handler.NewContractCallHandler(db, nil, "http://localhost")
 	injectUser := func(c *gin.Context) {
@@ -54,7 +94,7 @@ func TestContractCall_NotWhitelisted(t *testing.T) {
 	user, wallet := seedWallet(t, db)
 	// No AllowedContract record created — contract is NOT whitelisted.
 
-	r := contractCallRouter(db, user.ID, "passkey")
+	r := contractCallRouter(db, user.ID, "passkey", "")
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		"func_sig": "transfer(address,uint256)",
@@ -77,7 +117,7 @@ func TestContractCall_MethodNotAllowed(t *testing.T) {
 	// Contract is whitelisted but only allows "transfer".
 	user, wallet, _ := seedWalletWithContract(t, db, "transfer", true)
 
-	r := contractCallRouter(db, user.ID, "passkey")
+	r := contractCallRouter(db, user.ID, "passkey", "")
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 		"func_sig": "approve(address,uint256)",
@@ -105,7 +145,10 @@ func TestContractCall_HighRiskForceApproval_APIKey(t *testing.T) {
 	// AutoApprove=true but method is high-risk → must still require approval via API Key.
 	user, wallet, _ := seedWalletWithContract(t, db, "", true /* autoApprove */)
 
-	r := contractCallRouter(db, user.ID, "apikey") // API key auth
+	// Start a mock RPC so BuildETHContractCallTx can complete.
+	rpc := mockETHRPCServer(t)
+
+	r := contractCallRouter(db, user.ID, "apikey", rpc.URL) // API key auth
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 		"func_sig": "approve(address,uint256)",
@@ -128,11 +171,28 @@ func TestContractCall_HighRiskForceApproval_APIKey(t *testing.T) {
 		t.Error("expected approval_id in response")
 	}
 
-	// Verify an ApprovalRequest was created in the DB.
+	// Verify an ApprovalRequest was created in the DB with ETHTxParams-compatible TxParams.
 	var count int64
 	db.Model(&model.ApprovalRequest{}).Where("wallet_id = ? AND approval_type = ?", wallet.ID, "contract_call").Count(&count)
 	if count != 1 {
 		t.Errorf("expected 1 approval request in DB, got %d", count)
+	}
+
+	// Verify TxParams stores ETHTxParams (has "to" field, not "contract" field).
+	var ar model.ApprovalRequest
+	db.Where("wallet_id = ? AND approval_type = ?", wallet.ID, "contract_call").First(&ar)
+	var ethParams map[string]interface{}
+	if err := json.Unmarshal([]byte(ar.TxParams), &ethParams); err != nil {
+		t.Fatalf("TxParams is not valid JSON: %v", err)
+	}
+	if ethParams["to"] == nil {
+		t.Error("TxParams missing 'to' field — not ETHTxParams format")
+	}
+	if ethParams["contract"] != nil {
+		t.Error("TxParams has 'contract' field — still using old custom format")
+	}
+	if ar.Message == "" {
+		t.Error("approval Message should be the signing hash hex (non-empty)")
 	}
 }
 
@@ -143,7 +203,9 @@ func TestContractCall_AutoApproveFalse_APIKey(t *testing.T) {
 	// Non-high-risk method but AutoApprove=false → API Key should get 202.
 	user, wallet, _ := seedWalletWithContract(t, db, "", false /* autoApprove */)
 
-	r := contractCallRouter(db, user.ID, "apikey")
+	rpc := mockETHRPCServer(t)
+
+	r := contractCallRouter(db, user.ID, "apikey", rpc.URL)
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 		"func_sig": "transfer(address,uint256)",
@@ -180,7 +242,7 @@ func TestContractCall_SolanaNotSupported(t *testing.T) {
 	}
 	db.Create(&wallet)
 
-	r := contractCallRouter(db, user.ID, "passkey")
+	r := contractCallRouter(db, user.ID, "passkey", "")
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 		"func_sig": "transfer(address,uint256)",
@@ -210,7 +272,7 @@ func TestContractCall_WalletNotReady(t *testing.T) {
 	}
 	db.Create(&wallet)
 
-	r := contractCallRouter(db, user.ID, "passkey")
+	r := contractCallRouter(db, user.ID, "passkey", "")
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 		"func_sig": "transfer(address,uint256)",
@@ -233,7 +295,7 @@ func TestContractCall_InvalidFuncSig(t *testing.T) {
 	// Whitelist the contract first so we pass layer 1.
 	user, wallet, _ := seedWalletWithContract(t, db, "", true)
 
-	r := contractCallRouter(db, user.ID, "passkey")
+	r := contractCallRouter(db, user.ID, "passkey", "")
 	body := jsonBody(map[string]interface{}{
 		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 		"func_sig": "notavalidsignature", // missing parentheses

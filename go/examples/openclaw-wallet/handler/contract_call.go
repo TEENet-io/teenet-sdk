@@ -131,7 +131,24 @@ func (h *ContractCallHandler) ContractCall(c *gin.Context) {
 		}
 	}
 
-	// Layer 3: Security decision (before RPC call to avoid unnecessary network round-trips).
+	// Build tx (hits RPC) before the approval check — both paths need ETHTxParams for correctness.
+	// The approval path stores ETHTxParams so RebuildETHTx can refresh nonce/gas on approve,
+	// consistent with how /transfer works.
+	txData, buildErr := chain.BuildETHContractCallTx(chainCfg.RPCURL, wallet.Address, contractAddr, calldata, valueWei)
+	if buildErr != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "build contract tx: " + buildErr.Error()})
+		return
+	}
+
+	txParamsJSON, marshalErr := json.Marshal(txData.Params)
+	if marshalErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "marshal tx params failed"})
+		return
+	}
+
+	signingMsg := txData.SigningHash
+
+	// Layer 3: Security decision.
 	// Passkey auth: human is already present — proceed directly.
 	// API Key auth: check high-risk methods and AutoApprove flag.
 	needsApproval := false
@@ -174,33 +191,18 @@ func (h *ContractCallHandler) ContractCall(c *gin.Context) {
 	}
 
 	if needsApproval {
-		// For approval: store calldata hex and context; the approve endpoint will rebuild
-		// the tx with fresh on-chain state (nonce) before signing, similar to /transfer.
-		calldataHex := hex.EncodeToString(calldata)
+		// Store ETHTxParams so the approve handler can call RebuildETHTx with fresh nonce/gas.
+		// Store the signing hash hex as Message, consistent with how /transfer does it.
 		txContextJSON, _ := json.Marshal(txContext)
-
-		// Store enough information in TxParams to allow the approve handler to reconstruct the tx.
-		txParamsPreview, _ := json.Marshal(map[string]interface{}{
-			"from":          wallet.Address,
-			"contract":      contractAddr,
-			"calldata_hex":  calldataHex,
-			"value_wei":     func() string {
-				if valueWei != nil {
-					return valueWei.String()
-				}
-				return "0"
-			}(),
-			"rpc_url": chainCfg.RPCURL,
-		})
 
 		userID := mustUserID(c)
 		approval := model.ApprovalRequest{
 			WalletID:     wallet.ID,
 			UserID:       userID,
 			ApprovalType: "contract_call",
-			Message:      calldataHex, // stored for reference; tx hash computed fresh on approve
+			Message:      hex.EncodeToString(signingMsg),
 			TxContext:    string(txContextJSON),
-			TxParams:     string(txParamsPreview),
+			TxParams:     string(txParamsJSON),
 			Status:       "pending",
 			CreatedAt:    time.Now(),
 			ExpiresAt:    time.Now().Add(30 * time.Minute),
@@ -222,21 +224,6 @@ func (h *ContractCallHandler) ContractCall(c *gin.Context) {
 		})
 		return
 	}
-
-	// Direct path: build tx (hits RPC), sign via TEE, and broadcast.
-	txData, buildErr := chain.BuildETHContractCallTx(chainCfg.RPCURL, wallet.Address, contractAddr, calldata, valueWei)
-	if buildErr != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "build contract tx: " + buildErr.Error()})
-		return
-	}
-
-	txParamsJSON, marshalErr := json.Marshal(txData.Params)
-	if marshalErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "marshal tx params failed"})
-		return
-	}
-
-	signingMsg := txData.SigningHash
 
 	result, signErr := h.sdk.Sign(c.Request.Context(), signingMsg, wallet.KeyName)
 	if signErr != nil || !result.Success {
