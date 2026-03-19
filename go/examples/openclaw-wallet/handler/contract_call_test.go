@@ -66,6 +66,8 @@ func contractCallRouter(db *gorm.DB, userID uint, authMode string, rpcURL string
 	}
 	r.Use(injectUser)
 	r.POST("/wallets/:id/contract-call", h.ContractCall)
+	r.POST("/wallets/:id/approve-token", h.ApproveToken)
+	r.POST("/wallets/:id/revoke-approval", h.RevokeApproval)
 	return r
 }
 
@@ -343,6 +345,150 @@ func TestContractCall_WalletNotReady(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for non-ready wallet, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── TestApproveToken_NotWhitelisted ──────────────────────────────────────────
+
+func TestApproveToken_NotWhitelisted(t *testing.T) {
+	db := testDB(t)
+	user, wallet := seedWallet(t, db)
+	// No AllowedContract record created — contract is NOT whitelisted.
+
+	r := contractCallRouter(db, user.ID, "passkey", "")
+	body := jsonBody(map[string]interface{}{
+		"contract": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+		"spender":  "0x1234567890123456789012345678901234567890",
+		"amount":   "100",
+	})
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/approve-token", wallet.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-whitelisted contract, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── TestApproveToken_APIKey_PendingApproval ───────────────────────────────────
+
+func TestApproveToken_APIKey_PendingApproval(t *testing.T) {
+	db := testDB(t)
+	// AutoApprove=true but approve is always high-risk → must still require approval via API Key.
+	user, wallet, _ := seedWalletWithContract(t, db, "", true /* autoApprove */)
+
+	rpc := mockETHRPCServer(t)
+
+	r := contractCallRouter(db, user.ID, "apikey", rpc.URL)
+	body := jsonBody(map[string]interface{}{
+		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+		"spender":  "0x1234567890123456789012345678901234567890",
+		"amount":   "100",
+	})
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/approve-token", wallet.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 pending approval for approve-token via API Key, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "pending_approval" {
+		t.Errorf("expected status=pending_approval, got %v", resp["status"])
+	}
+	if resp["approval_id"] == nil {
+		t.Error("expected approval_id in response")
+	}
+
+	// Verify an ApprovalRequest was created in the DB with type="contract_call".
+	var count int64
+	db.Model(&model.ApprovalRequest{}).Where("wallet_id = ? AND approval_type = ?", wallet.ID, "contract_call").Count(&count)
+	if count != 1 {
+		t.Errorf("expected 1 approval request in DB, got %d", count)
+	}
+}
+
+// ─── TestApproveToken_MissingFields ───────────────────────────────────────────
+
+func TestApproveToken_MissingFields(t *testing.T) {
+	db := testDB(t)
+	user, wallet := seedWallet(t, db)
+
+	r := contractCallRouter(db, user.ID, "passkey", "")
+	// Missing spender field.
+	body := jsonBody(map[string]interface{}{
+		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+		"amount":   "100",
+	})
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/approve-token", wallet.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing spender, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── TestRevokeApproval_APIKey_PendingApproval ─────────────────────────────────
+
+func TestRevokeApproval_APIKey_PendingApproval(t *testing.T) {
+	db := testDB(t)
+	user, wallet, _ := seedWalletWithContract(t, db, "", true /* autoApprove */)
+
+	rpc := mockETHRPCServer(t)
+
+	r := contractCallRouter(db, user.ID, "apikey", rpc.URL)
+	body := jsonBody(map[string]interface{}{
+		"contract": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+		"spender":  "0x1234567890123456789012345678901234567890",
+	})
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/revoke-approval", wallet.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 pending approval for revoke-approval via API Key, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "pending_approval" {
+		t.Errorf("expected status=pending_approval, got %v", resp["status"])
+	}
+	if resp["approval_id"] == nil {
+		t.Error("expected approval_id in response")
+	}
+
+	// Verify an ApprovalRequest was created in the DB with type="contract_call".
+	var count int64
+	db.Model(&model.ApprovalRequest{}).Where("wallet_id = ? AND approval_type = ?", wallet.ID, "contract_call").Count(&count)
+	if count != 1 {
+		t.Errorf("expected 1 approval request in DB, got %d", count)
+	}
+}
+
+// ─── TestRevokeApproval_MissingFields ─────────────────────────────────────────
+
+func TestRevokeApproval_MissingFields(t *testing.T) {
+	db := testDB(t)
+	user, wallet := seedWallet(t, db)
+
+	r := contractCallRouter(db, user.ID, "passkey", "")
+	// Missing contract field.
+	body := jsonBody(map[string]interface{}{
+		"spender": "0x1234567890123456789012345678901234567890",
+	})
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/revoke-approval", wallet.ID), body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing contract, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

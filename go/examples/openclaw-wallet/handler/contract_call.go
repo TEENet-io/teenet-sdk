@@ -257,6 +257,199 @@ func (h *ContractCallHandler) ContractCall(c *gin.Context) {
 	})
 }
 
+// ApproveTokenRequest is the body for POST /api/wallets/:id/approve-token.
+type ApproveTokenRequest struct {
+	Contract string `json:"contract" binding:"required"`
+	Spender  string `json:"spender" binding:"required"`
+	Amount   string `json:"amount" binding:"required"`
+}
+
+// RevokeApprovalRequest is the body for POST /api/wallets/:id/revoke-approval.
+type RevokeApprovalRequest struct {
+	Contract string `json:"contract" binding:"required"`
+	Spender  string `json:"spender" binding:"required"`
+}
+
+// ApproveToken is a convenience endpoint that calls ERC-20 approve(spender, amount).
+// Approve is always treated as high-risk — API Key auth always gets a 202 pending approval.
+//
+// POST /api/wallets/:id/approve-token
+func (h *ContractCallHandler) ApproveToken(c *gin.Context) {
+	var req ApproveTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	h.executeApprove(c, req.Contract, req.Spender, req.Amount, "approve_token")
+}
+
+// RevokeApproval is a convenience endpoint that calls ERC-20 approve(spender, 0),
+// effectively revoking a previously granted token allowance.
+// Always treated as high-risk — API Key auth always gets a 202 pending approval.
+//
+// POST /api/wallets/:id/revoke-approval
+func (h *ContractCallHandler) RevokeApproval(c *gin.Context) {
+	var req RevokeApprovalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	h.executeApprove(c, req.Contract, req.Spender, "0", "revoke_approval")
+}
+
+// executeApprove implements the shared logic for ApproveToken and RevokeApproval.
+// It encodes an ERC-20 approve(spender, amount) call and either queues an
+// ApprovalRequest (API Key auth) or signs+broadcasts directly (Passkey auth).
+func (h *ContractCallHandler) executeApprove(c *gin.Context, contractRaw, spenderRaw, amount, auditAction string) {
+	// Load and validate wallet.
+	wallet, ok := loadUserWallet(c, h.db)
+	if !ok {
+		return
+	}
+	if wallet.Status != "ready" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet is not ready (status: " + wallet.Status + ")"})
+		return
+	}
+
+	chainCfg, cfgOk := model.Chains[wallet.Chain]
+	if !cfgOk || chainCfg.Family != "evm" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "contract calls are only supported on EVM chains"})
+		return
+	}
+
+	// Normalize contract and spender addresses.
+	contractAddr, addrErr := normalizeEVMAddress(contractRaw)
+	if addrErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "contract: " + addrErr.Error()})
+		return
+	}
+	spenderAddr, spenderErr := normalizeEVMAddress(spenderRaw)
+	if spenderErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "spender: " + spenderErr.Error()})
+		return
+	}
+
+	// Whitelist check.
+	var allowed model.AllowedContract
+	if err := h.db.Where("wallet_id = ? AND contract_address = ?", wallet.ID, contractAddr).First(&allowed).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "contract not whitelisted: " + contractAddr})
+		return
+	}
+
+	// Parse amount using AllowedContract.Decimals (default 18).
+	var tokenAmount *big.Int
+	if amount == "0" {
+		tokenAmount = big.NewInt(0)
+	} else {
+		decimals := allowed.Decimals
+		if decimals == 0 {
+			decimals = 18
+		}
+		amtFloat, ok2 := new(big.Float).SetString(amount)
+		if !ok2 || amtFloat.Sign() < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount: must be a non-negative number"})
+			return
+		}
+		multiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
+		rawF := new(big.Float).Mul(amtFloat, multiplier)
+		tokenAmount, _ = rawF.Int(nil)
+	}
+
+	// Encode calldata via ERC-20 approve(spender, amount).
+	calldata := chain.EncodeERC20Approve(spenderAddr, tokenAmount)
+
+	// Build tx (hits RPC).
+	rpcURL := chainCfg.RPCURL
+	walletAddr := wallet.Address
+	txData, buildErr := chain.BuildETHContractCallTx(rpcURL, walletAddr, contractAddr, calldata, nil)
+	if buildErr != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "build approve tx: " + buildErr.Error()})
+		return
+	}
+
+	txParamsJSON, marshalErr := json.Marshal(txData.Params)
+	if marshalErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "marshal tx params failed"})
+		return
+	}
+
+	signingMsg := txData.SigningHash
+
+	txContext := map[string]interface{}{
+		"type":     "contract_call",
+		"from":     walletAddr,
+		"contract": contractAddr,
+		"spender":  spenderAddr,
+		"amount":   amount,
+		"action":   auditAction,
+	}
+
+	// Approve is ALWAYS high-risk for API Key — no AutoApprove check needed.
+	if !isPasskeyAuth(c) {
+		txContextJSON, _ := json.Marshal(txContext)
+		userID := mustUserID(c)
+		approval := model.ApprovalRequest{
+			WalletID:     wallet.ID,
+			UserID:       userID,
+			ApprovalType: "contract_call",
+			Message:      hex.EncodeToString(signingMsg),
+			TxContext:    string(txContextJSON),
+			TxParams:     string(txParamsJSON),
+			Status:       "pending",
+			CreatedAt:    time.Now(),
+			ExpiresAt:    time.Now().Add(30 * time.Minute),
+		}
+		if err := h.db.Create(&approval).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "create approval request failed"})
+			return
+		}
+		approvalURL := fmt.Sprintf("%s/#/approve/%d", requestBaseURL(c, h.baseURL), approval.ID)
+		writeAuditCtx(h.db, c, auditAction, "pending", &wallet.ID, map[string]interface{}{
+			"contract": contractAddr, "spender": spenderAddr, "approval_id": approval.ID,
+		})
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":       "pending_approval",
+			"approval_id":  approval.ID,
+			"message":      fmt.Sprintf("%s requires passkey approval", auditAction),
+			"tx_context":   txContext,
+			"approval_url": approvalURL,
+		})
+		return
+	}
+
+	// Passkey auth — sign and broadcast directly.
+	result, signErr := h.sdk.Sign(c.Request.Context(), signingMsg, wallet.KeyName)
+	if signErr != nil || !result.Success {
+		errMsg := "signing failed"
+		if signErr != nil {
+			errMsg = signErr.Error()
+		} else if result != nil {
+			errMsg = result.Error
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "signing failed: " + errMsg})
+		return
+	}
+
+	txHash, broadcastErr := broadcastSigned(wallet, string(txParamsJSON), result.Signature)
+	if broadcastErr != nil {
+		respondBroadcastError(c, broadcastErr)
+		return
+	}
+
+	writeAuditCtx(h.db, c, auditAction, "success", &wallet.ID, map[string]interface{}{
+		"contract": contractAddr, "spender": spenderAddr, "tx_hash": txHash,
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"status":         "completed",
+		"tx_hash":        txHash,
+		"chain":          wallet.Chain,
+		"from":           walletAddr,
+		"contract":       contractAddr,
+		"spender":        spenderAddr,
+		"wallet_address": walletAddr,
+	})
+}
+
 // extractMethodName returns the function name portion of a Solidity func_sig.
 // e.g. "transfer(address,uint256)" → "transfer"
 func extractMethodName(funcSig string) string {
