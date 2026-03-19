@@ -142,6 +142,9 @@ func main() {
 	// General contract call (API Key or Passkey, with security layers).
 	contractCallH := handler.NewContractCallHandler(db, sdkClient, baseURL)
 	auth.POST("/wallets/:id/contract-call", contractCallH.ContractCall)
+	auth.POST("/wallets/:id/approve-token", contractCallH.ApproveToken)
+	auth.POST("/wallets/:id/revoke-approval", contractCallH.RevokeApproval)
+	auth.POST("/wallets/:id/call-read", contractCallH.CallRead)
 
 	auth.POST("/wallets/:id/transfer", walletH.Transfer) // backend builds+broadcasts tx
 	auth.GET("/wallets/:id/pubkey", walletH.GetPubkey)
