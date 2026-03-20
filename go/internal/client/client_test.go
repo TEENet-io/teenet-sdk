@@ -80,29 +80,29 @@ func TestNewClientWithOptions_Nil(t *testing.T) {
 	}
 }
 
-func TestSetDefaultAppID(t *testing.T) {
+func TestSetDefaultAppInstanceID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app-id")
-	if client.GetDefaultAppID() != "test-app-id" {
-		t.Errorf("Expected 'test-app-id', got '%s'", client.GetDefaultAppID())
+	client.SetDefaultAppInstanceID("test-app-id")
+	if client.GetDefaultAppInstanceID() != "test-app-id" {
+		t.Errorf("Expected 'test-app-id', got '%s'", client.GetDefaultAppInstanceID())
 	}
 }
 
-func TestSetDefaultAppIDFromEnv(t *testing.T) {
+func TestSetDefaultAppInstanceIDFromEnv(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	// Set env var
 	t.Setenv("APP_INSTANCE_ID", "env-app-id")
 
-	err := client.SetDefaultAppIDFromEnv()
+	err := client.SetDefaultAppInstanceIDFromEnv()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if client.GetDefaultAppID() != "env-app-id" {
-		t.Errorf("Expected 'env-app-id', got '%s'", client.GetDefaultAppID())
+	if client.GetDefaultAppInstanceID() != "env-app-id" {
+		t.Errorf("Expected 'env-app-id', got '%s'", client.GetDefaultAppInstanceID())
 	}
 }
 
@@ -112,7 +112,7 @@ func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
 
 	os.Unsetenv("APP_INSTANCE_ID")
 
-	err := client.SetDefaultAppIDFromEnv()
+	err := client.SetDefaultAppInstanceIDFromEnv()
 	if err == nil {
 		t.Error("Expected error when env var not set")
 	}
@@ -128,8 +128,8 @@ func TestInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if client.GetDefaultAppID() != "init-app-id" {
-		t.Errorf("Expected 'init-app-id', got '%s'", client.GetDefaultAppID())
+	if client.GetDefaultAppInstanceID() != "init-app-id" {
+		t.Errorf("Expected 'init-app-id', got '%s'", client.GetDefaultAppInstanceID())
 	}
 }
 
@@ -205,7 +205,7 @@ func TestGenerateSchnorrKey_InvalidCurve(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.GenerateSchnorrKey(ctx, "invalid-curve")
 	if err == nil {
@@ -228,7 +228,7 @@ func TestGenerateECDSAKey_InvalidCurve(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	// ed25519 is not valid for ECDSA
 	_, err := client.GenerateECDSAKey(ctx, "ed25519")
@@ -252,7 +252,7 @@ func TestGetAPIKey_EmptyName(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.GetAPIKey(ctx, "")
 	if err == nil {
@@ -275,7 +275,7 @@ func TestSignWithAPISecret_EmptyName(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.SignWithAPISecret(ctx, "", []byte("message"))
 	if err == nil {
@@ -287,7 +287,7 @@ func TestSignWithAPISecret_EmptyMessage(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.SignWithAPISecret(ctx, "test-secret", []byte{})
 	if err == nil {
@@ -321,7 +321,7 @@ func TestGenerateSchnorrKey_WithMockServer(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.GenerateSchnorrKey(ctx, "secp256k1")
 	if err != nil {
@@ -358,7 +358,7 @@ func TestGenerateECDSAKey_WithMockServer(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.GenerateECDSAKey(ctx, "secp256k1")
 	if err != nil {
@@ -385,7 +385,7 @@ func TestGenerateKey_ServerError(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.GenerateSchnorrKey(ctx, "secp256k1")
 	if err != nil {
@@ -411,7 +411,7 @@ func TestGetAPIKey_WithMockServer(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.GetAPIKey(ctx, "my-key")
 	if err != nil {
@@ -438,7 +438,7 @@ func TestGetAPIKey_NotFound(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.GetAPIKey(ctx, "nonexistent")
 	if err != nil {
@@ -469,7 +469,7 @@ func TestSignWithAPISecret_WithMockServer(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.SignWithAPISecret(ctx, "my-secret", []byte("test message"))
 	if err != nil {
@@ -499,7 +499,7 @@ func TestSignWithAPISecret_Failure(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.SignWithAPISecret(ctx, "nonexistent", []byte("message"))
 	if err != nil {
@@ -527,7 +527,7 @@ func TestGenerateSchnorrKey_ValidCurves(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	validCurves := []string{"ed25519", "secp256k1", "secp256r1"}
 	for _, curve := range validCurves {
@@ -558,7 +558,7 @@ func TestGenerateECDSAKey_ValidCurves(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	// Only secp256k1 and secp256r1 are valid for ECDSA
 	validCurves := []string{"secp256k1", "secp256r1"}
@@ -588,7 +588,7 @@ func TestInvalidateKeyCache(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	client.GetPublicKeys(ctx)
 	if callCount != 1 {
@@ -614,14 +614,14 @@ func TestNoLogOutputWhenDebugDisabled(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	client := NewClientWithOptions("http://localhost:8080", nil)
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 	client.Close()
 
 	output := buf.String()
 	if strings.Contains(output, "SDK client initialized") {
 		t.Error("Expected no lifecycle log when debug=false")
 	}
-	if strings.Contains(output, "Default App ID set to") {
+	if strings.Contains(output, "APP_INSTANCE_ID set to") {
 		t.Error("Expected no App ID log when debug=false")
 	}
 }
@@ -645,7 +645,7 @@ func TestGetPublicKeys_Singleflight(t *testing.T) {
 		KeyCacheTTL: -1, // disable cache to test singleflight
 	})
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	// Launch 10 concurrent requests
 	var wg sync.WaitGroup

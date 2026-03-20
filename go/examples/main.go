@@ -114,7 +114,7 @@ func main() {
 func testSignAndVerify(serverURL, appID string) error {
 	// Create client
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppID(appID)
+	client.SetDefaultAppInstanceID(appID)
 	defer client.Close()
 
 	// Test message
@@ -162,7 +162,7 @@ func testSignAndVerify(serverURL, appID string) error {
 
 func testKeyGeneration(serverURL string) error {
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppID("new-test-app")
+	client.SetDefaultAppInstanceID("new-test-app")
 	defer client.Close()
 
 	// Test different protocol/curve combinations
@@ -225,7 +225,7 @@ func testKeyGeneration(serverURL string) error {
 
 func testAPIKey(serverURL string) error {
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppID("test-ecdsa-secp256k1")
+	client.SetDefaultAppInstanceID("test-ecdsa-secp256k1")
 	defer client.Close()
 
 	// Get API Key
@@ -244,7 +244,7 @@ func testAPIKey(serverURL string) error {
 
 func testAPISecretSign(serverURL string) error {
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppID("test-ecdsa-secp256k1")
+	client.SetDefaultAppInstanceID("test-ecdsa-secp256k1")
 	defer client.Close()
 
 	// Sign with API Secret

@@ -62,7 +62,7 @@ func TestGetPublicKeys_Success(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	keys, err := client.GetPublicKeys(ctx)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestGetPublicKeys_ServerError(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.GetPublicKeys(ctx)
 	if err == nil {
@@ -118,7 +118,7 @@ func TestVerify_EmptyPublicKeyName(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.Verify(ctx, []byte("message"), []byte("sig"), " ")
 	if err == nil {
@@ -136,7 +136,7 @@ func TestVerify_PublicKeyNameNotFound(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.Verify(ctx, []byte("message"), []byte("sig"), "missing-key")
 	if err == nil {
@@ -164,7 +164,7 @@ func TestVerify_ED25519(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	valid, err := client.Verify(ctx, message, signature, "pk1")
 	if err != nil {
@@ -189,7 +189,7 @@ func TestVerify_InvalidSignature(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	valid, err := client.Verify(ctx, message, invalidSignature, "pk1")
 	if err != nil {
@@ -210,7 +210,7 @@ func TestVerify_InvalidPublicKeyHex(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.Verify(ctx, []byte("message"), []byte("signature"), "pk1")
 	if err == nil {
@@ -231,7 +231,7 @@ func TestVerify_GetPublicKeysError(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	_, err := client.Verify(ctx, []byte("message"), []byte("signature"), "pk1")
 	if err == nil {
@@ -254,7 +254,7 @@ func TestVerify_PublicKeyWith0xPrefix(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	valid, err := client.Verify(ctx, message, signature, "pk1")
 	if err != nil {
@@ -280,7 +280,7 @@ func TestVerify_PublicKeyWithout0xPrefix(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	valid, err := client.Verify(ctx, message, signature, "pk1")
 	if err != nil {

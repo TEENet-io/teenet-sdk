@@ -268,7 +268,7 @@ func main() {
 		sessions:       make(map[string]*sessionState),
 	}
 	if appInstanceID != "" {
-		s.sdkClient.SetDefaultAppID(appInstanceID)
+		s.sdkClient.SetDefaultAppInstanceID(appInstanceID)
 	}
 	defer s.sdkClient.Close()
 
@@ -927,7 +927,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient(state.ApprovalToken, func(client *sdk.Client, approvalToken string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var err error
 			signRes, err = client.Sign(r.Context(), hashForSign(payload), publicKeyName, approvalToken)
 			return err
@@ -1094,7 +1094,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient(state.ApprovalToken, func(client *sdk.Client, approvalToken string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var err error
 			signRes, err = client.Sign(r.Context(), hashForSign(payload), publicKeyName, approvalToken)
 			return err
@@ -1175,7 +1175,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient(state.ApprovalToken, func(client *sdk.Client, approvalToken string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var err error
 			signRes, err = client.Sign(r.Context(), hashForSign(payload), publicKeyName, approvalToken)
 			return err
@@ -1247,7 +1247,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient(state.ApprovalToken, func(client *sdk.Client, approvalToken string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var err error
 			signRes, err = client.Sign(r.Context(), hashForSign(payload), publicKeyName, approvalToken)
 			return err
@@ -1478,7 +1478,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient(state.ApprovalToken, func(client *sdk.Client, approvalToken string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var err error
 			signRes, err = client.Sign(r.Context(), hashForSign(payload), publicKeyName, approvalToken)
 			return err
@@ -1540,7 +1540,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var res *sdk.GenerateKeyResult
 		callErr := withClient("", func(client *sdk.Client, _ string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var err error
 			if protocol == "ecdsa" {
 				res, err = client.GenerateECDSAKey(r.Context(), curve)
@@ -1607,7 +1607,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient(state.ApprovalToken, func(client *sdk.Client, approvalToken string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var innerErr error
 			signRes, innerErr = client.Sign(r.Context(), message, publicKeyName, approvalToken)
 			return innerErr
@@ -1625,7 +1625,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var keys []sdk.PublicKeyInfo
 		err := withClient("", func(client *sdk.Client, _ string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var callErr error
 			keys, callErr = client.GetPublicKeys(r.Context())
 			return callErr

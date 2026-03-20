@@ -86,7 +86,7 @@ func main() {
 
 	// Initialize SDK client for this app instance
 	sdkClient = sdk.NewClient(consensusURL)
-	sdkClient.SetDefaultAppID(appID)
+	sdkClient.SetDefaultAppInstanceID(appID)
 
 	log.Printf("🗳️  Voting Demo App Starting...")
 	log.Printf("📋 App ID: %s", appID)

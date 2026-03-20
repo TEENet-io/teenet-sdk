@@ -32,9 +32,9 @@ type pkCacheEntry struct {
 	expiresAt time.Time
 }
 
-// GetPublicKeys retrieves all bound public keys for the default App ID.
+// GetPublicKeys retrieves all bound public keys for the default APP_INSTANCE_ID.
 func (c *Client) GetPublicKeys(ctx context.Context) ([]types.PublicKeyInfo, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (c *Client) getBoundPublicKeyByName(ctx context.Context, publicKeyName stri
 //	    fmt.Println("Signature is invalid")
 //	}
 func (c *Client) Verify(ctx context.Context, message, signature []byte, publicKeyName string) (bool, error) {
-	if _, err := c.getAppID(); err != nil {
+	if _, err := c.getAppInstanceID(); err != nil {
 		return false, err
 	}
 

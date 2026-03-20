@@ -55,7 +55,7 @@ func main() {
 	client := sdk.NewClientWithOptions(consensusURL, opts)
 	defer client.Close()
 
-	client.SetDefaultAppID(appID)
+	client.SetDefaultAppInstanceID(appID)
 
 	// Initialize client (loads APP_INSTANCE_ID from environment)
 	if err := client.Init(); err != nil {
@@ -64,7 +64,7 @@ func main() {
 
 	fmt.Println("=== TEENet Key Generation and Signing Example ===")
 	fmt.Printf("Consensus URL: %s\n", consensusURL)
-	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppID())
+	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Generate a Schnorr key with ed25519 curve
 	fmt.Println("\n📝 Generating Schnorr key (ed25519)...")
@@ -178,7 +178,7 @@ func main() {
 	fmt.Println("to sign data for a different app.")
 
 	// Save the current app's key info
-	firstAppID := client.GetDefaultAppID()
+	firstAppID := client.GetDefaultAppInstanceID()
 	firstAppKeyName := schnorrResult.PublicKey.Name
 
 	fmt.Printf("\n📋 Original App ID: %s\n", firstAppID)
@@ -193,7 +193,7 @@ func main() {
 		fmt.Println("   Set SECOND_APP_INSTANCE_ID to test cross-app signing")
 		return
 	}
-	client.SetDefaultAppID(secondAppID)
+	client.SetDefaultAppInstanceID(secondAppID)
 
 	fmt.Printf("\n🔄 Switching to different App ID: %s\n", secondAppID)
 	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
@@ -245,13 +245,13 @@ func main() {
 	if thirdAppID == "" {
 		fmt.Println("⚠️  THIRD_APP_INSTANCE_ID not set, skipping third app test")
 		// Restore original app ID
-		client.SetDefaultAppID(firstAppID)
+		client.SetDefaultAppInstanceID(firstAppID)
 		fmt.Println("\n" + repeat("=", 70))
 		fmt.Println("Cross-app signing test completed!")
 		fmt.Println(repeat("=", 70))
 		return
 	}
-	client.SetDefaultAppID(thirdAppID)
+	client.SetDefaultAppInstanceID(thirdAppID)
 
 	fmt.Printf("\n🔄 Switching to third App ID: %s\n", thirdAppID)
 	fmt.Println("\n📝 Attempting to sign with the key from the first app...")
@@ -296,7 +296,7 @@ func main() {
 	}
 
 	// Restore original app ID
-	client.SetDefaultAppID(firstAppID)
+	client.SetDefaultAppInstanceID(firstAppID)
 
 	fmt.Println("\n" + repeat("=", 70))
 	fmt.Println("Cross-app signing test completed!")

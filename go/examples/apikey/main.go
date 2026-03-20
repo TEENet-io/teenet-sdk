@@ -50,7 +50,7 @@ func main() {
 	client := sdk.NewClient(consensusURL)
 	defer client.Close()
 
-	client.SetDefaultAppID(appID)
+	client.SetDefaultAppInstanceID(appID)
 
 	// Initialize from environment (reads APP_INSTANCE_ID)
 	if err := client.Init(); err != nil {
@@ -60,7 +60,7 @@ func main() {
 	fmt.Printf("TEENet API Key Example\n")
 	fmt.Printf("======================\n")
 	fmt.Printf("Consensus URL: %s\n", consensusURL)
-	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppID())
+	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Retrieve a bound API key (should succeed)
 	fmt.Println("Example 1: Retrieve Bound API Key")

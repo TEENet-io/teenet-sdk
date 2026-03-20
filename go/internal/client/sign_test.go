@@ -67,7 +67,7 @@ func TestSign_EmptyMessage(t *testing.T) {
 	ctx := context.Background()
 	client := NewClientWithOptions("http://localhost:8080", nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, nil, testSigningKeyName)
 	if err == nil {
@@ -103,7 +103,7 @@ func TestSign_PollingOnly(t *testing.T) {
 	})
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestSign_DirectSigning(t *testing.T) {
 	})
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err != nil {
@@ -186,7 +186,7 @@ func TestSign_WithPublicKey(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err != nil {
@@ -215,7 +215,7 @@ func TestSign_ServerError(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
@@ -248,7 +248,7 @@ func TestSign_InvalidSignatureHex(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
@@ -280,7 +280,7 @@ func TestSign_UnexpectedStatus(t *testing.T) {
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
@@ -336,7 +336,7 @@ func TestSign_VotingPendingTimeout(t *testing.T) {
 	})
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
@@ -365,7 +365,7 @@ func TestSign_NetworkError(t *testing.T) {
 	client := NewClientWithOptions("http://localhost:99999", nil)
 	defer client.Close()
 
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test"), testSigningKeyName)
 	if err == nil {
@@ -398,7 +398,7 @@ func TestSign_UsesServerHash(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err != nil {
@@ -438,7 +438,7 @@ func TestSign_ApprovalPending(t *testing.T) {
 
 	client := NewClientWithOptions(server.URL, nil)
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err == nil {

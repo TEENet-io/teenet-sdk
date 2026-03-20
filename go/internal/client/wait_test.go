@@ -75,7 +75,7 @@ func TestSign_FinalSigned(t *testing.T) {
 		PendingWaitTimeout: 5 * time.Second,
 	})
 	defer client.Close()
-	client.SetDefaultAppID("test-app")
+	client.SetDefaultAppInstanceID("test-app")
 
 	result, err := client.Sign(ctx, []byte("wait-message"), "pk1")
 	if err != nil {

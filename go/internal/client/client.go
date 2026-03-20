@@ -29,7 +29,7 @@
 // Basic Usage:
 //
 //	client := types.NewClient("http://consensus-url:8089")
-//	client.SetDefaultAppID("your-app-id")
+//	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 //
 //	// Sign a message
@@ -70,16 +70,16 @@ const (
 //
 // A Client instance manages HTTP connections to the consensus service and handles
 // both direct signing and M-of-N threshold voting operations. It maintains configuration
-// such as the default App ID and timeout settings.
+// such as the default APP_INSTANCE_ID and timeout settings.
 //
 // The Client is safe for concurrent use, though typically one client per application
 // is sufficient.
 type Client struct {
-	mu                 sync.RWMutex           // Protects defaultAppID and pkCache
+	mu                 sync.RWMutex           // Protects defaultAppInstanceID and pkCache
 	httpClient         *network.HTTPClient    // HTTP client for consensus service communication
 	consensusURL       string                 // Base URL of the consensus service
-	defaultAppID       string                 // Default application ID for operations
-	pkCache            map[string]pkCacheEntry // Public key cache keyed by appID
+	defaultAppInstanceID string                 // Default APP_INSTANCE_ID for operations
+	pkCache              map[string]pkCacheEntry // Public key cache keyed by APP_INSTANCE_ID
 	pkGroup            singleflight.Group     // Deduplicates concurrent GetPublicKeys calls
 	requestTimeout     time.Duration          // Timeout for HTTP requests (default: 30s)
 	pendingWaitTimeout time.Duration          // Max wait in Sign for pending voting completion (default: 10s)
@@ -93,8 +93,8 @@ type Client struct {
 //   - Request timeout: 30 seconds
 //   - Pending wait timeout: 10 seconds
 //
-// The client is created in an uninitialized state. You must call SetDefaultAppID()
-// before performing signing operations, or use Init() to load the App ID from
+// The client is created in an uninitialized state. You must call SetDefaultAppInstanceID()
+// before performing signing operations, or use Init() to load the APP_INSTANCE_ID from
 // the environment.
 //
 // Parameters:
@@ -106,7 +106,7 @@ type Client struct {
 // Example:
 //
 //	client := types.NewClient("http://localhost:8089")
-//	client.SetDefaultAppID("your-app-id")
+//	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 func NewClient(consensusURL string) *Client {
 	return NewClientWithOptions(consensusURL, nil)
@@ -187,12 +187,12 @@ func (c *Client) debugf(format string, args ...interface{}) {
 
 // Init initializes the client by attempting to load configuration from the environment.
 //
-// This method is optional. It tries to read the APP_ID environment variable and
-// set it as the default App ID. If the environment variable is not set, a warning
-// is logged but no error is returned.
+// This method is optional. It tries to read the APP_INSTANCE_ID environment variable
+// and set it as the default instance ID. If the environment variable is not set,
+// a warning is logged but no error is returned.
 //
-// This is useful for applications that configure the App ID via environment variables
-// rather than explicitly in code.
+// This is useful for containers deployed by the App Lifecycle Manager, which
+// automatically injects APP_INSTANCE_ID and CONSENSUS_URL.
 //
 // Returns:
 //   - Always returns nil (errors are logged as warnings)
@@ -200,18 +200,18 @@ func (c *Client) debugf(format string, args ...interface{}) {
 // Example:
 //
 //	client := types.NewClient("http://localhost:8089")
-//	client.Init() // Reads APP_ID from environment
+//	client.Init() // Reads APP_INSTANCE_ID from environment
 //	defer client.Close()
 func (c *Client) Init() error {
-	// Try to read default App ID from environment
+	// Try to read APP_INSTANCE_ID from environment
 	c.mu.RLock()
-	appID := c.defaultAppID
+	appInstanceID := c.defaultAppInstanceID
 	c.mu.RUnlock()
 
-	if appID == "" {
-		if err := c.SetDefaultAppIDFromEnv(); err != nil {
+	if appInstanceID == "" {
+		if err := c.SetDefaultAppInstanceIDFromEnv(); err != nil {
 			// Not an error if APP_INSTANCE_ID env var is not set
-			c.debugf("APP_INSTANCE_ID environment variable not set, you can set it later with SetDefaultAppID()")
+			c.debugf("APP_INSTANCE_ID environment variable not set, you can set it later with SetDefaultAppInstanceID()")
 		}
 	}
 
@@ -219,62 +219,65 @@ func (c *Client) Init() error {
 	return nil
 }
 
-// SetDefaultAppID sets the default application ID for signing operations.
+// SetDefaultAppInstanceID sets the APP_INSTANCE_ID for signing operations.
 //
-// The App ID identifies your application to the consensus service and determines
-// which key material is used for signing. This must be set before calling Sign(),
-// GetPublicKeys(), or Verify().
+// The APP_INSTANCE_ID identifies your application instance to the consensus service
+// and determines which key material is used for signing. This must be set before
+// calling Sign(), GetPublicKeys(), or Verify().
+//
+// When deployed via the App Lifecycle Manager, APP_INSTANCE_ID is automatically
+// injected as an environment variable — use Init() instead.
 //
 // Parameters:
-//   - appID: Your TEENet application ID (typically a UUID or hex string)
+//   - appInstanceID: Your TEENet APP_INSTANCE_ID (typically a 32-character hex string)
 //
 // Example:
 //
-//	client.SetDefaultAppID("f5a8f44238cd6112b9f02f7f63a12533")
-func (c *Client) SetDefaultAppID(appID string) {
+//	client.SetDefaultAppInstanceID("f5a8f44238cd6112b9f02f7f63a12533")
+func (c *Client) SetDefaultAppInstanceID(appInstanceID string) {
 	c.mu.Lock()
-	c.defaultAppID = appID
+	c.defaultAppInstanceID = appInstanceID
 	c.mu.Unlock()
-	c.debugf("Default App ID set to: %s", appID)
+	c.debugf("Default APP_INSTANCE_ID set to: %s", appInstanceID)
 }
 
-// SetDefaultAppIDFromEnv loads the default App ID from the APP_ID environment variable.
+// SetDefaultAppInstanceIDFromEnv loads the APP_INSTANCE_ID from the environment variable.
 //
-// This is a convenience method for applications that configure the App ID via
-// environment variables. It's called automatically by Init().
+// This is a convenience method for applications that configure the APP_INSTANCE_ID
+// via environment variables. It's called automatically by Init().
 //
 // Returns:
-//   - Error if the APP_ID environment variable is not set or empty
+//   - Error if the APP_INSTANCE_ID environment variable is not set or empty
 //
 // Example:
 //
-//	if err := client.SetDefaultAppIDFromEnv(); err != nil {
-//	    log.Fatal("APP_ID not set in environment")
+//	if err := client.SetDefaultAppInstanceIDFromEnv(); err != nil {
+//	    log.Fatal("APP_INSTANCE_ID not set in environment")
 //	}
-func (c *Client) SetDefaultAppIDFromEnv() error {
-	appID := os.Getenv("APP_INSTANCE_ID")
-	if appID == "" {
+func (c *Client) SetDefaultAppInstanceIDFromEnv() error {
+	appInstanceID := os.Getenv("APP_INSTANCE_ID")
+	if appInstanceID == "" {
 		return fmt.Errorf("APP_INSTANCE_ID environment variable is not set")
 	}
-	c.SetDefaultAppID(appID)
+	c.SetDefaultAppInstanceID(appInstanceID)
 	return nil
 }
 
-// GetDefaultAppID returns the currently configured default application ID.
+// GetDefaultAppInstanceID returns the currently configured APP_INSTANCE_ID.
 //
 // Returns:
-//   - The default App ID string, or empty string if not set
+//   - The APP_INSTANCE_ID string, or empty string if not set
 //
 // Example:
 //
-//	appID := client.GetDefaultAppID()
-//	if appID == "" {
-//	    log.Println("No App ID configured")
+//	appInstanceID := client.GetDefaultAppInstanceID()
+//	if appInstanceID == "" {
+//	    log.Println("No APP_INSTANCE_ID configured")
 //	}
-func (c *Client) GetDefaultAppID() string {
+func (c *Client) GetDefaultAppInstanceID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.defaultAppID
+	return c.defaultAppInstanceID
 }
 
 // Close gracefully shuts down the client and releases resources.
@@ -314,7 +317,7 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 
 // generateKey calls the HTTP API to generate a key and converts the response.
 func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*types.GenerateKeyResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +389,7 @@ func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*types.Gen
 //	}
 //	fmt.Printf("API Key: %s\n", result.APIKey)
 func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +452,7 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 //	}
 //	fmt.Printf("Signature: %s\n", result.Signature)
 func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []byte) (*types.APISignResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}

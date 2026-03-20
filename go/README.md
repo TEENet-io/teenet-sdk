@@ -23,7 +23,7 @@ import (
 func main() {
     // Create client
     client := sdk.NewClient("http://localhost:8089")
-    client.SetDefaultAppID("your-app-id")
+    client.SetDefaultAppInstanceID("your-app-instance-id")
     defer client.Close()
 
     // Sign a message
@@ -77,11 +77,11 @@ Polling interval/backoff is managed internally by SDK.
 ### Configuration
 
 ```go
-// Set App ID manually
-client.SetDefaultAppID("your-app-id")
+// Set APP_INSTANCE_ID manually
+client.SetDefaultAppInstanceID("your-app-instance-id")
 
 // Load from environment variable (APP_INSTANCE_ID)
-err := client.SetDefaultAppIDFromEnv()
+err := client.SetDefaultAppInstanceIDFromEnv()
 
 // Initialize from environment (logs warning if not set)
 client.Init()

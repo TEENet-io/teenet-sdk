@@ -28,12 +28,12 @@ func main() {
 	}
 
 	client := sdk.NewClient(consensusURL)
-	if err := client.SetDefaultAppIDFromEnv(); err != nil {
+	if err := client.SetDefaultAppInstanceIDFromEnv(); err != nil {
 		log.Fatalf("APP_INSTANCE_ID not set: %v", err)
 	}
 	defer client.Close()
 
-	fmt.Printf("Using App ID: %s\n\n", client.GetDefaultAppID())
+	fmt.Printf("Using App ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// ─── 1. Invite a passkey user ───────────────────────────────────────────
 	fmt.Println("=== Inviting passkey user ===")

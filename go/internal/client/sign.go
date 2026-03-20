@@ -27,7 +27,7 @@ import (
 // Sign generates a cryptographic signature for a message using TEENet consensus.
 //
 // This method automatically handles both direct signing and M-of-N threshold voting
-// scenarios based on how the App ID is configured in the consensus service:
+// scenarios based on how the APP_INSTANCE_ID is configured in the consensus service:
 //
 //   - Direct Signing: If the app is configured for single-key signing, the signature
 //     is returned immediately after the consensus service processes it.
@@ -58,7 +58,7 @@ import (
 //   - HTTP request timeout: Uses Client.requestTimeout (default 30s)
 //
 // Error Conditions:
-//   - Default App ID not set
+//   - APP_INSTANCE_ID not set
 //   - Network errors communicating with consensus service
 //   - Insufficient votes received
 //
@@ -83,13 +83,13 @@ import (
 //	        result.VotingInfo.RequiredVotes)
 //	}
 func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string, passkeyToken ...string) (*types.SignResult, error) {
-	// Check if default App ID is set
+	// Check if APP_INSTANCE_ID is set
 	c.mu.RLock()
-	appID := c.defaultAppID
+	appID := c.defaultAppInstanceID
 	c.mu.RUnlock()
 
 	if appID == "" {
-		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)")
+		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)")
 	}
 	if len(message) == 0 {
 		msg := "message must not be empty"

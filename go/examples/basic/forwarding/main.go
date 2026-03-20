@@ -77,7 +77,7 @@ func main() {
 			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum+1, shortPrefix(voterAppID, 8))
 
 			client := sdk.NewClient(url)
-			client.SetDefaultAppID(voterAppID)
+			client.SetDefaultAppInstanceID(voterAppID)
 
 			result, err := client.Sign(context.Background(), message, publicKeyName)
 

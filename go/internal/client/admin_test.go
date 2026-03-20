@@ -14,7 +14,7 @@ func newAdminClient(t *testing.T, handler http.HandlerFunc) (*Client, func()) {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	c := &Client{
-		defaultAppID: "app-test",
+		defaultAppInstanceID: "app-test",
 		httpClient:   network.NewHTTPClient(server.URL, server.Client()),
 		pkCache:      make(map[string]pkCacheEntry),
 	}
@@ -349,7 +349,7 @@ func TestClientDeletePasskeyUser_ServerError_ReturnsError(t *testing.T) {
 func TestClientAdminMethods_TransportError(t *testing.T) {
 	ctx := context.Background()
 	c := &Client{
-		defaultAppID: "app-x",
+		defaultAppInstanceID: "app-x",
 		httpClient:   network.NewHTTPClient("http://localhost:1", &http.Client{}),
 		pkCache:      make(map[string]pkCacheEntry),
 	}

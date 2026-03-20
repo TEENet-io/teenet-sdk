@@ -36,21 +36,21 @@ func TestNewClient(t *testing.T) {
 	defer client.Close()
 }
 
-// TestSetDefaultAppID tests setting default App ID
-func TestSetDefaultAppID(t *testing.T) {
+// TestSetDefaultAppInstanceID tests setting APP_INSTANCE_ID
+func TestSetDefaultAppInstanceID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	appID := "test-app-id"
-	client.SetDefaultAppID(appID)
+	client.SetDefaultAppInstanceID(appID)
 
-	if client.GetDefaultAppID() != appID {
-		t.Errorf("Expected defaultAppID '%s', got '%s'", appID, client.GetDefaultAppID())
+	if client.GetDefaultAppInstanceID() != appID {
+		t.Errorf("Expected APP_INSTANCE_ID '%s', got '%s'", appID, client.GetDefaultAppInstanceID())
 	}
 }
 
-// TestSetDefaultAppIDFromEnv tests loading App ID from environment
-func TestSetDefaultAppIDFromEnv(t *testing.T) {
+// TestSetDefaultAppInstanceIDFromEnv tests loading APP_INSTANCE_ID from environment
+func TestSetDefaultAppInstanceIDFromEnv(t *testing.T) {
 	// Set environment variable (uses APP_INSTANCE_ID, not APP_ID)
 	testAppID := "env-test-app-id"
 	t.Setenv("APP_INSTANCE_ID", testAppID)
@@ -58,13 +58,13 @@ func TestSetDefaultAppIDFromEnv(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	err := client.SetDefaultAppIDFromEnv()
+	err := client.SetDefaultAppInstanceIDFromEnv()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if client.GetDefaultAppID() != testAppID {
-		t.Errorf("Expected defaultAppID '%s', got '%s'", testAppID, client.GetDefaultAppID())
+	if client.GetDefaultAppInstanceID() != testAppID {
+		t.Errorf("Expected APP_INSTANCE_ID '%s', got '%s'", testAppID, client.GetDefaultAppInstanceID())
 	}
 }
 
@@ -75,7 +75,7 @@ func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	err := client.SetDefaultAppIDFromEnv()
+	err := client.SetDefaultAppInstanceIDFromEnv()
 	if err == nil {
 		t.Fatal("Expected error when APP_ID not set, got nil")
 	}
@@ -151,13 +151,13 @@ func TestSignWithoutAppID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	// Try to sign without setting App ID
+	// Try to sign without setting APP_INSTANCE_ID
 	_, err := client.Sign(ctx, []byte("test message"), "pk1")
 	if err == nil {
-		t.Error("Expected error when signing without App ID, got nil")
+		t.Error("Expected error when signing without APP_INSTANCE_ID, got nil")
 	}
-	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppID or set APP_INSTANCE_ID environment variable)" {
-		// Check that it's the expected error about App ID.
+	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)" {
+		// Check that it's the expected error about APP_INSTANCE_ID.
 		t.Logf("Got error: %v", err)
 	}
 }
@@ -173,8 +173,8 @@ func TestInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
-	if client.GetDefaultAppID() != "init-test-id" {
-		t.Errorf("Expected 'init-test-id', got '%s'", client.GetDefaultAppID())
+	if client.GetDefaultAppInstanceID() != "init-test-id" {
+		t.Errorf("Expected 'init-test-id', got '%s'", client.GetDefaultAppInstanceID())
 	}
 }
 
@@ -192,7 +192,7 @@ func TestInit_NoEnvVar(t *testing.T) {
 	}
 }
 
-// TestVerify_NoAppID tests Verify without App ID
+// TestVerify_NoAppID tests Verify without APP_INSTANCE_ID
 func TestVerify_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
@@ -240,7 +240,7 @@ func TestClientOptions_NilOptions(t *testing.T) {
 	}
 }
 
-// TestGenerateSchnorrKey_NoAppID tests GenerateSchnorrKey without App ID
+// TestGenerateSchnorrKey_NoAppID tests GenerateSchnorrKey without APP_INSTANCE_ID
 func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
@@ -252,7 +252,7 @@ func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
 	}
 }
 
-// TestGenerateECDSAKey_NoAppID tests GenerateECDSAKey without App ID
+// TestGenerateECDSAKey_NoAppID tests GenerateECDSAKey without APP_INSTANCE_ID
 func TestGenerateECDSAKey_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
@@ -264,7 +264,7 @@ func TestGenerateECDSAKey_NoAppID(t *testing.T) {
 	}
 }
 
-// TestGetAPIKey_NoAppID tests GetAPIKey without App ID
+// TestGetAPIKey_NoAppID tests GetAPIKey without APP_INSTANCE_ID
 func TestGetAPIKey_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
@@ -276,7 +276,7 @@ func TestGetAPIKey_NoAppID(t *testing.T) {
 	}
 }
 
-// TestSignWithAPISecret_NoAppID tests SignWithAPISecret without App ID
+// TestSignWithAPISecret_NoAppID tests SignWithAPISecret without APP_INSTANCE_ID
 func TestSignWithAPISecret_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
@@ -288,7 +288,7 @@ func TestSignWithAPISecret_NoAppID(t *testing.T) {
 	}
 }
 
-// TestGetPublicKeys_NoAppID tests GetPublicKeys without App ID
+// TestGetPublicKeys_NoAppID tests GetPublicKeys without APP_INSTANCE_ID
 func TestGetPublicKeys_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")

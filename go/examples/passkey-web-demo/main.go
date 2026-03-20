@@ -76,7 +76,7 @@ func main() {
 		sessions:       make(map[string]*sessionState),
 	}
 	if appInstanceID != "" {
-		s.sdkClient.SetDefaultAppID(appInstanceID)
+		s.sdkClient.SetDefaultAppInstanceID(appInstanceID)
 	}
 	defer s.sdkClient.Close()
 
@@ -137,7 +137,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var signRes *sdk.SignResult
 		callErr := withClient("", func(client *sdk.Client, _ string) error {
-			client.SetDefaultAppID(s.appInstanceID)
+			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var innerErr error
 			signRes, innerErr = client.Sign(message, publicKeyName)
 			return innerErr

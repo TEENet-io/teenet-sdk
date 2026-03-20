@@ -26,10 +26,10 @@ import sdk "github.com/TEENet-io/teenet-sdk"
 // Create client pointing to consensus service
 client := sdk.NewClient("http://localhost:8089")
 
-// Set your App ID (required for signing)
-client.SetDefaultAppID("your-app-id")
+// Set your APP_INSTANCE_ID (required for signing)
+client.SetDefaultAppInstanceID("your-app-instance-id")
 // Or load from environment variable
-client.SetDefaultAppIDFromEnv() // Reads from APP_INSTANCE_ID environment variable
+client.SetDefaultAppInstanceIDFromEnv() // Reads APP_INSTANCE_ID from environment variable
 ```
 
 ### 2. Sign a Message
@@ -88,7 +88,7 @@ for _, key := range keys {
 
 ### Direct Signing Mode
 
-When voting is not configured for an App ID, signing happens immediately:
+When voting is not configured for an APP_INSTANCE_ID, signing happens immediately:
 
 ```
 SDK → app-comm-consensus → TEE-DAO → Response with signature
@@ -134,7 +134,7 @@ Polling interval/backoff is managed internally by SDK.
 
 ### Environment Variables
 
-- `APP_INSTANCE_ID`: Default App ID for signing operations
+- `APP_INSTANCE_ID`: Application instance ID for signing operations (injected by App Lifecycle Manager)
 
 ## API Reference
 
@@ -146,11 +146,11 @@ Creates a new SDK client with default settings.
 #### `NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client`
 Creates a new SDK client with custom configuration options.
 
-#### `SetDefaultAppID(appID string)`
-Sets the default App ID for signing operations.
+#### `SetDefaultAppInstanceID(appID string)`
+Sets the default APP_INSTANCE_ID for signing operations.
 
-#### `SetDefaultAppIDFromEnv() error`
-Loads default App ID from `APP_INSTANCE_ID` environment variable.
+#### `SetDefaultAppInstanceIDFromEnv() error`
+Loads APP_INSTANCE_ID from environment variable.
 
 #### `Sign(message []byte, publicKeyName string) (*SignResult, error)`
 Signs a message. Automatically handles both direct signing and voting modes.
@@ -166,7 +166,7 @@ Retrieves voting status for a specific hash.
 Verifies a signature against the message using a bound key name.
 
 #### `GetPublicKeys() ([]PublicKeyMeta, error)`
-Retrieves all bound public keys for the default App ID.
+Retrieves all bound public keys for the default APP_INSTANCE_ID.
 
 #### `Close() error`
 Closes the client and releases resources.
@@ -240,7 +240,7 @@ import (
 func main() {
     // Initialize client
     client := sdk.NewClient("http://localhost:8089")
-    client.SetDefaultAppID("my-app-id")
+    client.SetDefaultAppInstanceID("my-app-id")
     defer client.Close()
 
     // Sign message
@@ -282,7 +282,7 @@ import (
 
 func main() {
     // Simulate 2-of-3 voting scenario
-    // Three applications with different App IDs vote on same message
+    // Three instances with different APP_INSTANCE_IDs vote on same message
 
     message := []byte("Multi-party approval required")
 
@@ -294,7 +294,7 @@ func main() {
     go func() {
         defer wg.Done()
         client1 := sdk.NewClient("http://localhost:8089")
-        client1.SetDefaultAppID("voter-app-1")
+        client1.SetDefaultAppInstanceID("voter-app-1")
         defer client1.Close()
 
         result, err := client1.Sign(message, "my-key")
@@ -311,7 +311,7 @@ func main() {
     go func() {
         defer wg.Done()
         client2 := sdk.NewClient("http://localhost:8089")
-        client2.SetDefaultAppID("voter-app-2")
+        client2.SetDefaultAppInstanceID("voter-app-2")
         defer client2.Close()
 
         result, err := client2.Sign(message, "my-key")
@@ -328,7 +328,7 @@ func main() {
     go func() {
         defer wg.Done()
         client3 := sdk.NewClient("http://localhost:8089")
-        client3.SetDefaultAppID("voter-app-3")
+        client3.SetDefaultAppInstanceID("voter-app-3")
         defer client3.Close()
 
         result, err := client3.Sign(message, "my-key")
@@ -405,9 +405,9 @@ func main() {
 
 ### Common Errors
 
-- `"default App ID is not set"`: Call `SetDefaultAppID()` or `SetDefaultAppIDFromEnv()` before signing
+- `"default App ID is not set"`: Call `SetDefaultAppInstanceID()` or `SetDefaultAppInstanceIDFromEnv()` before signing
 - `"Failed to decode signature"`: Invalid signature format from server
-- `"Failed to get public key"`: App ID not found or not configured
+- `"Failed to get public key"`: APP_INSTANCE_ID not found or not configured
 
 ### Error Response Structure
 

@@ -66,7 +66,7 @@ func main() {
 			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum, voterAppID[:8])
 
 			client := sdk.NewClient(consensusURL)
-			client.SetDefaultAppID(voterAppID) // Each voter uses their own app_id
+			client.SetDefaultAppInstanceID(voterAppID) // Each voter uses their own app_id
 
 			result, err := client.Sign(context.Background(), message, publicKeyName)
 

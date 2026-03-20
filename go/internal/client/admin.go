@@ -32,15 +32,16 @@ func toAdminError(data map[string]interface{}, status int) string {
 	return fmt.Sprintf("admin request failed with status %d", status)
 }
 
-func (c *Client) getAppID() (string, error) {
+func (c *Client) getAppInstanceID() (string, error) {
 	c.mu.RLock()
-	appID := c.defaultAppID
+	appInstanceID := c.defaultAppInstanceID
 	c.mu.RUnlock()
-	if appID == "" {
-		return "", fmt.Errorf("no App ID configured: call SetDefaultAppID first")
+	if appInstanceID == "" {
+		return "", fmt.Errorf("default App ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)")
 	}
-	return appID, nil
+	return appInstanceID, nil
 }
+
 
 // adminSimpleResult converts an admin HTTP response into an AdminResult.
 func adminSimpleResult(resp *network.ApprovalBridgeResponse, err error) (*types.AdminResult, error) {
@@ -82,7 +83,7 @@ func convertJSON[T any](src interface{}) (*T, error) {
 
 // InvitePasskeyUser invites a new passkey user via the admin bridge.
 func (c *Client) InvitePasskeyUser(ctx context.Context, req types.PasskeyInviteRequest) (*types.PasskeyInviteResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +108,7 @@ func (c *Client) InvitePasskeyUser(ctx context.Context, req types.PasskeyInviteR
 
 // ListPasskeyUsers returns all registered passkey users via the admin bridge.
 func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*types.PasskeyUsersResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +130,7 @@ func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*types.
 
 // DeletePasskeyUser deletes a passkey user by ID via the admin bridge.
 func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*types.AdminResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +140,7 @@ func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*types.Adm
 
 // ListAuditRecords returns audit records for the application via the admin bridge.
 func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*types.AuditRecordsResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +162,7 @@ func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*types.
 
 // UpsertPermissionPolicy creates or replaces a permission policy for a key via the admin bridge.
 func (c *Client) UpsertPermissionPolicy(ctx context.Context, req types.PolicyRequest) (*types.AdminResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +172,7 @@ func (c *Client) UpsertPermissionPolicy(ctx context.Context, req types.PolicyReq
 
 // GetPermissionPolicy retrieves the permission policy for a named key via the admin bridge.
 func (c *Client) GetPermissionPolicy(ctx context.Context, publicKeyName string) (*types.PolicyResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +232,7 @@ func (c *Client) PasskeyRegistrationVerify(ctx context.Context, inviteToken stri
 
 // DeletePermissionPolicy deletes the permission policy for a named key via the admin bridge.
 func (c *Client) DeletePermissionPolicy(ctx context.Context, publicKeyName string) (*types.AdminResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +242,7 @@ func (c *Client) DeletePermissionPolicy(ctx context.Context, publicKeyName strin
 
 // DeletePublicKey deletes a public key by name via the admin bridge.
 func (c *Client) DeletePublicKey(ctx context.Context, keyName string) (*types.AdminResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +252,7 @@ func (c *Client) DeletePublicKey(ctx context.Context, keyName string) (*types.Ad
 
 // CreateAPIKey creates a new API key via the admin bridge.
 func (c *Client) CreateAPIKey(ctx context.Context, req types.CreateAPIKeyRequest) (*types.CreateAPIKeyResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +274,7 @@ func (c *Client) CreateAPIKey(ctx context.Context, req types.CreateAPIKeyRequest
 
 // DeleteAPIKey deletes an API key by name via the admin bridge.
 func (c *Client) DeleteAPIKey(ctx context.Context, keyName string) (*types.AdminResult, error) {
-	appID, err := c.getAppID()
+	appID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}

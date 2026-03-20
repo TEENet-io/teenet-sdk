@@ -56,7 +56,7 @@ func main() {
 	client := sdk.NewClient(consensusURL)
 	defer client.Close()
 
-	client.SetDefaultAppID(appID)
+	client.SetDefaultAppInstanceID(appID)
 
 	// Get public key information
 	fmt.Println("1. Get Public Keys")

@@ -29,7 +29,7 @@
 // Basic Usage:
 //
 //	client := sdk.NewClient("http://consensus-url:8089")
-//	client.SetDefaultAppID("your-app-id")
+//	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 //
 //	// Sign a message
@@ -82,7 +82,7 @@ func (c *Client) checkInit() error {
 // Example:
 //
 //	client := sdk.NewClient("http://localhost:8089")
-//	client.SetDefaultAppID("your-app-id")
+//	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 func NewClient(consensusURL string) *Client {
 	return &Client{
@@ -117,7 +117,7 @@ func NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client {
 // Init initializes the client by attempting to load configuration from the environment.
 //
 // This method tries to read the APP_INSTANCE_ID environment variable and set it as the
-// default App ID. If the environment variable is not set, a warning is logged
+// default instance ID. If the environment variable is not set, a warning is logged
 // but no error is returned.
 //
 // Returns:
@@ -132,47 +132,50 @@ func (c *Client) Init() error {
 	return c.impl.Init()
 }
 
-// SetDefaultAppID sets the default application ID for signing operations.
+// SetDefaultAppInstanceID sets the APP_INSTANCE_ID for signing operations.
 //
-// The App ID identifies your application to the consensus service and determines
-// which key material is used for signing.
+// The APP_INSTANCE_ID identifies your application instance to the consensus service
+// and determines which key material is used for signing.
+//
+// When deployed via the App Lifecycle Manager, APP_INSTANCE_ID is automatically
+// injected as an environment variable — use Init() instead.
 //
 // Parameters:
-//   - appID: Your TEENet application ID
+//   - appInstanceID: Your TEENet APP_INSTANCE_ID
 //
 // Example:
 //
-//	client.SetDefaultAppID("f5a8f44238cd6112b9f02f7f63a12533")
-func (c *Client) SetDefaultAppID(appID string) {
-	c.impl.SetDefaultAppID(appID)
+//	client.SetDefaultAppInstanceID("f5a8f44238cd6112b9f02f7f63a12533")
+func (c *Client) SetDefaultAppInstanceID(appInstanceID string) {
+	c.impl.SetDefaultAppInstanceID(appInstanceID)
 }
 
-// SetDefaultAppIDFromEnv loads the default App ID from the APP_INSTANCE_ID environment variable.
+// SetDefaultAppInstanceIDFromEnv loads the APP_INSTANCE_ID from the environment variable.
 //
 // Returns:
 //   - Error if the APP_INSTANCE_ID environment variable is not set or empty
 //
 // Example:
 //
-//	if err := client.SetDefaultAppIDFromEnv(); err != nil {
+//	if err := client.SetDefaultAppInstanceIDFromEnv(); err != nil {
 //	    log.Fatal("APP_INSTANCE_ID not set in environment")
 //	}
-func (c *Client) SetDefaultAppIDFromEnv() error {
-	return c.impl.SetDefaultAppIDFromEnv()
+func (c *Client) SetDefaultAppInstanceIDFromEnv() error {
+	return c.impl.SetDefaultAppInstanceIDFromEnv()
 }
 
-// GetDefaultAppID returns the currently configured default application ID.
+// GetDefaultAppInstanceID returns the currently configured APP_INSTANCE_ID.
 //
 // Returns:
-//   - The default App ID string, or empty string if not set
-func (c *Client) GetDefaultAppID() string {
-	return c.impl.GetDefaultAppID()
+//   - The APP_INSTANCE_ID string, or empty string if not set
+func (c *Client) GetDefaultAppInstanceID() string {
+	return c.impl.GetDefaultAppInstanceID()
 }
 
 // Sign generates a cryptographic signature for a message using TEENet consensus.
 //
 // This method automatically handles both direct signing and M-of-N threshold voting
-// scenarios based on the App ID configuration. For voting flows, it waits until
+// scenarios based on the APP_INSTANCE_ID configuration. For voting flows, it waits until
 // final signed/failed result (or timeout) so application code only needs one Sign call.
 //
 // Parameters:
@@ -278,7 +281,7 @@ func (c *Client) ApprovalActionWithCredential(ctx context.Context, taskID uint64
 	return c.impl.ApprovalActionWithCredential(ctx, taskID, action, getCredential, approvalToken)
 }
 
-// GetPublicKeys retrieves all bound public keys for the default App ID.
+// GetPublicKeys retrieves all bound public keys for the default APP_INSTANCE_ID.
 func (c *Client) GetPublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
 	if err := c.checkInit(); err != nil {
 		return nil, err

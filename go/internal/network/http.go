@@ -173,7 +173,7 @@ func (c *HTTPClient) GetCacheDetail(ctx context.Context, hash string) (*cacheDet
 	return &result, nil
 }
 
-// GetPublicKeys retrieves bound public key information for an App ID.
+// GetPublicKeys retrieves bound public key information for an APP_INSTANCE_ID.
 func (c *HTTPClient) GetPublicKeys(ctx context.Context, appID string) ([]publicKeyResponse, error) {
 	reqURL := c.baseURL + "/api/publickeys/" + url.PathEscape(appID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -228,7 +228,7 @@ type GeneratedKeyInfo struct {
 	CreatedByInstanceID string `json:"created_by_instance_id"`
 }
 
-// GenerateKey generates a new cryptographic key for an App ID.
+// GenerateKey generates a new cryptographic key for an APP_INSTANCE_ID.
 func (c *HTTPClient) GenerateKey(ctx context.Context, appID, curve, protocol string) (*generateKeyResponse, error) {
 	payload := generateKeyPayload{
 		AppInstanceID: appID,
@@ -271,7 +271,7 @@ type apiKeyResponse struct {
 	APIKey        string `json:"api_key,omitempty"`
 }
 
-// GetAPIKey retrieves an API key value by name for an App ID.
+// GetAPIKey retrieves an API key value by name for an APP_INSTANCE_ID.
 func (c *HTTPClient) GetAPIKey(ctx context.Context, appID, name string) (*apiKeyResponse, error) {
 	q := url.Values{}
 	q.Set("app_instance_id", appID)
