@@ -86,6 +86,51 @@ func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, 
 	})
 }
 
+// PasskeyLoginVerifyAs verifies passkey assertion and confirms the verified PasskeyUserID
+// matches expectedPasskeyUserID. Returns error if they don't match.
+func (c *Client) PasskeyLoginVerifyAs(ctx context.Context, loginSessionID uint64, credential []byte, expectedPasskeyUserID uint) (*types.ApprovalResult, error) {
+	res, err := c.PasskeyLoginVerify(ctx, loginSessionID, credential)
+	if err != nil {
+		return res, err
+	}
+	if !res.Success {
+		return res, nil
+	}
+
+	// Extract verified passkey_user_id from response data.
+	if res.Data == nil {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "passkey verification response missing user identity",
+		}, fmt.Errorf("passkey_user_id not returned by server")
+	}
+
+	var verifiedID uint64
+	switch v := res.Data["passkey_user_id"].(type) {
+	case float64:
+		verifiedID = uint64(v)
+	case json.Number:
+		i, _ := v.Int64()
+		verifiedID = uint64(i)
+	}
+
+	if verifiedID == 0 {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "passkey verification response missing passkey_user_id",
+		}, fmt.Errorf("passkey_user_id not returned or zero")
+	}
+
+	if verifiedID != uint64(expectedPasskeyUserID) {
+		return &types.ApprovalResult{
+			Success: false,
+			Error:   "passkey does not belong to the expected user",
+		}, fmt.Errorf("passkey user mismatch: expected %d, got %d", expectedPasskeyUserID, verifiedID)
+	}
+
+	return res, nil
+}
+
 func (c *Client) ApprovalPending(ctx context.Context, approvalToken string, filter *types.ApprovalPendingFilter) (*types.ApprovalResult, error) {
 	return approvalCall(func() (*network.ApprovalBridgeResponse, error) {
 		return c.httpClient.ApprovalPending(ctx, approvalToken, filter)

@@ -150,6 +150,72 @@ func TestClientPasskeyLoginVerify_SetsToken(t *testing.T) {
 	}
 }
 
+func TestPasskeyLoginVerifyAs_Match(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"passkey_user_id": 42, "display_name": "Alice"}`))
+	}))
+	defer server.Close()
+
+	c := &Client{
+		httpClient: network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:    make(map[string]pkCacheEntry),
+	}
+	res, err := c.PasskeyLoginVerifyAs(ctx, 1, []byte(`{"id":"cred"}`), 42)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got error: %s", res.Error)
+	}
+}
+
+func TestPasskeyLoginVerifyAs_Mismatch(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"passkey_user_id": 99, "display_name": "Eve"}`))
+	}))
+	defer server.Close()
+
+	c := &Client{
+		httpClient: network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:    make(map[string]pkCacheEntry),
+	}
+	res, err := c.PasskeyLoginVerifyAs(ctx, 1, []byte(`{"id":"cred"}`), 42)
+	if err == nil {
+		t.Fatal("expected error for mismatched passkey user")
+	}
+	if res.Success {
+		t.Fatal("expected failure result")
+	}
+	if !strings.Contains(res.Error, "does not belong") {
+		t.Fatalf("expected mismatch error, got: %s", res.Error)
+	}
+}
+
+func TestPasskeyLoginVerifyAs_MissingID(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"token": "abc"}`)) // no passkey_user_id
+	}))
+	defer server.Close()
+
+	c := &Client{
+		httpClient: network.NewHTTPClient(server.URL, server.Client()),
+		pkCache:    make(map[string]pkCacheEntry),
+	}
+	res, err := c.PasskeyLoginVerifyAs(ctx, 1, []byte(`{"id":"cred"}`), 42)
+	if err == nil {
+		t.Fatal("expected error when passkey_user_id missing")
+	}
+	if res.Success {
+		t.Fatal("expected failure result")
+	}
+}
+
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }

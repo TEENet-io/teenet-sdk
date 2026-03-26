@@ -224,6 +224,14 @@ func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, 
 	return c.impl.PasskeyLoginVerify(ctx, loginSessionID, credential)
 }
 
+// PasskeyLoginVerifyAs verifies passkey assertion AND confirms the verified PasskeyUserID
+// matches expectedPasskeyUserID. Returns an error if the passkey belongs to a different user.
+// Use this instead of PasskeyLoginVerify when you need to ensure the assertion comes from
+// a specific user, not just any valid PasskeyUser in the system.
+func (c *Client) PasskeyLoginVerifyAs(ctx context.Context, loginSessionID uint64, credential []byte, expectedPasskeyUserID uint) (*ApprovalResult, error) {
+	return c.impl.PasskeyLoginVerifyAs(ctx, loginSessionID, credential, expectedPasskeyUserID)
+}
+
 // PasskeyLoginWithCredential executes login options -> WebAuthn credential provider -> verify.
 func (c *Client) PasskeyLoginWithCredential(ctx context.Context, getCredential PasskeyCredentialProvider) (*ApprovalResult, error) {
 	return c.impl.PasskeyLoginWithCredential(ctx, getCredential)
