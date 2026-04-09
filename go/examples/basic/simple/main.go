@@ -74,6 +74,8 @@ func main() {
 	message := []byte("Hello TEENet! " + time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Printf("Message: %s\n", string(message))
 
+	// For ECDSA, the user is responsible for hashing the message before signing.
+	// The TEE-DAO backend requires exactly 32 bytes (pre-hashed) for ECDSA.
 	hashedMessage := crypto.Keccak256(message)
 	result, err := client.Sign(context.Background(), hashedMessage, keyName)
 	if err != nil {
@@ -96,7 +98,7 @@ func main() {
 	// Verify the signature
 	fmt.Println("3. Verify Signature")
 	fmt.Println("-------------------")
-	valid, err := client.Verify(context.Background(), message, result.Signature, keyName)
+	valid, err := client.Verify(context.Background(), hashedMessage, result.Signature, keyName)
 	if err != nil {
 		log.Fatalf("Failed to verify signature: %v", err)
 	}

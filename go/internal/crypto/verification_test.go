@@ -363,8 +363,8 @@ func TestVerifySecp256r1ECDSA(t *testing.T) {
 	// Serialize public key in uncompressed format
 	pubKeyBytes := elliptic.Marshal(elliptic.P256(), privateKey.X, privateKey.Y)
 
-	// Verify the signature
-	valid, err := VerifySignature(message, pubKeyBytes, signature, ProtocolECDSA, CurveSECP256R1)
+	// Verify the signature — verifyP256ECDSA no longer hashes, pass the hash directly
+	valid, err := VerifySignature(messageHash, pubKeyBytes, signature, ProtocolECDSA, CurveSECP256R1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestVerifySecp256r1ECDSA_RawPubKey(t *testing.T) {
 	copy(rawPubKey[32-len(xBytes):32], xBytes)
 	copy(rawPubKey[64-len(yBytes):64], yBytes)
 
-	valid, err := VerifySignature(message, rawPubKey, signature, ProtocolECDSA, CurveSECP256R1)
+	valid, err := VerifySignature(messageHash, rawPubKey, signature, ProtocolECDSA, CurveSECP256R1)
 	if err != nil {
 		t.Fatalf("VerifySignature failed: %v", err)
 	}
@@ -710,8 +710,8 @@ func TestVerifyP256ECDSA_RejectsHighS(t *testing.T) {
 
 	pubKeyBytes := elliptic.Marshal(elliptic.P256(), privateKey.X, privateKey.Y)
 
-	// VerifySignature for secp256r1 ECDSA hashes the raw message internally.
-	_, err = VerifySignature(message, pubKeyBytes, sig, ProtocolECDSA, CurveSECP256R1)
+	// verifyP256ECDSA no longer hashes; pass the pre-hashed message.
+	_, err = VerifySignature(messageHash, pubKeyBytes, sig, ProtocolECDSA, CurveSECP256R1)
 	if err == nil {
 		t.Error("Expected error for high-S P256 ECDSA signature")
 	}

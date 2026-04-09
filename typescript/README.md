@@ -196,12 +196,26 @@ const hmacValid = verifyHMACSHA256(message, secret, signature);
 
 ## Supported Algorithms
 
-| Protocol | Curve | Description |
-|----------|-------|-------------|
-| Schnorr | ED25519 | Edwards curve EdDSA |
-| ECDSA | SECP256K1 | Bitcoin/Ethereum (Keccak-256 for 65-byte sigs) |
-| Schnorr | SECP256K1 | BIP-340 Schnorr |
-| ECDSA | SECP256R1 | NIST P-256 |
+| Protocol | Curve | User hashes? | Description |
+|----------|-------|-------------|-------------|
+| Schnorr | ED25519 | No (pass raw message) | Edwards curve EdDSA |
+| ECDSA | SECP256K1 | **Yes** (32-byte Keccak-256 or SHA-256) | Bitcoin/Ethereum |
+| Schnorr | SECP256K1 | No (pass raw message) | BIP-340 Schnorr |
+| ECDSA | SECP256R1 | **Yes** (32-byte SHA-256) | NIST P-256 |
+
+For ECDSA, hash the message before calling `sign()` and `verify()`:
+
+```typescript
+// ECDSA secp256k1 — hash with Keccak-256
+import { keccak_256 } from '@noble/hashes/sha3';
+const hash = Buffer.from(keccak_256(message));
+const result = await client.sign(hash, 'my-ecdsa-key');
+const valid = await client.verify(hash, result.signature, 'my-ecdsa-key');
+
+// Schnorr / EdDSA — pass raw message
+const result = await client.sign(message, 'my-schnorr-key');
+const valid = await client.verify(message, result.signature, 'my-schnorr-key');
+```
 
 ## License
 

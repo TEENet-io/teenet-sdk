@@ -92,16 +92,17 @@ client.Init()
 
 ### Signing
 
-```go
-// Sign with specific bound key name (required)
-result, err := client.Sign(ctx, []byte("message"), "my-key")
+**Hashing responsibility:** For ECDSA (secp256k1/secp256r1), the caller must hash the message before calling `Sign()` and `Verify()`. The TEE-DAO backend requires exactly 32 bytes of pre-hashed input. For Schnorr and EdDSA, pass the raw message.
 
-// Check result
-if result.Success {
-    fmt.Printf("Signature: %x\n", result.Signature)
-} else {
-    fmt.Printf("Error: %s\n", result.Error)
-}
+```go
+// ECDSA secp256k1 — user hashes with Keccak-256 (Ethereum-style)
+hashedMsg := crypto.Keccak256(rawMessage)
+result, err := client.Sign(ctx, hashedMsg, "my-ecdsa-key")
+valid, err := client.Verify(ctx, hashedMsg, result.Signature, "my-ecdsa-key")
+
+// Schnorr / EdDSA — pass raw message (hashing is handled internally)
+result, err := client.Sign(ctx, rawMessage, "my-schnorr-key")
+valid, err := client.Verify(ctx, rawMessage, result.Signature, "my-schnorr-key")
 ```
 
 ### Get Status

@@ -19,12 +19,15 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,7 +37,6 @@ import (
 	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/sha3"
 )
 
 // Protocol constants
@@ -91,11 +93,104 @@ type StoredKeyPair struct {
 
 // APIKeyInfo stores API key/secret information
 type APIKeyInfo struct {
+	ID        uint32
 	Name      string
 	APIKey    string // The API key value (if stored)
 	APISecret []byte // The API secret for HMAC signing (if stored)
 	HasKey    bool
 	HasSecret bool
+}
+
+// CacheEntry represents a voting cache entry
+type CacheEntry struct {
+	AppInstanceID string                  `json:"app_instance_id"`
+	Hash          string                  `json:"hash"`
+	Message       []byte                  `json:"message"`
+	PublicKey     []byte                  `json:"public_key,omitempty"`
+	Requests      map[string]*SignRequest `json:"requests"`
+	RequiredVotes int                     `json:"required_votes"`
+	CreatedAt     time.Time               `json:"created_at"`
+	UpdatedAt     time.Time               `json:"updated_at"`
+	Status        string                  `json:"status"`
+	Signature     string                  `json:"signature,omitempty"`
+	ErrorMessage  string                  `json:"error_message,omitempty"`
+	TxID          string                  `json:"tx_id,omitempty"`
+	RequestID     uint64                  `json:"request_id,omitempty"`
+}
+
+// SignRequest represents a vote from an instance
+type SignRequest struct {
+	AppInstanceID string    `json:"app_instance_id"`
+	Timestamp     time.Time `json:"timestamp"`
+	Approved      bool      `json:"approved"`
+}
+
+// VotingConfig defines per-app voting/approval settings
+type VotingConfig struct {
+	EnableVoting         bool     `json:"enable_voting"`
+	RequiredVotes        int      `json:"required_votes"`
+	TargetAppInstanceIDs []string `json:"target_app_instance_ids"`
+	HasPasskeyPolicy     bool     `json:"has_passkey_policy"`
+	PasskeyPolicyEnabled bool     `json:"passkey_policy_enabled"`
+}
+
+// MockPasskeyUser represents a registered passkey user
+type MockPasskeyUser struct {
+	ID            uint   `json:"id"`
+	DisplayName   string `json:"display_name"`
+	AppInstanceID string `json:"app_instance_id,omitempty"`
+	CreatedAt     string `json:"created_at"`
+}
+
+// ApprovalTask represents an approval workflow task
+type ApprovalTask struct {
+	ID            uint64 `json:"id"`
+	RequestID     uint64 `json:"request_id"`
+	TxID          string `json:"tx_id"`
+	AppInstanceID string `json:"app_instance_id"`
+	PublicKeyName string `json:"public_key_name,omitempty"`
+	Hash          string `json:"hash"`
+	Status        string `json:"status"`
+	Signature     string `json:"signature,omitempty"`
+	Payload       string `json:"payload,omitempty"`
+	InitiatorID   uint   `json:"requested_by_passkey_user_id,omitempty"`
+	CreatedAt     string `json:"created_at"`
+}
+
+// MockAuditRecord represents an audit log entry
+type MockAuditRecord struct {
+	ID                 uint   `json:"id"`
+	TaskID             *uint  `json:"task_id,omitempty"`
+	RequestSessionID   *uint  `json:"request_session_id,omitempty"`
+	EventType          string `json:"event_type"`
+	Action             string `json:"action,omitempty"`
+	Status             string `json:"status"`
+	ActorPasskeyUserID uint   `json:"actor_passkey_user_id,omitempty"`
+	ActorDisplayName   string `json:"actor_display_name,omitempty"`
+	TxID               string `json:"tx_id,omitempty"`
+	Hash               string `json:"hash,omitempty"`
+	Signature          string `json:"signature,omitempty"`
+	AppInstanceID      string `json:"app_instance_id,omitempty"`
+	Details            string `json:"details,omitempty"`
+	ErrorMessage       string `json:"error_message,omitempty"`
+	CreatedAt          string `json:"created_at"`
+}
+
+// PermissionPolicy represents a mock permission policy
+type PermissionPolicy struct {
+	ID             uint          `json:"id"`
+	PublicKeyName  string        `json:"public_key_name"`
+	AppInstanceID  string        `json:"app_instance_id"`
+	Enabled        bool          `json:"enabled"`
+	TimeoutSeconds int64         `json:"timeout_seconds"`
+	Levels         []PolicyLevel `json:"levels"`
+}
+
+// PolicyLevel is one level in a permission policy
+type PolicyLevel struct {
+	LevelIndex int    `json:"level_index"`
+	Threshold  int    `json:"threshold"`
+	MemberIDs  []uint `json:"member_ids"`
 }
 
 // MockServer implements a mock consensus server
@@ -121,6 +216,42 @@ type MockServer struct {
 	// API keys storage
 	apiKeys      map[string]map[string]*APIKeyInfo // app_instance_id -> name -> APIKeyInfo
 	apiKeysMutex sync.RWMutex
+	apiKeyIDCounter uint32
+
+	// Voting cache
+	votingCache      map[string]*CacheEntry // hash -> entry
+	votingCacheMutex sync.RWMutex
+
+	// Voting config per app
+	votingConfigs      map[string]*VotingConfig // app_instance_id -> config
+	votingConfigsMutex sync.RWMutex
+
+	// Passkey users
+	passkeyUsers      map[uint]*MockPasskeyUser // id -> user
+	passkeyUsersMutex sync.RWMutex
+	passkeyUserIDCounter uint32
+
+	// Approval tasks
+	approvalTasks      map[uint64]*ApprovalTask // task_id -> task
+	approvalTasksMutex sync.RWMutex
+	approvalTaskIDCounter uint64
+	requestSessionIDCounter uint64
+
+	// Audit records
+	auditRecords      []*MockAuditRecord
+	auditRecordsMutex sync.RWMutex
+	auditRecordIDCounter uint32
+
+	// Permission policies
+	policies      map[string]*PermissionPolicy // "app_instance_id:key_name" -> policy
+	policiesMutex sync.RWMutex
+	policyIDCounter uint32
+
+	// Token secret for mock approval tokens
+	tokenSecret []byte
+
+	// Login session counter
+	loginSessionIDCounter uint64
 
 	// Configuration
 	port          string
@@ -129,14 +260,26 @@ type MockServer struct {
 
 // NewMockServer creates a new mock server
 func NewMockServer(port string) *MockServer {
+	// Generate token secret
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		log.Fatalf("failed to generate token secret: %v", err)
+	}
+
 	s := &MockServer{
-		port:           port,
-		enableLogging:  true,
-		appKeys:        make(map[string]*AppKeyInfo),
-		generatedKeys:  make(map[string][]*GeneratedKeyInfo),
-		storedKeyPairs: make(map[string]*StoredKeyPair),
-		apiKeys:        make(map[string]map[string]*APIKeyInfo),
-		keyIDCounter:   1000,
+		port:            port,
+		enableLogging:   true,
+		appKeys:         make(map[string]*AppKeyInfo),
+		generatedKeys:   make(map[string][]*GeneratedKeyInfo),
+		storedKeyPairs:  make(map[string]*StoredKeyPair),
+		apiKeys:         make(map[string]map[string]*APIKeyInfo),
+		keyIDCounter:    1000,
+		votingCache:     make(map[string]*CacheEntry),
+		votingConfigs:   make(map[string]*VotingConfig),
+		passkeyUsers:    make(map[uint]*MockPasskeyUser),
+		approvalTasks:   make(map[uint64]*ApprovalTask),
+		policies:        make(map[string]*PermissionPolicy),
+		tokenSecret:     secret,
 	}
 
 	// Generate consistent cryptographic keys (for default apps)
@@ -149,6 +292,12 @@ func NewMockServer(port string) *MockServer {
 
 	// Initialize sample API keys
 	s.initSampleAPIKeys()
+
+	// Initialize voting configs
+	s.initVotingConfigs()
+
+	// Initialize sample passkey users
+	s.initSamplePasskeyUsers()
 
 	return s
 }
@@ -220,6 +369,84 @@ func (s *MockServer) initSampleAPIKeys() {
 	}
 }
 
+// initVotingConfigs sets up per-app voting configurations
+func (s *MockServer) initVotingConfigs() {
+	// Multi-party voting app: requires 2-of-3 votes
+	// Uses the default secp256k1 ECDSA key
+	secp256k1PubKey := s.secp256k1Key.PubKey()
+	rawPubBytes := secp256k1PubKey.SerializeUncompressed()[1:] // 64 bytes, no 0x04 prefix
+
+	s.votingConfigs["test-voting-2of3"] = &VotingConfig{
+		EnableVoting:         true,
+		RequiredVotes:        2,
+		TargetAppInstanceIDs: []string{"test-voting-2of3"},
+		HasPasskeyPolicy:     false,
+		PasskeyPolicyEnabled: false,
+	}
+	s.appKeys["test-voting-2of3"] = &AppKeyInfo{
+		PublicKey:    hex.EncodeToString(rawPubBytes),
+		PublicKeyRaw: rawPubBytes,
+		Protocol:     "ecdsa",
+		Curve:        "secp256k1",
+		ProtocolNum:  ProtocolECDSA,
+		CurveNum:     CurveSECP256K1,
+	}
+
+	// Approval-required app: needs passkey approval before signing
+	s.votingConfigs["test-approval-required"] = &VotingConfig{
+		EnableVoting:         false,
+		RequiredVotes:        1,
+		TargetAppInstanceIDs: []string{"test-approval-required"},
+		HasPasskeyPolicy:     true,
+		PasskeyPolicyEnabled: true,
+	}
+	s.appKeys["test-approval-required"] = &AppKeyInfo{
+		PublicKey:    hex.EncodeToString(rawPubBytes),
+		PublicKeyRaw: rawPubBytes,
+		Protocol:     "ecdsa",
+		Curve:        "secp256k1",
+		ProtocolNum:  ProtocolECDSA,
+		CurveNum:     CurveSECP256K1,
+	}
+
+	// All other default test apps: direct signing (no voting)
+	directApps := []string{
+		"test-schnorr-ed25519",
+		"test-schnorr-secp256k1",
+		"test-ecdsa-secp256k1",
+		"test-ecdsa-secp256r1",
+		"ethereum-wallet-app",
+		"secure-messaging-app",
+	}
+	for _, appID := range directApps {
+		s.votingConfigs[appID] = &VotingConfig{
+			EnableVoting:         false,
+			RequiredVotes:        1,
+			TargetAppInstanceIDs: []string{appID},
+			HasPasskeyPolicy:     false,
+			PasskeyPolicyEnabled: false,
+		}
+	}
+}
+
+// initSamplePasskeyUsers adds sample passkey users for testing
+func (s *MockServer) initSamplePasskeyUsers() {
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.passkeyUsers[1] = &MockPasskeyUser{
+		ID:            1,
+		DisplayName:   "Alice (test)",
+		AppInstanceID: "test-approval-required",
+		CreatedAt:     now,
+	}
+	s.passkeyUsers[2] = &MockPasskeyUser{
+		ID:            2,
+		DisplayName:   "Bob (test)",
+		AppInstanceID: "test-approval-required",
+		CreatedAt:     now,
+	}
+	atomic.StoreUint32(&s.passkeyUserIDCounter, 100)
+}
+
 // Start starts the mock server
 func (s *MockServer) Start() error {
 	gin.SetMode(gin.ReleaseMode)
@@ -234,6 +461,40 @@ func (s *MockServer) Start() error {
 		api.POST("/generate-key", s.handleGenerateKey)
 		api.GET("/apikey/:name", s.handleGetAPIKey)
 		api.POST("/apikey/:name/sign", s.handleSignWithSecret)
+
+		// Cache endpoints
+		api.GET("/cache/status", s.handleCacheStatus)
+		api.GET("/cache/:hash", s.handleGetCache)
+		api.DELETE("/cache/:hash", s.handleDeleteCache)
+		api.GET("/config/:app_instance_id", s.handleGetConfig)
+
+		// Approval bridge
+		api.GET("/auth/passkey/options", s.handlePasskeyLoginOptions)
+		api.POST("/auth/passkey/verify", s.handlePasskeyLoginVerify)
+		api.POST("/auth/passkey/verify-as", s.handlePasskeyLoginVerifyAs)
+		api.POST("/approvals/request/init", s.handleApprovalRequestInit)
+		api.GET("/approvals/request/:requestId/challenge", s.handleApprovalRequestChallenge)
+		api.POST("/approvals/request/:requestId/confirm", s.handleApprovalRequestConfirm)
+		api.GET("/approvals/:taskId/challenge", s.handleApprovalActionChallenge)
+		api.POST("/approvals/:taskId/action", s.handleApprovalAction)
+		api.GET("/approvals/pending", s.handleApprovalPending)
+		api.GET("/requests/mine", s.handleMyRequests)
+		api.GET("/signature/by-tx/:txId", s.handleSignatureByTx)
+		api.DELETE("/requests/:id", s.handleCancelRequest)
+
+		// Admin bridge
+		api.POST("/admin/passkey/invite", s.handleAdminInvitePasskey)
+		api.GET("/admin/passkey/users", s.handleAdminListPasskeyUsers)
+		api.DELETE("/admin/passkey/users/:id", s.handleAdminDeletePasskeyUser)
+		api.GET("/admin/audit-records", s.handleAdminListAuditRecords)
+		api.PUT("/admin/policy", s.handleAdminUpsertPolicy)
+		api.GET("/admin/policy", s.handleAdminGetPolicy)
+		api.DELETE("/admin/policy", s.handleAdminDeletePolicy)
+		api.DELETE("/admin/publickeys/:name", s.handleAdminDeletePublicKey)
+		api.POST("/admin/apikeys", s.handleAdminCreateAPIKey)
+		api.DELETE("/admin/apikeys/:name", s.handleAdminDeleteAPIKey)
+		api.GET("/passkey/register/options", s.handlePasskeyRegisterOptions)
+		api.POST("/passkey/register/verify", s.handlePasskeyRegisterVerify)
 	}
 
 	log.Printf("Mock Consensus Server starting on port %s", s.port)
@@ -293,20 +554,43 @@ func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"app_id":  appInstanceID,
-		"public_keys": []gin.H{
-			{
-				"id":                     1,
-				"name":                   "default",
-				"key_data":               "0x" + keyInfo.PublicKey,
-				"protocol":               keyInfo.Protocol,
-				"curve":                  keyInfo.Curve,
-				"application_id":         1,
-				"created_by_instance_id": appInstanceID,
-			},
+	// Build public keys list: default key + any generated keys
+	keys := []gin.H{
+		{
+			"id":                     1,
+			"name":                   "default",
+			"key_data":               "0x" + keyInfo.PublicKey,
+			"protocol":               keyInfo.Protocol,
+			"curve":                  keyInfo.Curve,
+			"application_id":         1,
+			"created_by_instance_id": appInstanceID,
 		},
+	}
+
+	// Append generated keys
+	s.generatedKeysMutex.RLock()
+	if genKeys, ok := s.generatedKeys[appInstanceID]; ok {
+		for _, gk := range genKeys {
+			keys = append(keys, gin.H{
+				"id":                      gk.ID,
+				"name":                    gk.Name,
+				"key_data":               "0x" + gk.KeyData,
+				"protocol":               gk.Protocol,
+				"curve":                  gk.Curve,
+				"threshold":              gk.Threshold,
+				"participant_count":       gk.ParticipantCount,
+				"max_participant_count":   gk.MaxParticipantCount,
+				"application_id":         gk.ApplicationID,
+				"created_by_instance_id": gk.CreatedByInstanceID,
+			})
+		}
+	}
+	s.generatedKeysMutex.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"app_id":      appInstanceID,
+		"public_keys": keys,
 	})
 }
 
@@ -352,40 +636,203 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 		return
 	}
 
-	// Determine which key to use
+	// Check voting config for this app
+	s.votingConfigsMutex.RLock()
+	votingCfg, hasCfg := s.votingConfigs[req.AppInstanceID]
+	s.votingConfigsMutex.RUnlock()
+
+	// --- Passkey approval required path ---
+	if hasCfg && votingCfg.PasskeyPolicyEnabled {
+		txID := fmt.Sprintf("mock-tx-%d", atomic.AddUint64(&s.requestSessionIDCounter, 1))
+		requestID := atomic.AddUint64(&s.requestSessionIDCounter, 1)
+		taskID := atomic.AddUint64(&s.approvalTaskIDCounter, 1)
+
+		// Determine public key info for the task
+		var pubKeyHex string
+		if len(req.PublicKey) > 0 {
+			pubKeyHex = hex.EncodeToString(req.PublicKey)
+		} else {
+			pubKeyHex = keyInfo.PublicKey
+		}
+
+		task := &ApprovalTask{
+			ID:            taskID,
+			RequestID:     requestID,
+			TxID:          txID,
+			AppInstanceID: req.AppInstanceID,
+			PublicKeyName: pubKeyHex,
+			Hash:          hash,
+			Status:        "PENDING",
+			Payload:       hex.EncodeToString(req.Message),
+			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		}
+		s.approvalTasksMutex.Lock()
+		s.approvalTasks[taskID] = task
+		s.approvalTasksMutex.Unlock()
+
+		// Create cache entry for tracking
+		entry := &CacheEntry{
+			AppInstanceID: req.AppInstanceID,
+			Hash:          hash,
+			Message:       req.Message,
+			Requests:      make(map[string]*SignRequest),
+			RequiredVotes: 1,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+			Status:        "pending_approval",
+			TxID:          txID,
+			RequestID:     requestID,
+		}
+		s.votingCacheMutex.Lock()
+		s.votingCache[hash] = entry
+		s.votingCacheMutex.Unlock()
+
+		s.addAuditRecord("APPROVAL_REQUEST", "SUBMIT", "PENDING", req.AppInstanceID, hash, txID, 0)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":      true,
+			"message":      "Approval required",
+			"status":       "pending_approval",
+			"tx_id":        txID,
+			"request_id":   requestID,
+			"hash":         hash,
+			"needs_voting": false,
+		})
+		return
+	}
+
+	// --- Voting path ---
+	if hasCfg && votingCfg.EnableVoting {
+		protocol := keyInfo.ProtocolNum
+		curve := keyInfo.CurveNum
+		var pubKeyHex string
+
+		if len(req.PublicKey) > 0 {
+			pubKeyHex = hex.EncodeToString(req.PublicKey)
+			s.storedKeyPairsMutex.RLock()
+			storedKeyPair, found := s.storedKeyPairs[pubKeyHex]
+			s.storedKeyPairsMutex.RUnlock()
+			if found {
+				protocol = storedKeyPair.ProtocolNum
+				curve = storedKeyPair.CurveNum
+			}
+		} else {
+			pubKeyHex = keyInfo.PublicKey
+		}
+
+		// Check or create cache entry
+		s.votingCacheMutex.Lock()
+		entry, entryExists := s.votingCache[hash]
+		if !entryExists {
+			entry = &CacheEntry{
+				AppInstanceID: req.AppInstanceID,
+				Hash:          hash,
+				Message:       req.Message,
+				RequiredVotes: votingCfg.RequiredVotes,
+				Requests:      make(map[string]*SignRequest),
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+				Status:        "pending",
+			}
+			s.votingCache[hash] = entry
+		}
+		// Register this vote
+		entry.Requests[req.AppInstanceID] = &SignRequest{
+			AppInstanceID: req.AppInstanceID,
+			Timestamp:     time.Now(),
+			Approved:      true,
+		}
+		entry.UpdatedAt = time.Now()
+
+		// Count approved votes
+		approvedCount := 0
+		for _, vote := range entry.Requests {
+			if vote.Approved {
+				approvedCount++
+			}
+		}
+
+		if approvedCount >= entry.RequiredVotes {
+			// Threshold reached — sign now
+			signature, err := s.signWithKey(protocol, curve, req.Message, pubKeyHex)
+			if err != nil {
+				entry.Status = "failed"
+				entry.ErrorMessage = err.Error()
+				s.votingCacheMutex.Unlock()
+				log.Printf("Voting signing failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": "Signing failed: " + err.Error(),
+					"hash":    hash,
+					"status":  "failed",
+				})
+				return
+			}
+			signatureHex := hex.EncodeToString(signature)
+			entry.Status = "signed"
+			entry.Signature = signatureHex
+			s.votingCacheMutex.Unlock()
+
+			if s.enableLogging {
+				log.Printf("Voting threshold reached, signed: hash=%s..., votes=%d/%d",
+					hash[:20], approvedCount, votingCfg.RequiredVotes)
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"success":        true,
+				"message":        "Voting threshold reached, signing completed",
+				"hash":           hash,
+				"status":         "signed",
+				"signature":      signatureHex,
+				"needs_voting":   false,
+				"current_votes":  approvedCount,
+				"required_votes": entry.RequiredVotes,
+			})
+			return
+		}
+
+		s.votingCacheMutex.Unlock()
+
+		if s.enableLogging {
+			log.Printf("Voting in progress: hash=%s..., votes=%d/%d",
+				hash[:20], approvedCount, votingCfg.RequiredVotes)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":        true,
+			"message":        "Vote registered, waiting for threshold",
+			"hash":           hash,
+			"status":         "pending",
+			"needs_voting":   true,
+			"current_votes":  approvedCount,
+			"required_votes": entry.RequiredVotes,
+		})
+		return
+	}
+
+	// --- Direct signing path (default) ---
 	var protocol, curve uint32
 	var pubKeyHex string
 
-	if len(req.PublicKey) > 0 {
-		// Use provided public key
-		pubKeyHex = hex.EncodeToString(req.PublicKey)
+	// Always trust the app's registered protocol/curve from keyInfo.
+	// The provided public_key is used only for key lookup, not type detection.
+	protocol = keyInfo.ProtocolNum
+	curve = keyInfo.CurveNum
 
-		// First, check if this is a stored generated key
+	if len(req.PublicKey) > 0 {
+		pubKeyHex = hex.EncodeToString(req.PublicKey)
+		// Check if this is a stored/generated key pair with its own protocol/curve
 		s.storedKeyPairsMutex.RLock()
 		storedKeyPair, found := s.storedKeyPairs[pubKeyHex]
 		s.storedKeyPairsMutex.RUnlock()
-
 		if found {
-			// Use stored key's protocol/curve
 			protocol = storedKeyPair.ProtocolNum
 			curve = storedKeyPair.CurveNum
-		} else {
-			// Try to detect key type from bytes
-			protocol, curve = s.detectKeyType(req.PublicKey)
-			if protocol == 0 {
-				// Fall back to app's default
-				protocol = keyInfo.ProtocolNum
-				curve = keyInfo.CurveNum
-			}
 		}
 	} else {
-		// Use default app key
-		protocol = keyInfo.ProtocolNum
-		curve = keyInfo.CurveNum
 		pubKeyHex = keyInfo.PublicKey
 	}
 
-	// Generate signature using appropriate key
 	signature, err := s.signWithKey(protocol, curve, req.Message, pubKeyHex)
 	if err != nil {
 		log.Printf("Signing failed: %v", err)
@@ -446,10 +893,17 @@ func (s *MockServer) signWithKey(protocol, curve uint32, message []byte, pubKeyH
 
 	if found {
 		// Use the stored key pair
+		if s.enableLogging {
+			log.Printf("signWithKey: using stored key pair, protocol=%d, curve=%d", protocol, curve)
+		}
 		return s.signWithStoredKey(protocol, curve, message, keyPair)
 	}
 
 	// Fall back to default keys
+	if s.enableLogging {
+		log.Printf("signWithKey: using default keys, protocol=%d, curve=%d, pubKeyHex=%s...%s",
+			protocol, curve, pubKeyHex[:16], pubKeyHex[len(pubKeyHex)-8:])
+	}
 	return s.sign(protocol, curve, message)
 }
 
@@ -467,6 +921,7 @@ func (s *MockServer) signWithStoredKey(protocol, curve uint32, message []byte, k
 			if keyPair.SECP256K1Key == nil {
 				return nil, fmt.Errorf("SECP256K1 key not available")
 			}
+			// btcec requires 32-byte hash; real FROST accepts variable-length.
 			hash := sha256.Sum256(message)
 			sig, err := schnorr.Sign(keyPair.SECP256K1Key, hash[:])
 			if err != nil {
@@ -483,10 +938,8 @@ func (s *MockServer) signWithStoredKey(protocol, curve uint32, message []byte, k
 			if keyPair.SECP256K1Key == nil {
 				return nil, fmt.Errorf("SECP256K1 key not available")
 			}
-			hasher := sha3.NewLegacyKeccak256()
-			hasher.Write(message)
-			messageHash := hasher.Sum(nil)
-			sig := btcecdsa.Sign(keyPair.SECP256K1Key, messageHash)
+			// Caller is responsible for hashing; sign the bytes directly.
+			sig := btcecdsa.Sign(keyPair.SECP256K1Key, message)
 			derSig := sig.Serialize()
 			signature := make([]byte, 65)
 			rBytes, sBytes := extractRSFromDER(derSig)
@@ -504,10 +957,15 @@ func (s *MockServer) signWithStoredKey(protocol, curve uint32, message []byte, k
 			if keyPair.SECP256R1Key == nil {
 				return nil, fmt.Errorf("SECP256R1 key not available")
 			}
-			hash := sha256.Sum256(message)
-			r, s_sig, err := ecdsa.Sign(rand.Reader, keyPair.SECP256R1Key, hash[:])
+			// Caller is responsible for hashing (same as secp256k1).
+			r, s_sig, err := ecdsa.Sign(rand.Reader, keyPair.SECP256R1Key, message)
 			if err != nil {
 				return nil, fmt.Errorf("SECP256R1 ECDSA signing failed: %v", err)
+			}
+			// Enforce low-S
+			halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+			if s_sig.Cmp(halfOrder) > 0 {
+				s_sig.Sub(elliptic.P256().Params().N, s_sig)
 			}
 			signature := make([]byte, 64)
 			r.FillBytes(signature[:32])
@@ -543,7 +1001,9 @@ func (s *MockServer) signSchnorr(curve uint32, message []byte) ([]byte, error) {
 		return ed25519.Sign(s.ed25519Key, message), nil
 
 	case CurveSECP256K1:
-		// BIP-340 Schnorr signature
+		// BIP-340 Schnorr: btcec requires 32-byte hash input.
+		// The real FROST protocol accepts variable-length messages,
+		// but btcec's schnorr.Sign does not. Hash here to simulate.
 		hash := sha256.Sum256(message)
 		sig, err := schnorr.Sign(s.secp256k1Key, hash[:])
 		if err != nil {
@@ -560,12 +1020,9 @@ func (s *MockServer) signSchnorr(curve uint32, message []byte) ([]byte, error) {
 func (s *MockServer) signECDSA(curve uint32, message []byte) ([]byte, error) {
 	switch curve {
 	case CurveSECP256K1:
-		// Ethereum-style ECDSA with Keccak-256
-		hasher := sha3.NewLegacyKeccak256()
-		hasher.Write(message)
-		messageHash := hasher.Sum(nil)
-
-		sig := btcecdsa.Sign(s.secp256k1Key, messageHash)
+		// ECDSA on secp256k1 — caller is responsible for hashing.
+		// The message bytes received are used directly as the digest.
+		sig := btcecdsa.Sign(s.secp256k1Key, message)
 
 		// Ethereum-style 65-byte signature: R (32) + S (32) + V (1)
 		// Serialize the signature to DER and then extract R and S
@@ -593,11 +1050,17 @@ func (s *MockServer) signECDSA(curve uint32, message []byte) ([]byte, error) {
 		return signature, nil
 
 	case CurveSECP256R1:
-		// ECDSA with SHA-256 on P-256
-		hash := sha256.Sum256(message)
-		r, s_sig, err := ecdsa.Sign(rand.Reader, s.secp256r1Key, hash[:])
+		// ECDSA on P-256 — caller is responsible for hashing (same as secp256k1).
+		// TEE-DAO requires exactly 32 bytes (pre-hashed) for all ECDSA.
+		r, s_sig, err := ecdsa.Sign(rand.Reader, s.secp256r1Key, message)
 		if err != nil {
 			return nil, fmt.Errorf("SECP256R1 ECDSA signing failed: %v", err)
+		}
+
+		// Enforce low-S (s <= n/2) for canonical signatures
+		halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+		if s_sig.Cmp(halfOrder) > 0 {
+			s_sig.Sub(elliptic.P256().Params().N, s_sig)
 		}
 
 		// 64-byte signature: R (32) + S (32)
@@ -998,6 +1461,948 @@ func generateConsistentSECP256R1Key() *ecdsa.PrivateKey {
 	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(privateKeyInt.Bytes())
 
 	return privateKey
+}
+
+// ============================================================================
+// Token helpers
+// ============================================================================
+
+func (s *MockServer) generateToken(passkeyUserID uint) string {
+	payload := fmt.Sprintf(`{"passkey_user_id":%d,"exp":%d,"iat":%d}`,
+		passkeyUserID,
+		time.Now().Add(30*time.Minute).Unix(),
+		time.Now().Unix())
+	payloadB64 := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	mac := hmac.New(sha256.New, s.tokenSecret)
+	mac.Write([]byte(payloadB64))
+	sigB64 := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return payloadB64 + "." + sigB64
+}
+
+func (s *MockServer) validateToken(token string) (uint, bool) {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return 0, false
+	}
+	mac := hmac.New(sha256.New, s.tokenSecret)
+	mac.Write([]byte(parts[0]))
+	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(parts[1]), []byte(expected)) {
+		return 0, false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return 0, false
+	}
+	var data struct {
+		PasskeyUserID uint  `json:"passkey_user_id"`
+		Exp           int64 `json:"exp"`
+	}
+	if json.Unmarshal(payload, &data) != nil {
+		return 0, false
+	}
+	if time.Now().Unix() > data.Exp {
+		return 0, false
+	}
+	return data.PasskeyUserID, true
+}
+
+func (s *MockServer) extractToken(c *gin.Context) (uint, bool) {
+	auth := c.GetHeader("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return 0, false
+	}
+	return s.validateToken(strings.TrimPrefix(auth, "Bearer "))
+}
+
+// ============================================================================
+// Audit helper
+// ============================================================================
+
+func (s *MockServer) addAuditRecord(eventType, action, status, appInstanceID, hash, txID string, actorID uint) {
+	id := atomic.AddUint32(&s.auditRecordIDCounter, 1)
+	record := &MockAuditRecord{
+		ID:                 uint(id),
+		EventType:          eventType,
+		Action:             action,
+		Status:             status,
+		AppInstanceID:      appInstanceID,
+		Hash:               hash,
+		TxID:               txID,
+		ActorPasskeyUserID: actorID,
+		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
+	}
+	s.auditRecordsMutex.Lock()
+	s.auditRecords = append(s.auditRecords, record)
+	s.auditRecordsMutex.Unlock()
+}
+
+// ============================================================================
+// Cache handlers
+// ============================================================================
+
+// handleCacheStatus handles GET /api/cache/status
+func (s *MockServer) handleCacheStatus(c *gin.Context) {
+	s.votingCacheMutex.RLock()
+	entries := make([]*CacheEntry, 0, len(s.votingCache))
+	for _, e := range s.votingCache {
+		entries = append(entries, e)
+	}
+	s.votingCacheMutex.RUnlock()
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"total_entries": len(entries),
+		"entries":       entries,
+	})
+}
+
+// handleGetCache handles GET /api/cache/:hash
+func (s *MockServer) handleGetCache(c *gin.Context) {
+	hash := c.Param("hash")
+	// Normalize: ensure 0x prefix
+	if !strings.HasPrefix(hash, "0x") {
+		hash = "0x" + hash
+	}
+
+	s.votingCacheMutex.RLock()
+	entry, exists := s.votingCache[hash]
+	s.votingCacheMutex.RUnlock()
+
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"found":   false,
+			"message": "cache entry not found",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"found":   true,
+		"entry":   entry,
+	})
+}
+
+// handleDeleteCache handles DELETE /api/cache/:hash
+func (s *MockServer) handleDeleteCache(c *gin.Context) {
+	hash := c.Param("hash")
+	if !strings.HasPrefix(hash, "0x") {
+		hash = "0x" + hash
+	}
+
+	s.votingCacheMutex.Lock()
+	_, exists := s.votingCache[hash]
+	if exists {
+		delete(s.votingCache, hash)
+	}
+	s.votingCacheMutex.Unlock()
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "cache entry not found",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "cache entry deleted",
+	})
+}
+
+// handleGetConfig handles GET /api/config/:app_instance_id
+func (s *MockServer) handleGetConfig(c *gin.Context) {
+	appInstanceID := c.Param("app_instance_id")
+
+	s.votingConfigsMutex.RLock()
+	cfg, exists := s.votingConfigs[appInstanceID]
+	s.votingConfigsMutex.RUnlock()
+
+	if !exists {
+		// Return default direct-signing config
+		cfg = &VotingConfig{
+			EnableVoting:         false,
+			RequiredVotes:        1,
+			TargetAppInstanceIDs: []string{appInstanceID},
+			HasPasskeyPolicy:     false,
+			PasskeyPolicyEnabled: false,
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":                      true,
+		"app_instance_id":             appInstanceID,
+		"enable_voting":               cfg.EnableVoting,
+		"required_votes":              cfg.RequiredVotes,
+		"target_app_instance_ids":     cfg.TargetAppInstanceIDs,
+		"has_passkey_policy":           cfg.HasPasskeyPolicy,
+		"passkey_policy_enabled":       cfg.PasskeyPolicyEnabled,
+	})
+}
+
+// ============================================================================
+// Approval bridge handlers
+// ============================================================================
+
+// handlePasskeyLoginOptions handles GET /api/auth/passkey/options
+func (s *MockServer) handlePasskeyLoginOptions(c *gin.Context) {
+	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+	challenge := fmt.Sprintf("mock-challenge-%d", sessionID)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"options": gin.H{
+				"challenge": challenge,
+				"rp":        gin.H{"name": "TEENet Mock"},
+			},
+			"login_session_id": sessionID,
+		},
+	})
+}
+
+// handlePasskeyLoginVerify handles POST /api/auth/passkey/verify
+func (s *MockServer) handlePasskeyLoginVerify(c *gin.Context) {
+	var body struct {
+		LoginSessionID uint64      `json:"login_session_id"`
+		Credential     interface{} `json:"credential"`
+	}
+	// Parse body; ignore errors — this is a mock
+	_ = c.ShouldBindJSON(&body)
+
+	// Use first available passkey user (ID=1) as default
+	userID := uint(1)
+	token := s.generateToken(userID)
+	expiresAt := time.Now().Add(30 * time.Minute).Unix()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"token":            token,
+			"passkey_user_id":  userID,
+			"expires_at":       expiresAt,
+		},
+	})
+}
+
+// handlePasskeyLoginVerifyAs handles POST /api/auth/passkey/verify-as
+func (s *MockServer) handlePasskeyLoginVerifyAs(c *gin.Context) {
+	var body struct {
+		LoginSessionID       uint64      `json:"login_session_id"`
+		Credential           interface{} `json:"credential"`
+		ExpectedPasskeyUserID uint       `json:"expected_passkey_user_id"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	userID := body.ExpectedPasskeyUserID
+	if userID == 0 {
+		userID = 1
+	}
+
+	// Check user exists
+	s.passkeyUsersMutex.RLock()
+	_, exists := s.passkeyUsers[userID]
+	s.passkeyUsersMutex.RUnlock()
+
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("passkey user %d not found", userID),
+		})
+		return
+	}
+
+	token := s.generateToken(userID)
+	expiresAt := time.Now().Add(30 * time.Minute).Unix()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"token":           token,
+			"passkey_user_id": userID,
+			"expires_at":      expiresAt,
+		},
+	})
+}
+
+// handleApprovalRequestInit handles POST /api/approvals/request/init
+func (s *MockServer) handleApprovalRequestInit(c *gin.Context) {
+	userID, ok := s.extractToken(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "unauthorized: missing or invalid token",
+		})
+		return
+	}
+
+	var body struct {
+		AppInstanceID string      `json:"app_instance_id"`
+		Payload       interface{} `json:"payload"`
+		Hash          string      `json:"hash"`
+		Message       []byte      `json:"message"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	requestID := atomic.AddUint64(&s.requestSessionIDCounter, 1)
+	taskID := atomic.AddUint64(&s.approvalTaskIDCounter, 1)
+	txID := fmt.Sprintf("mock-tx-%d", requestID)
+
+	payloadBytes, _ := json.Marshal(body.Payload)
+
+	task := &ApprovalTask{
+		ID:            taskID,
+		RequestID:     requestID,
+		TxID:          txID,
+		AppInstanceID: body.AppInstanceID,
+		Hash:          body.Hash,
+		Status:        "PENDING",
+		Payload:       string(payloadBytes),
+		InitiatorID:   userID,
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+
+	s.approvalTasksMutex.Lock()
+	s.approvalTasks[taskID] = task
+	s.approvalTasksMutex.Unlock()
+
+	s.addAuditRecord("APPROVAL_REQUEST", "INIT", "PENDING", body.AppInstanceID, body.Hash, txID, userID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"request_id": requestID,
+			"tx_id":      txID,
+			"status":     "PENDING",
+		},
+	})
+}
+
+// handleApprovalRequestChallenge handles GET /api/approvals/request/:requestId/challenge
+func (s *MockServer) handleApprovalRequestChallenge(c *gin.Context) {
+	requestIDStr := c.Param("requestId")
+	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"request_id": requestIDStr,
+			"options": gin.H{
+				"challenge":        fmt.Sprintf("mock-challenge-confirm-%d", sessionID),
+				"rp":               gin.H{"name": "TEENet Mock"},
+				"login_session_id": sessionID,
+			},
+		},
+	})
+}
+
+// handleApprovalRequestConfirm handles POST /api/approvals/request/:requestId/confirm
+func (s *MockServer) handleApprovalRequestConfirm(c *gin.Context) {
+	requestIDStr := c.Param("requestId")
+	requestID, _ := strconv.ParseUint(requestIDStr, 10, 64)
+
+	// Find the task with this requestID
+	var foundTask *ApprovalTask
+	s.approvalTasksMutex.Lock()
+	for _, task := range s.approvalTasks {
+		if task.RequestID == requestID {
+			task.Status = "CONFIRMED"
+			foundTask = task
+			break
+		}
+	}
+	s.approvalTasksMutex.Unlock()
+
+	if foundTask == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "request not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"task_id":    foundTask.ID,
+			"request_id": requestID,
+			"status":     "CONFIRMED",
+		},
+	})
+}
+
+// handleApprovalActionChallenge handles GET /api/approvals/:taskId/challenge
+func (s *MockServer) handleApprovalActionChallenge(c *gin.Context) {
+	taskIDStr := c.Param("taskId")
+	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"task_id": taskIDStr,
+			"options": gin.H{
+				"challenge":        fmt.Sprintf("mock-challenge-action-%d", sessionID),
+				"rp":               gin.H{"name": "TEENet Mock"},
+				"login_session_id": sessionID,
+			},
+		},
+	})
+}
+
+// handleApprovalAction handles POST /api/approvals/:taskId/action
+func (s *MockServer) handleApprovalAction(c *gin.Context) {
+	taskIDStr := c.Param("taskId")
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "invalid task_id",
+		})
+		return
+	}
+
+	userID, ok := s.extractToken(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "unauthorized",
+		})
+		return
+	}
+
+	var body struct {
+		Action     string      `json:"action"` // "APPROVE" or "REJECT"
+		Credential interface{} `json:"credential"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	s.approvalTasksMutex.Lock()
+	task, exists := s.approvalTasks[taskID]
+	if !exists {
+		s.approvalTasksMutex.Unlock()
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "task not found",
+		})
+		return
+	}
+
+	action := strings.ToUpper(body.Action)
+	var signatureHex string
+
+	if action == "APPROVE" {
+		// Attempt to sign the associated message
+		if task.Hash != "" {
+			s.votingCacheMutex.RLock()
+			cacheEntry, cacheExists := s.votingCache[task.Hash]
+			s.votingCacheMutex.RUnlock()
+
+			if cacheExists && len(cacheEntry.Message) > 0 {
+				// Get key info for this app
+				s.appKeysMutex.RLock()
+				appKey, appKeyExists := s.appKeys[task.AppInstanceID]
+				s.appKeysMutex.RUnlock()
+
+				if appKeyExists {
+					sig, sigErr := s.signWithKey(appKey.ProtocolNum, appKey.CurveNum, cacheEntry.Message, appKey.PublicKey)
+					if sigErr == nil {
+						signatureHex = hex.EncodeToString(sig)
+						// Update cache entry
+						s.votingCacheMutex.Lock()
+						cacheEntry.Status = "signed"
+						cacheEntry.Signature = signatureHex
+						s.votingCacheMutex.Unlock()
+					}
+				}
+			}
+		}
+		task.Status = "APPROVED"
+		task.Signature = signatureHex
+	} else if action == "REJECT" {
+		task.Status = "REJECTED"
+	} else {
+		s.approvalTasksMutex.Unlock()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "action must be APPROVE or REJECT",
+		})
+		return
+	}
+	s.approvalTasksMutex.Unlock()
+
+	s.addAuditRecord("APPROVAL_ACTION", action, task.Status, task.AppInstanceID, task.Hash, task.TxID, userID)
+
+	resp := gin.H{
+		"success": true,
+		"data": gin.H{
+			"task_id": taskID,
+			"status":  task.Status,
+			"action":  action,
+		},
+	}
+	if signatureHex != "" {
+		resp["signature"] = signatureHex
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// handleApprovalPending handles GET /api/approvals/pending
+func (s *MockServer) handleApprovalPending(c *gin.Context) {
+	appFilter := c.Query("app_instance_id")
+
+	s.approvalTasksMutex.RLock()
+	pending := make([]*ApprovalTask, 0)
+	for _, task := range s.approvalTasks {
+		if task.Status == "PENDING" {
+			if appFilter == "" || task.AppInstanceID == appFilter {
+				pending = append(pending, task)
+			}
+		}
+	}
+	s.approvalTasksMutex.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"tasks": pending,
+			"total": len(pending),
+		},
+	})
+}
+
+// handleMyRequests handles GET /api/requests/mine
+func (s *MockServer) handleMyRequests(c *gin.Context) {
+	userID, ok := s.extractToken(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "unauthorized",
+		})
+		return
+	}
+
+	s.approvalTasksMutex.RLock()
+	tasks := make([]*ApprovalTask, 0)
+	for _, task := range s.approvalTasks {
+		if task.InitiatorID == userID {
+			tasks = append(tasks, task)
+		}
+	}
+	s.approvalTasksMutex.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    tasks,
+		"count":   len(tasks),
+	})
+}
+
+// handleSignatureByTx handles GET /api/signature/by-tx/:txId
+func (s *MockServer) handleSignatureByTx(c *gin.Context) {
+	txID := c.Param("txId")
+
+	s.approvalTasksMutex.RLock()
+	var foundTask *ApprovalTask
+	for _, task := range s.approvalTasks {
+		if task.TxID == txID {
+			foundTask = task
+			break
+		}
+	}
+	s.approvalTasksMutex.RUnlock()
+
+	if foundTask == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "task not found for tx_id",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"tx_id":     txID,
+		"status":    foundTask.Status,
+		"signature": foundTask.Signature,
+		"hash":      foundTask.Hash,
+	})
+}
+
+// handleCancelRequest handles DELETE /api/requests/:id
+func (s *MockServer) handleCancelRequest(c *gin.Context) {
+	idStr := c.Param("id")
+	requestType := c.Query("type") // "session" or "task"
+
+	s.approvalTasksMutex.Lock()
+	defer s.approvalTasksMutex.Unlock()
+
+	if requestType == "session" {
+		// Find by requestID (session)
+		rid, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid id"})
+			return
+		}
+		for _, task := range s.approvalTasks {
+			if task.RequestID == rid {
+				task.Status = "CANCELLED"
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "request cancelled"})
+				return
+			}
+		}
+	} else {
+		// Find by task ID
+		tid, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid id"})
+			return
+		}
+		if task, exists := s.approvalTasks[tid]; exists {
+			task.Status = "CANCELLED"
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "request cancelled"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "request not found"})
+}
+
+// ============================================================================
+// Admin bridge handlers
+// ============================================================================
+
+// handleAdminInvitePasskey handles POST /api/admin/passkey/invite
+func (s *MockServer) handleAdminInvitePasskey(c *gin.Context) {
+	var body struct {
+		DisplayName   string `json:"display_name"`
+		AppInstanceID string `json:"app_instance_id"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	inviteToken := fmt.Sprintf("mock-invite-%d", atomic.AddUint64(&s.loginSessionIDCounter, 1))
+	expiresAt := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	registerURL := fmt.Sprintf("http://localhost:%s/register?token=%s", s.port, inviteToken)
+
+	c.JSON(http.StatusOK, gin.H{
+		"invite_token": inviteToken,
+		"register_url": registerURL,
+		"display_name": body.DisplayName,
+		"expires_at":   expiresAt,
+	})
+}
+
+// handleAdminListPasskeyUsers handles GET /api/admin/passkey/users
+func (s *MockServer) handleAdminListPasskeyUsers(c *gin.Context) {
+	pageStr := c.DefaultQuery("page", "1")
+	limitStr := c.DefaultQuery("limit", "20")
+	page, _ := strconv.Atoi(pageStr)
+	limit, _ := strconv.Atoi(limitStr)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+
+	s.passkeyUsersMutex.RLock()
+	users := make([]*MockPasskeyUser, 0, len(s.passkeyUsers))
+	for _, u := range s.passkeyUsers {
+		users = append(users, u)
+	}
+	s.passkeyUsersMutex.RUnlock()
+
+	total := len(users)
+	start := (page - 1) * limit
+	end := start + limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users": users[start:end],
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
+}
+
+// handleAdminDeletePasskeyUser handles DELETE /api/admin/passkey/users/:id
+func (s *MockServer) handleAdminDeletePasskeyUser(c *gin.Context) {
+	idStr := c.Param("id")
+	id64, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid id"})
+		return
+	}
+	userID := uint(id64)
+
+	s.passkeyUsersMutex.Lock()
+	_, exists := s.passkeyUsers[userID]
+	if exists {
+		delete(s.passkeyUsers, userID)
+	}
+	s.passkeyUsersMutex.Unlock()
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "user deleted"})
+}
+
+// handleAdminListAuditRecords handles GET /api/admin/audit-records
+func (s *MockServer) handleAdminListAuditRecords(c *gin.Context) {
+	pageStr := c.DefaultQuery("page", "1")
+	limitStr := c.DefaultQuery("limit", "20")
+	page, _ := strconv.Atoi(pageStr)
+	limit, _ := strconv.Atoi(limitStr)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+
+	s.auditRecordsMutex.RLock()
+	records := make([]*MockAuditRecord, len(s.auditRecords))
+	copy(records, s.auditRecords)
+	s.auditRecordsMutex.RUnlock()
+
+	total := len(records)
+	start := (page - 1) * limit
+	end := start + limit
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"records": records[start:end],
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	})
+}
+
+// handleAdminUpsertPolicy handles PUT /api/admin/policy
+func (s *MockServer) handleAdminUpsertPolicy(c *gin.Context) {
+	var policy PermissionPolicy
+	if err := c.ShouldBindJSON(&policy); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	key := policy.AppInstanceID + ":" + policy.PublicKeyName
+
+	s.policiesMutex.Lock()
+	if existing, exists := s.policies[key]; exists {
+		policy.ID = existing.ID
+	} else {
+		policy.ID = uint(atomic.AddUint32(&s.policyIDCounter, 1))
+	}
+	s.policies[key] = &policy
+	s.policiesMutex.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    policy,
+	})
+}
+
+// handleAdminGetPolicy handles GET /api/admin/policy
+func (s *MockServer) handleAdminGetPolicy(c *gin.Context) {
+	appInstanceID := c.Query("app_instance_id")
+	publicKeyName := c.Query("public_key_name")
+	key := appInstanceID + ":" + publicKeyName
+
+	s.policiesMutex.RLock()
+	policy, exists := s.policies[key]
+	s.policiesMutex.RUnlock()
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "policy not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"policy": policy})
+}
+
+// handleAdminDeletePolicy handles DELETE /api/admin/policy
+func (s *MockServer) handleAdminDeletePolicy(c *gin.Context) {
+	appInstanceID := c.Query("app_instance_id")
+	publicKeyName := c.Query("public_key_name")
+	key := appInstanceID + ":" + publicKeyName
+
+	s.policiesMutex.Lock()
+	_, exists := s.policies[key]
+	if exists {
+		delete(s.policies, key)
+	}
+	s.policiesMutex.Unlock()
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "policy not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "policy deleted"})
+}
+
+// handleAdminDeletePublicKey handles DELETE /api/admin/publickeys/:name
+func (s *MockServer) handleAdminDeletePublicKey(c *gin.Context) {
+	name := c.Param("name")
+	appInstanceID := c.Query("app_instance_id")
+
+	deleted := false
+
+	// Remove from appKeys if it matches
+	if appInstanceID != "" {
+		s.appKeysMutex.Lock()
+		if _, exists := s.appKeys[appInstanceID]; exists {
+			delete(s.appKeys, appInstanceID)
+			deleted = true
+		}
+		s.appKeysMutex.Unlock()
+	}
+
+	// Remove from generatedKeys by name
+	s.generatedKeysMutex.Lock()
+	for appID, keys := range s.generatedKeys {
+		filtered := make([]*GeneratedKeyInfo, 0, len(keys))
+		for _, k := range keys {
+			if k.Name != name {
+				filtered = append(filtered, k)
+			} else {
+				deleted = true
+			}
+		}
+		s.generatedKeys[appID] = filtered
+	}
+	s.generatedKeysMutex.Unlock()
+
+	if !deleted {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "public key not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "public key deleted", "name": name})
+}
+
+// AdminCreateAPIKeyRequest is the request body for creating an API key via admin
+type AdminCreateAPIKeyRequest struct {
+	AppInstanceID string `json:"app_instance_id" binding:"required"`
+	Name          string `json:"name" binding:"required"`
+	Description   string `json:"description"`
+	APIKey        string `json:"api_key"`
+	APISecret     string `json:"api_secret"`
+}
+
+// handleAdminCreateAPIKey handles POST /api/admin/apikeys
+func (s *MockServer) handleAdminCreateAPIKey(c *gin.Context) {
+	var req AdminCreateAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	id := atomic.AddUint32(&s.apiKeyIDCounter, 1)
+	hasKey := req.APIKey != ""
+	hasSecret := req.APISecret != ""
+	keyInfo := &APIKeyInfo{
+		ID:        id,
+		Name:      req.Name,
+		HasKey:    hasKey,
+		HasSecret: hasSecret,
+	}
+	if hasKey {
+		keyInfo.APIKey = req.APIKey
+	}
+	if hasSecret {
+		keyInfo.APISecret = []byte(req.APISecret)
+	}
+
+	s.apiKeysMutex.Lock()
+	if s.apiKeys[req.AppInstanceID] == nil {
+		s.apiKeys[req.AppInstanceID] = make(map[string]*APIKeyInfo)
+	}
+	s.apiKeys[req.AppInstanceID][req.Name] = keyInfo
+	s.apiKeysMutex.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              id,
+		"name":            req.Name,
+		"app_instance_id": req.AppInstanceID,
+		"has_api_key":     hasKey,
+		"has_api_secret":  hasSecret,
+	})
+}
+
+// handleAdminDeleteAPIKey handles DELETE /api/admin/apikeys/:name
+func (s *MockServer) handleAdminDeleteAPIKey(c *gin.Context) {
+	name := c.Param("name")
+	appInstanceID := c.Query("app_instance_id")
+
+	s.apiKeysMutex.Lock()
+	appKeys, appExists := s.apiKeys[appInstanceID]
+	if appExists {
+		_, keyExists := appKeys[name]
+		if keyExists {
+			delete(appKeys, name)
+			s.apiKeysMutex.Unlock()
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "API key deleted"})
+			return
+		}
+	}
+	s.apiKeysMutex.Unlock()
+
+	c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "API key not found"})
+}
+
+// handlePasskeyRegisterOptions handles GET /api/passkey/register/options
+func (s *MockServer) handlePasskeyRegisterOptions(c *gin.Context) {
+	inviteToken := c.Query("invite_token")
+	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+
+	c.JSON(http.StatusOK, gin.H{
+		"options": gin.H{
+			"challenge": fmt.Sprintf("mock-reg-challenge-%d", sessionID),
+			"rp":        gin.H{"name": "TEENet Mock"},
+			"user":      gin.H{"id": sessionID, "name": "new-user"},
+		},
+		"invite_token": inviteToken,
+		"expires_at":   time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339),
+	})
+}
+
+// handlePasskeyRegisterVerify handles POST /api/passkey/register/verify
+func (s *MockServer) handlePasskeyRegisterVerify(c *gin.Context) {
+	var body struct {
+		InviteToken   string      `json:"invite_token"`
+		Credential    interface{} `json:"credential"`
+		DisplayName   string      `json:"display_name"`
+		AppInstanceID string      `json:"app_instance_id"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	newID := uint(atomic.AddUint32(&s.passkeyUserIDCounter, 1))
+	displayName := body.DisplayName
+	if displayName == "" {
+		displayName = fmt.Sprintf("User %d", newID)
+	}
+
+	user := &MockPasskeyUser{
+		ID:            newID,
+		DisplayName:   displayName,
+		AppInstanceID: body.AppInstanceID,
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+
+	s.passkeyUsersMutex.Lock()
+	s.passkeyUsers[newID] = user
+	s.passkeyUsersMutex.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"passkey_user_id": newID,
+		"display_name":    displayName,
+	})
 }
 
 func main() {

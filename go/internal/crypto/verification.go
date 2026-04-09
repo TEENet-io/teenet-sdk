@@ -222,11 +222,7 @@ func verifySecp256r1(message, publicKeyBytes, signature []byte, protocol string)
 }
 
 // verifyP256ECDSA verifies ECDSA signature on P-256
-func verifyP256ECDSA(message []byte, publicKey *ecdsa.PublicKey, signature []byte) (bool, error) {
-	// Hash the message with SHA256
-	hasher := sha256.New()
-	hasher.Write(message)
-	messageHash := hasher.Sum(nil)
+func verifyP256ECDSA(messageHash []byte, publicKey *ecdsa.PublicKey, signature []byte) (bool, error) {
 
 	// Parse ECDSA signature (DER format or raw r,s format)
 	var ecdsaSig ECDSASignature

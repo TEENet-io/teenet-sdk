@@ -21,6 +21,8 @@ import (
 	"os"
 	"time"
 
+	"crypto/sha256"
+
 	sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
@@ -132,8 +134,10 @@ func main() {
 
 	ecdsaKeyName := ecdsaResult.PublicKey.Name
 
+	// For ECDSA, hash message first (backend requires 32-byte pre-hashed input)
 	fmt.Println("\n📝 Signing with ECDSA key...")
-	ecdsaSig, err := client.Sign(context.Background(), message, ecdsaKeyName)
+	ecdsaHashedMsg := sha256.Sum256(message)
+	ecdsaSig, err := client.Sign(context.Background(), ecdsaHashedMsg[:], ecdsaKeyName)
 	if err != nil {
 		fmt.Printf("❌ ECDSA signing failed: %v\n", err)
 	} else if !ecdsaSig.Success {
@@ -143,9 +147,9 @@ func main() {
 		fmt.Printf("   Signature length: %d bytes\n", len(ecdsaSig.Signature))
 		fmt.Printf("   Signature (hex): %x...\n", ecdsaSig.Signature[:min(32, len(ecdsaSig.Signature))])
 
-		// Verify ECDSA signature using SDK
+		// Verify with the same hash that was signed
 		fmt.Println("\n🔍 Verifying ECDSA signature...")
-		valid, err := client.Verify(context.Background(), message, ecdsaSig.Signature, ecdsaKeyName)
+		valid, err := client.Verify(context.Background(), ecdsaHashedMsg[:], ecdsaSig.Signature, ecdsaKeyName)
 		if err != nil {
 			fmt.Printf("❌ ECDSA signature verification error: %v\n", err)
 		} else if valid {

@@ -184,13 +184,16 @@ function verifySecp256r1(
 /**
  * Verify P-256 ECDSA signature
  */
+/**
+ * Verify P-256 ECDSA signature.
+ * No hashing — caller must pass the pre-hashed message digest (same as secp256k1 ECDSA).
+ */
 function verifyP256ECDSA(
-  message: Buffer,
+  messageHash: Buffer,
   publicKey: Uint8Array,
   signature: Buffer
 ): boolean {
   try {
-    const messageHash = sha256(message);
     let r: bigint, s: bigint;
 
     if (signature.length === 64) {

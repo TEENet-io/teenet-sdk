@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	sdk "github.com/TEENet-io/teenet-sdk/go"
+	"golang.org/x/crypto/sha3"
 )
 
 func main() {
@@ -140,8 +141,22 @@ func testSignAndVerify(serverURL, appID string) error {
 	fmt.Printf("   Protocol: %s, Curve: %s\n", protocol, curve)
 	keyName := key.Name
 
-	// Sign
-	result, err := client.Sign(context.Background(), message, keyName)
+	// For ECDSA, the user is responsible for hashing before Sign and Verify.
+	// The TEE-DAO backend requires exactly 32 bytes (pre-hashed) for ECDSA.
+	// For Schnorr/EdDSA, pass raw message (protocol handles hashing internally).
+	signMsg := message
+	if strings.EqualFold(protocol, "ecdsa") && strings.EqualFold(curve, "secp256k1") {
+		// Ethereum-style: Keccak-256
+		h := sha3.NewLegacyKeccak256()
+		h.Write(message)
+		signMsg = h.Sum(nil)
+	} else if strings.EqualFold(protocol, "ecdsa") && strings.EqualFold(curve, "secp256r1") {
+		// P-256: SHA-256
+		h := sha256.Sum256(message)
+		signMsg = h[:]
+	}
+
+	result, err := client.Sign(context.Background(), signMsg, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to sign: %v", err)
 	}
@@ -151,8 +166,8 @@ func testSignAndVerify(serverURL, appID string) error {
 
 	fmt.Printf("   Signature: %s... (%d bytes)\n", shortHex(result.Signature, 8), len(result.Signature))
 
-	// Verify
-	valid, err := client.Verify(context.Background(), message, result.Signature, keyName)
+	// Verify with the same message bytes that were signed
+	valid, err := client.Verify(context.Background(), signMsg, result.Signature, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to verify: %v", err)
 	}
@@ -204,8 +219,21 @@ func testKeyGeneration(serverURL string) error {
 			result.PublicKey.KeyData[:16],
 			result.PublicKey.KeyData[len(result.PublicKey.KeyData)-8:])
 
+		// Invalidate key cache so newly generated key is visible
+		client.InvalidateKeyCache()
+
 		message := []byte("Test message for generated key")
-		signResult, err := client.Sign(context.Background(), message, result.PublicKey.Name)
+		// For ECDSA, hash before Sign (backend requires 32-byte pre-hashed input)
+		signMsg := message
+		if kc.protocol == "ecdsa" && kc.curve == "secp256k1" {
+			h := sha3.NewLegacyKeccak256()
+			h.Write(message)
+			signMsg = h.Sum(nil)
+		} else if kc.protocol == "ecdsa" && kc.curve == "secp256r1" {
+			h := sha256.Sum256(message)
+			signMsg = h[:]
+		}
+		signResult, err := client.Sign(context.Background(), signMsg, result.PublicKey.Name)
 		if err != nil {
 			return fmt.Errorf("failed to sign with %s key: %v", kc.name, err)
 		}
@@ -213,8 +241,8 @@ func testKeyGeneration(serverURL string) error {
 			return fmt.Errorf("sign with %s key returned failure: %s", kc.name, signResult.Error)
 		}
 
-		// Verify the signature
-		valid, err := client.Verify(context.Background(), message, signResult.Signature, result.PublicKey.Name)
+		// Verify with the same bytes that were signed
+		valid, err := client.Verify(context.Background(), signMsg, signResult.Signature, result.PublicKey.Name)
 		if err != nil {
 			return fmt.Errorf("failed to verify %s signature: %v", kc.name, err)
 		}

@@ -195,14 +195,14 @@ test('verifySignature: secp256k1 Schnorr throws for wrong signature size', () =>
 
 // ─── P-256 ECDSA ─────────────────────────────────────────────────────────────
 //
-// The SDK sha256-hashes the message before P-256 ECDSA verification.
+// No internal hashing — caller must pass the pre-hashed message digest.
 
 test('verifySignature: valid P-256 ECDSA returns true (uncompressed pubkey)', () => {
   const pubKey  = Buffer.from(p256.getPublicKey(P256_PRIV, false)); // 65 bytes
   const msgHash = Buffer.from(sha256(MESSAGE));
   const sig     = Buffer.from(p256.sign(msgHash, P256_PRIV).toCompactRawBytes());
 
-  const ok = verifySignature(MESSAGE, pubKey, sig, 'ecdsa', 'secp256r1');
+  const ok = verifySignature(msgHash, pubKey, sig, 'ecdsa', 'secp256r1');
   assert.equal(ok, true);
 });
 
@@ -211,7 +211,7 @@ test('verifySignature: P-256 ECDSA works with compressed pubkey', () => {
   const msgHash = Buffer.from(sha256(MESSAGE));
   const sig     = Buffer.from(p256.sign(msgHash, P256_PRIV).toCompactRawBytes());
 
-  const ok = verifySignature(MESSAGE, pubKey, sig, 'ecdsa', 'secp256r1');
+  const ok = verifySignature(msgHash, pubKey, sig, 'ecdsa', 'secp256r1');
   assert.equal(ok, true);
 });
 
@@ -221,7 +221,7 @@ test('verifySignature: P-256 ECDSA rejects tampered signature', () => {
   const sig     = Buffer.from(p256.sign(msgHash, P256_PRIV).toCompactRawBytes());
   sig[0] ^= 0xff; // tamper
 
-  const ok = verifySignature(MESSAGE, pubKey, sig, 'ecdsa', 'secp256r1');
+  const ok = verifySignature(msgHash, pubKey, sig, 'ecdsa', 'secp256r1');
   assert.equal(ok, false);
 });
 
@@ -232,7 +232,7 @@ test('verifySignature: P-256 ECDSA with raw 64-byte pubkey', () => {
   const msgHash = Buffer.from(sha256(MESSAGE));
   const sig     = Buffer.from(p256.sign(msgHash, P256_PRIV).toCompactRawBytes());
 
-  const ok = verifySignature(MESSAGE, rawPub, sig, 'ecdsa', 'secp256r1');
+  const ok = verifySignature(msgHash, rawPub, sig, 'ecdsa', 'secp256r1');
   assert.equal(ok, true);
 });
 
