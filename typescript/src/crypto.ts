@@ -1,18 +1,9 @@
-// -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
-//
-// This software and its associated documentation files (the "Software") are
-// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
-// Unauthorized copying of this file, via any medium, is strictly prohibited.
-//
-// No license, express or implied, is hereby granted, except by written agreement
-// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
-// is a violation of applicable laws.
-//
-// -----------------------------------------------------------------------------
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
 
 import { ed25519 } from '@noble/curves/ed25519';
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1, schnorr as secp256k1Schnorr } from '@noble/curves/secp256k1';
 import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -92,31 +83,41 @@ function verifySecp256k1(
 /**
  * Verify secp256k1 ECDSA signature
  */
+/**
+ * Verify secp256k1 ECDSA signature.
+ *
+ * No hashing is performed here — matching the Go SDK behaviour.
+ * The TEE-DAO does NOT hash messages before signing for secp256k1 ECDSA.
+ * The caller must pass the pre-hashed message digest (e.g. a 32-byte
+ * Keccak-256 or SHA-256 hash). Hashing is the caller's responsibility.
+ */
 function verifySecp256k1ECDSA(
-  message: Buffer,
+  messageHash: Buffer,
   publicKey: Uint8Array,
   signature: Buffer
 ): boolean {
   try {
-    let messageHash: Uint8Array;
     let r: bigint, s: bigint;
 
     if (signature.length === 65) {
-      // Ethereum-style signature with recovery id: r(32) + s(32) + v(1)
-      messageHash = keccak_256(message);
+      // 65-byte format: r(32) || s(32) || v(1) — recovery id not needed for verification.
       r = BigInt('0x' + signature.subarray(0, 32).toString('hex'));
       s = BigInt('0x' + signature.subarray(32, 64).toString('hex'));
     } else if (signature.length === 64) {
-      // Raw r,s format
-      messageHash = sha256(message);
+      // 64-byte canonical format: r(32) || s(32).
       r = BigInt('0x' + signature.subarray(0, 32).toString('hex'));
       s = BigInt('0x' + signature.subarray(32, 64).toString('hex'));
     } else {
       // Try DER format
-      messageHash = sha256(message);
       const parsed = parseDERSignature(signature);
       r = parsed.r;
       s = parsed.s;
+    }
+
+    // Reject high-S signatures to prevent malleability (matching Go SDK behavior)
+    const halfOrder = secp256k1.CURVE.n >> 1n;
+    if (s > halfOrder) {
+      throw new Error('non-canonical ECDSA signature: s exceeds half the curve order (high-S)');
     }
 
     // Serialize signature to raw format for verification
@@ -147,10 +148,7 @@ function verifySecp256k1Schnorr(
     const pubPoint = secp256k1.ProjectivePoint.fromHex(publicKey);
     const xOnlyPubKey = pubPoint.toRawBytes(true).subarray(1); // Remove prefix, get 32-byte x
 
-    // Import schnorr from secp256k1
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { schnorr } = require('@noble/curves/secp256k1');
-    return schnorr.verify(signature, messageHash, xOnlyPubKey);
+    return secp256k1Schnorr.verify(signature, messageHash, xOnlyPubKey);
   } catch {
     return false;
   }
@@ -204,6 +202,12 @@ function verifyP256ECDSA(
       const parsed = parseDERSignature(signature);
       r = parsed.r;
       s = parsed.s;
+    }
+
+    // Reject high-S signatures to prevent malleability (matching Go SDK behavior)
+    const halfOrder = p256.CURVE.n >> 1n;
+    if (s > halfOrder) {
+      throw new Error('non-canonical ECDSA signature: s exceeds half the curve order (high-S)');
     }
 
     const rHex = r.toString(16).padStart(64, '0');

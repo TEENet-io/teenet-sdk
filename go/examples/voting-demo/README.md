@@ -15,12 +15,12 @@ This application showcases how multiple independent app instances can participat
 ### How It Works
 
 ```
-Instance 1 (voter1_app_id:8081)
+Instance 1 (voter1_app_instance_id:8081)
     ↓ Vote submitted (1/2)
     ↓
 Consensus Server (collects votes)
     ↑
-Instance 2 (voter2_app_id:8082)
+Instance 2 (voter2_app_instance_id:8082)
     ↑ Vote submitted (2/2 - threshold met!)
     ↓
 Both instances can query/fetch the final signature
@@ -32,7 +32,7 @@ Both instances can query/fetch the final signature
 
 - Go 1.21 or higher
 - Running app-comm-consensus server
-- Multiple APP_IDs for testing (configured on consensus server)
+- Multiple APP_INSTANCE_IDs for testing (configured on consensus server)
 
 ### Installation
 
@@ -45,7 +45,7 @@ go mod tidy
 
 #### Instance 1 (Port 8081)
 ```bash
-APP_ID="f5a8f44238cd6112b9f02f7f63a12533" \
+APP_INSTANCE_ID="f5a8f44238cd6112b9f02f7f63a12533" \
 PORT="8081" \
 CONSENSUS_URL="http://localhost:8089" \
 go run .
@@ -53,7 +53,7 @@ go run .
 
 #### Instance 2 (Port 8082)
 ```bash
-APP_ID="3d8eabdab6bb5a4df0472e52afc46985" \
+APP_INSTANCE_ID="3d8eabdab6bb5a4df0472e52afc46985" \
 PORT="8082" \
 CONSENSUS_URL="http://localhost:8089" \
 go run .
@@ -61,7 +61,7 @@ go run .
 
 #### Instance 3 (Port 8083) - Optional
 ```bash
-APP_ID="6c09bbe17bc38a86b22d348f89f4e0b8" \
+APP_INSTANCE_ID="6c09bbe17bc38a86b22d348f89f4e0b8" \
 PORT="8083" \
 CONSENSUS_URL="http://localhost:8089" \
 go run .
@@ -71,14 +71,14 @@ go run .
 
 1. **Open Instance 1**: Navigate to `http://localhost:8081`
    - Enter message: "Hello, TEENet!"
-   - Click "提交我的投票" (Submit My Vote)
-   - Status: "已投票 1/2" (Voted 1/2)
-   - Message: "等待其他投票者..." (Waiting for other voters...)
+   - Click "Submit My Vote"
+   - Status: "Voted 1/2"
+   - Message: "Waiting for other voters..."
 
 2. **Open Instance 2**: Navigate to `http://localhost:8082`
    - Enter the **same message**: "Hello, TEENet!"
-   - Click "提交我的投票"
-   - Status: "已投票 2/2" (Voted 2/2)
+   - Click "Submit My Vote"
+   - Status: "Voted 2/2"
 
 3. **Result**: Both browser tabs will display the signature!
    - Instance 1: Shows signature (after polling returns signed)
@@ -87,7 +87,7 @@ go run .
 ## Environment Variables
 
 ### Required
-- `APP_ID`: Unique identifier for this app instance
+- `APP_INSTANCE_ID`: Unique identifier for this app instance
 - `CONSENSUS_URL`: URL of the consensus server
 
 ### Optional
@@ -102,7 +102,7 @@ go build -o voting-demo .
 
 ### Run Binary
 ```bash
-APP_ID="f5a8f44238cd6112b9f02f7f63a12533" PORT="8081" ./voting-demo
+APP_INSTANCE_ID="f5a8f44238cd6112b9f02f7f63a12533" PORT="8081" ./voting-demo
 ```
 
 ## API Endpoints
@@ -113,7 +113,7 @@ Get current instance configuration
 **Response:**
 ```json
 {
-  "app_id": "f5a8f44238cd6112b9f02f7f63a12533",
+  "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533",
   "consensus_url": "http://localhost:8089"
 }
 ```
@@ -132,7 +132,7 @@ Submit vote for message signing
 ```json
 {
   "success": true,
-  "app_id": "f5a8f44238cd6112b9f02f7f63a12533",
+  "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533",
   "message": "Vote submitted successfully",
   "voting_info": {
     "needs_voting": true,
@@ -153,7 +153,7 @@ Health check
 {
   "status": "healthy",
   "service": "Voting Demo App",
-  "app_id": "f5a8f44238cd6112b9f02f7f63a12533"
+  "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533"
 }
 ```
 
@@ -234,21 +234,21 @@ voting-demo/
 
 ## Features
 
-- ✅ **Single Vote Button**: Each instance has one button representing itself
-- ✅ **Real-time Status**: Display app status and voting progress
-- ✅ **Polling-Based Completion**: SDK waits/polls until signature is finalized
-- ✅ **API Key Operations**: Retrieve API keys and sign with API secrets
-- ✅ **Responsive UI**: Clean, mobile-friendly interface
-- ✅ **Error Handling**: Clear error messages and validation
-- ✅ **Copy Signature**: One-click signature copying
+- **Single Vote Button**: Each instance has one button representing itself
+- **Real-time Status**: Display app status and voting progress
+- **Polling-Based Completion**: SDK waits/polls until signature is finalized
+- **API Key Operations**: Retrieve API keys and sign with API secrets
+- **Responsive UI**: Clean, mobile-friendly interface
+- **Error Handling**: Clear error messages and validation
+- **Copy Signature**: One-click signature copying
 
 ## Testing Scenarios
 
 ### Scenario 1: Basic 2-of-3 Voting
 1. Start 3 instances
-2. Vote on instance 1 → See "1/2 votes"
-3. Vote on instance 2 → Both show signature
-4. Vote on instance 3 → Immediately shows signature
+2. Vote on instance 1 -> See "1/2 votes"
+3. Vote on instance 2 -> Both show signature
+4. Vote on instance 3 -> Immediately shows signature
 
 ### Scenario 2: Different Messages
 1. Vote on instance 1 with "Message A"
@@ -258,20 +258,20 @@ voting-demo/
 ### Scenario 3: Timeout Test
 1. Start 2 instances
 2. Vote on instance 1
-3. Wait for timeout → Shows timeout error
+3. Wait for timeout -> Shows timeout error
 
 ### Scenario 4: API Key Access Control
 1. Create two API keys in user management system: "test" and "test2"
 2. Bind only "test" to your application
-3. Try to retrieve "test" → Success (API key is returned)
-4. Try to retrieve "test2" → Failure (access denied - not bound)
-5. Try to sign with "test" → Success (signature is returned)
-6. Try to sign with "test2" → Failure (access denied - not bound)
+3. Try to retrieve "test" -> Success (API key is returned)
+4. Try to retrieve "test2" -> Failure (access denied - not bound)
+5. Try to sign with "test" -> Success (signature is returned)
+6. Try to sign with "test2" -> Failure (access denied - not bound)
 
 ## Troubleshooting
 
-### Issue: "APP_ID environment variable is required"
-**Solution**: Set the `APP_ID` environment variable before starting
+### Issue: "APP_INSTANCE_ID environment variable is required"
+**Solution**: Set the `APP_INSTANCE_ID` environment variable before starting
 
 ### Issue: "Connection refused" or timeout
 **Solution**:
@@ -325,11 +325,11 @@ The consensus server:
 
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
+Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
 
 ## Support
 
 For issues or questions:
 - Check the SDK documentation
 - Review consensus server logs
-- Ensure all instances use compatible APP_IDs
+- Ensure all instances use compatible APP_INSTANCE_IDs

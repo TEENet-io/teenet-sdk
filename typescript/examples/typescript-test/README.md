@@ -5,7 +5,6 @@ This example exercises the TypeScript SDK against a running consensus service or
 ## Run
 
 ```bash
-# from /home/sun/tee/teenet-sdk/typescript/examples/typescript-test
 npm install
 npm test
 ```
@@ -16,7 +15,7 @@ npm test
 For voting apps, SDK waits internally and returns final signed/failed result:
 
 ```ts
-const result = await client.sign(message);
+const result = await client.sign(message, 'my-key');
 if (!result.success) {
   throw new Error(result.error || 'sign failed');
 }

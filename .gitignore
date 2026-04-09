@@ -29,11 +29,10 @@ vendor/
 Thumbs.db
 
 # Build artifacts
-/examples/signature-tool/signature-tool
-/examples/voting-demo/voting-demo
-/examples/basic/simple/simple
-/examples/basic/voting/voting
-/examples/basic/forwarding/forwarding
+/go/examples/voting-demo/voting-demo
+/go/examples/basic/simple/simple
+/go/examples/basic/voting/voting
+/go/examples/basic/forwarding/forwarding
 *.log
 
 # Temporary files
@@ -42,7 +41,14 @@ temp/
 
 .claude
 teenet-sdk
+mock-server/mock-server
 typescript/dist/
 typescript/examples/typescript-test/node_modules/
 typescript/node_modules/
 typescript/examples/passkey-web-demo/node_modules/
+
+# Internal planning docs
+docs/superpowers/
+
+# Project-level Claude config
+CLAUDE.md

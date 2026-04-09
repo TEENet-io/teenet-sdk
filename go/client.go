@@ -1,15 +1,6 @@
-// -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
-//
-// This software and its associated documentation files (the "Software") are
-// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
-// Unauthorized copying of this file, via any medium, is strictly prohibited.
-//
-// No license, express or implied, is hereby granted, except by written agreement
-// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
-// is a violation of applicable laws.
-//
-// -----------------------------------------------------------------------------
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
 
 // Package sdk provides a Go client for TEENet consensus signing services.
 //
@@ -60,6 +51,11 @@ type Client struct {
 
 var errNilClient = errors.New("teenet-sdk: client not initialized, use NewClient() or NewClientWithOptions()")
 
+// checkInit returns an error if the Client is nil or uninitialized.
+// Methods that return (T, error) use checkInit(). Methods that return void,
+// string, or Duration use an inline nil guard and silently return a zero value
+// instead — this ensures SetDefaultAppInstanceID, Close, InvalidateKeyCache,
+// and getter methods never panic on a nil receiver.
 func (c *Client) checkInit() error {
 	if c == nil || c.impl == nil {
 		return errNilClient
@@ -129,6 +125,9 @@ func NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client {
 //	client.Init() // Reads APP_INSTANCE_ID from environment
 //	defer client.Close()
 func (c *Client) Init() error {
+	if err := c.checkInit(); err != nil {
+		return err
+	}
 	return c.impl.Init()
 }
 
@@ -147,6 +146,9 @@ func (c *Client) Init() error {
 //
 //	client.SetDefaultAppInstanceID("f5a8f44238cd6112b9f02f7f63a12533")
 func (c *Client) SetDefaultAppInstanceID(appInstanceID string) {
+	if c == nil || c.impl == nil {
+		return
+	}
 	c.impl.SetDefaultAppInstanceID(appInstanceID)
 }
 
@@ -161,6 +163,9 @@ func (c *Client) SetDefaultAppInstanceID(appInstanceID string) {
 //	    log.Fatal("APP_INSTANCE_ID not set in environment")
 //	}
 func (c *Client) SetDefaultAppInstanceIDFromEnv() error {
+	if err := c.checkInit(); err != nil {
+		return err
+	}
 	return c.impl.SetDefaultAppInstanceIDFromEnv()
 }
 
@@ -169,6 +174,9 @@ func (c *Client) SetDefaultAppInstanceIDFromEnv() error {
 // Returns:
 //   - The APP_INSTANCE_ID string, or empty string if not set
 func (c *Client) GetDefaultAppInstanceID() string {
+	if c == nil || c.impl == nil {
+		return ""
+	}
 	return c.impl.GetDefaultAppInstanceID()
 }
 
@@ -205,22 +213,34 @@ func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string,
 //   - VoteStatus: Current status and vote counts
 //   - error: Error if the request fails
 func (c *Client) GetStatus(ctx context.Context, hash string) (*VoteStatus, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GetStatus(ctx, hash)
 }
 
 // ApprovalRequestInit starts a passkey approval request session.
 // payload should match user-management-system approval init JSON body.
 func (c *Client) ApprovalRequestInit(ctx context.Context, payload []byte, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalRequestInit(ctx, payload, approvalToken)
 }
 
 // PasskeyLoginOptions starts passkey login challenge generation.
 func (c *Client) PasskeyLoginOptions(ctx context.Context) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.PasskeyLoginOptions(ctx)
 }
 
 // PasskeyLoginVerify verifies passkey assertion and stores returned bearer token in client.
 func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, credential []byte) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.PasskeyLoginVerify(ctx, loginSessionID, credential)
 }
 
@@ -229,16 +249,25 @@ func (c *Client) PasskeyLoginVerify(ctx context.Context, loginSessionID uint64, 
 // Use this instead of PasskeyLoginVerify when you need to ensure the assertion comes from
 // a specific user, not just any valid PasskeyUser in the system.
 func (c *Client) PasskeyLoginVerifyAs(ctx context.Context, loginSessionID uint64, credential []byte, expectedPasskeyUserID uint) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.PasskeyLoginVerifyAs(ctx, loginSessionID, credential, expectedPasskeyUserID)
 }
 
 // PasskeyLoginWithCredential executes login options -> WebAuthn credential provider -> verify.
 func (c *Client) PasskeyLoginWithCredential(ctx context.Context, getCredential PasskeyCredentialProvider) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.PasskeyLoginWithCredential(ctx, getCredential)
 }
 
 // GetMyRequests returns all approval requests initiated by the authenticated user.
 func (c *Client) GetMyRequests(ctx context.Context, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GetMyRequests(ctx, approvalToken)
 }
 
@@ -246,46 +275,73 @@ func (c *Client) GetMyRequests(ctx context.Context, approvalToken string) (*Appr
 // Set idType to "session" (or "") to cancel by request session ID,
 // or "task" to cancel a pending approval task by task ID.
 func (c *Client) CancelRequest(ctx context.Context, id uint64, idType string, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.CancelRequest(ctx, id, idType, approvalToken)
 }
 
 // GetSignatureByTx retrieves a completed signature by its transaction ID.
 func (c *Client) GetSignatureByTx(ctx context.Context, txID string, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GetSignatureByTx(ctx, txID, approvalToken)
 }
 
 // ApprovalPending returns pending approvals accessible by the provided approval token.
 func (c *Client) ApprovalPending(ctx context.Context, approvalToken string, filter *ApprovalPendingFilter) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalPending(ctx, approvalToken, filter)
 }
 
 // ApprovalRequestChallenge fetches WebAuthn assertion challenge options for request confirmation.
 func (c *Client) ApprovalRequestChallenge(ctx context.Context, requestID uint64, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalRequestChallenge(ctx, requestID, approvalToken)
 }
 
 // ApprovalRequestConfirm submits passkey assertion and creates an approval task.
 func (c *Client) ApprovalRequestConfirm(ctx context.Context, requestID uint64, payload []byte, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalRequestConfirm(ctx, requestID, payload, approvalToken)
 }
 
 // ApprovalRequestConfirmWithCredential executes challenge -> WebAuthn credential provider -> confirm.
 func (c *Client) ApprovalRequestConfirmWithCredential(ctx context.Context, requestID uint64, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalRequestConfirmWithCredential(ctx, requestID, getCredential, approvalToken)
 }
 
 // ApprovalActionChallenge fetches WebAuthn assertion challenge options for task action.
 func (c *Client) ApprovalActionChallenge(ctx context.Context, taskID uint64, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalActionChallenge(ctx, taskID, approvalToken)
 }
 
 // ApprovalAction submits an APPROVE/REJECT action with passkey assertion.
 func (c *Client) ApprovalAction(ctx context.Context, taskID uint64, payload []byte, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalAction(ctx, taskID, payload, approvalToken)
 }
 
 // ApprovalActionWithCredential executes challenge -> WebAuthn credential provider -> action.
 func (c *Client) ApprovalActionWithCredential(ctx context.Context, taskID uint64, action string, getCredential PasskeyCredentialProvider, approvalToken string) (*ApprovalResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ApprovalActionWithCredential(ctx, taskID, action, getCredential, approvalToken)
 }
 
@@ -301,6 +357,9 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
 // GetPublicKeys call to fetch fresh data from the consensus service.
 // Use this after key rotation to ensure stale cached keys are not used.
 func (c *Client) InvalidateKeyCache() {
+	if c == nil || c.impl == nil {
+		return
+	}
 	c.impl.InvalidateKeyCache()
 }
 
@@ -352,12 +411,18 @@ func (c *Client) Close() error {
 // Pass the returned Options to navigator.credentials.create() in the browser,
 // then call PasskeyRegistrationVerify with the resulting credential.
 func (c *Client) PasskeyRegistrationOptions(ctx context.Context, inviteToken string) (*PasskeyRegistrationOptionsResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.PasskeyRegistrationOptions(ctx, inviteToken)
 }
 
 // PasskeyRegistrationVerify completes WebAuthn registration.
 // credential should be the JSON-serialized PublicKeyCredential from navigator.credentials.create().
 func (c *Client) PasskeyRegistrationVerify(ctx context.Context, inviteToken string, credential interface{}) (*PasskeyRegistrationVerifyResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.PasskeyRegistrationVerify(ctx, inviteToken, credential)
 }
 
@@ -373,6 +438,9 @@ func (c *Client) PasskeyRegistrationVerify(ctx context.Context, inviteToken stri
 //	    ExpiresInSeconds: 86400,
 //	})
 func (c *Client) InvitePasskeyUser(ctx context.Context, req PasskeyInviteRequest) (*PasskeyInviteResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.InvitePasskeyUser(ctx, req)
 }
 
@@ -380,11 +448,17 @@ func (c *Client) InvitePasskeyUser(ctx context.Context, req PasskeyInviteRequest
 //
 // page and limit are optional (pass 0 for server defaults).
 func (c *Client) ListPasskeyUsers(ctx context.Context, page, limit int) (*PasskeyUsersResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ListPasskeyUsers(ctx, page, limit)
 }
 
 // DeletePasskeyUser removes a passkey user by their ID.
 func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*AdminResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.DeletePasskeyUser(ctx, userID)
 }
 
@@ -392,6 +466,9 @@ func (c *Client) DeletePasskeyUser(ctx context.Context, userID uint) (*AdminResu
 //
 // page and limit are optional (pass 0 for server defaults).
 func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*AuditRecordsResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.ListAuditRecords(ctx, page, limit)
 }
 
@@ -408,49 +485,76 @@ func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*AuditR
 //	    },
 //	})
 func (c *Client) UpsertPermissionPolicy(ctx context.Context, req PolicyRequest) (*AdminResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.UpsertPermissionPolicy(ctx, req)
 }
 
 // GetPermissionPolicy retrieves the permission policy for a named public key.
 func (c *Client) GetPermissionPolicy(ctx context.Context, publicKeyName string) (*PolicyResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GetPermissionPolicy(ctx, publicKeyName)
 }
 
 // DeletePermissionPolicy removes the permission policy for a named public key.
 func (c *Client) DeletePermissionPolicy(ctx context.Context, publicKeyName string) (*AdminResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.DeletePermissionPolicy(ctx, publicKeyName)
 }
 
 // DeletePublicKey deletes a public key by name for the application.
 func (c *Client) DeletePublicKey(ctx context.Context, keyName string) (*AdminResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.DeletePublicKey(ctx, keyName)
 }
 
 // CreateAPIKey creates a new API key entry via the admin bridge.
 func (c *Client) CreateAPIKey(ctx context.Context, req CreateAPIKeyRequest) (*CreateAPIKeyResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.CreateAPIKey(ctx, req)
 }
 
 // DeleteAPIKey deletes an API key by name for the application.
 func (c *Client) DeleteAPIKey(ctx context.Context, keyName string) (*AdminResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.DeleteAPIKey(ctx, keyName)
 }
 
 // GetConsensusURL returns the consensus service URL.
 // This method is primarily for testing purposes.
 func (c *Client) GetConsensusURL() string {
+	if c == nil || c.impl == nil {
+		return ""
+	}
 	return c.impl.GetConsensusURL()
 }
 
 // GetRequestTimeout returns the request timeout duration.
 // This method is primarily for testing purposes.
 func (c *Client) GetRequestTimeout() time.Duration {
+	if c == nil || c.impl == nil {
+		return 0
+	}
 	return c.impl.GetRequestTimeout()
 }
 
 // GetPendingWaitTimeout returns how long Sign waits for pending voting completion.
 // This method is primarily for testing purposes.
 func (c *Client) GetPendingWaitTimeout() time.Duration {
+	if c == nil || c.impl == nil {
+		return 0
+	}
 	return c.impl.GetPendingWaitTimeout()
 }
 
@@ -482,6 +586,9 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 //	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
 //	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
 func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*GenerateKeyResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GenerateSchnorrKey(ctx, curve)
 }
 
@@ -514,6 +621,9 @@ func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*Generat
 //	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
 //	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
 func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*GenerateKeyResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GenerateECDSAKey(ctx, curve)
 }
 
@@ -539,6 +649,9 @@ func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*GenerateK
 //	}
 //	fmt.Printf("API Key: %s\n", result.APIKey)
 func (c *Client) GetAPIKey(ctx context.Context, name string) (*APIKeyResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.GetAPIKey(ctx, name)
 }
 
@@ -566,5 +679,8 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*APIKeyResult, err
 //	}
 //	fmt.Printf("Signature: %s\n", result.Signature)
 func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []byte) (*APISignResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
 	return c.impl.SignWithAPISecret(ctx, name, message)
 }

@@ -1,88 +1,88 @@
 # TEENet SDK Mock Consensus Server
 
-用于测试 TEENet SDK 的模拟 Consensus 服务。
+A mock consensus service for testing the TEENet SDK.
 
-## 功能
+## Features
 
-- 模拟 `app-comm-consensus` HTTP API
-- 支持所有签名算法：
+- Simulates the `app-comm-consensus` HTTP API
+- Supports all signing algorithms:
   - ED25519 (Schnorr/EdDSA)
-  - SECP256K1 (ECDSA 和 Schnorr)
+  - SECP256K1 (ECDSA and Schnorr)
   - SECP256R1 (ECDSA)
-- 支持密钥生成 API
-- 支持 API Key 和 Secret 操作
-- 使用真实的密码学签名（非模拟数据）
+- Supports key generation API
+- Supports API Key and Secret operations
+- Uses real cryptographic signing (not mock data)
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 编译
+# Build
 make build
 
-# 运行（默认端口 8089）
+# Run (default port 8089)
 make run
 
-# 或直接运行
+# Or run directly
 go run .
 
-# 自定义端口
+# Custom port
 MOCK_SERVER_PORT=9000 ./mock-server
 ```
 
-## API 接口
+## API Endpoints
 
-### 健康检查
+### Health Check
 ```bash
 GET /api/health
 ```
 
-### 获取公钥
+### Get Public Keys
 ```bash
 GET /api/publickey/:app_instance_id
 ```
 
-### 签名请求
+### Sign Request
 ```bash
 POST /api/submit-request
 Content-Type: application/json
 
 {
   "app_instance_id": "test-ecdsa-secp256k1",
-  "message": "base64编码的消息"
+  "message": "base64-encoded message"
 }
 ```
 
-### 生成密钥
+### Generate Key
 ```bash
 POST /api/generate-key
 Content-Type: application/json
 
 {
-  "app_instance_id": "your-app-id",
+  "app_instance_id": "your-app-instance-id",
   "curve": "secp256k1",
   "protocol": "ecdsa"
 }
 ```
 
-### 获取 API Key
+### Get API Key
 ```bash
-GET /api/apikey/:name?app_instance_id=your-app-id
+GET /api/apikey/:name?app_instance_id=your-app-instance-id
 ```
 
-### 使用 API Secret 签名
+### Sign with API Secret
 ```bash
 POST /api/apikey/:name/sign
 Content-Type: application/json
 
 {
-  "app_instance_id": "your-app-id",
-  "message": "消息内容"
+  "app_instance_id": "your-app-instance-id",
+  "message": "message content"
 }
 ```
 
-## 预置测试 App ID
+## Pre-configured Test App Instance IDs
 
-| App ID | Protocol | Curve |
+| App Instance ID | Protocol | Curve |
 |--------|----------|-------|
 | test-schnorr-ed25519 | schnorr | ed25519 |
 | test-schnorr-secp256k1 | schnorr | secp256k1 |
@@ -91,37 +91,41 @@ Content-Type: application/json
 | ethereum-wallet-app | ecdsa | secp256k1 |
 | secure-messaging-app | schnorr | ed25519 |
 
-## 使用 SDK 进行测试
+## Testing with the SDK
 
 ```go
 package main
 
 import (
+    "context"
     "fmt"
-    sdk "github.com/TEENet-io/teenet-sdk"
+
+    sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
-    // 连接到 mock server
+    ctx := context.Background()
+
+    // Connect to mock server
     client := sdk.NewClient("http://localhost:8089")
-    client.SetDefaultAppID("test-ecdsa-secp256k1")
+    client.SetDefaultAppInstanceID("test-ecdsa-secp256k1")
     defer client.Close()
 
-    // 签名
-    result, err := client.Sign([]byte("hello world"))
+    // Sign
+    result, err := client.Sign(ctx, []byte("hello world"), "my-key")
     if err != nil {
         panic(err)
     }
     fmt.Printf("Signature: %x\n", result.Signature)
 
-    // 验证
-    valid, err := client.Verify([]byte("hello world"), result.Signature)
+    // Verify
+    valid, err := client.Verify(ctx, []byte("hello world"), result.Signature, "my-key")
     fmt.Printf("Valid: %v\n", valid)
 }
 ```
 
-## 注意事项
+## Notes
 
-- 此服务仅用于开发和测试，不要在生产环境使用
-- 使用确定性的私钥，签名可以验证但不安全
-- 不支持投票模式（voting），所有请求都直接签名
+- This service is for development and testing only; do not use in production
+- Uses deterministic private keys; signatures can be verified but are not secure
+- Does not support voting mode; all requests are signed directly

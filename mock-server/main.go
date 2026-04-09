@@ -1,3 +1,7 @@
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
+
 // -----------------------------------------------------------------------------
 // Mock Consensus Server for TEENet SDK Testing
 //
@@ -232,13 +236,17 @@ func (s *MockServer) Start() error {
 		api.POST("/apikey/:name/sign", s.handleSignWithSecret)
 	}
 
-	log.Printf("🚀 Mock Consensus Server starting on port %s", s.port)
-	log.Printf("📋 Available test App IDs:")
+	log.Printf("Mock Consensus Server starting on port %s", s.port)
+	log.Printf("Available test App IDs:")
 	for appID, keyInfo := range s.appKeys {
 		log.Printf("   - %s (%s/%s)", appID, keyInfo.Protocol, keyInfo.Curve)
 	}
 
-	return router.Run(":" + s.port)
+	bindAddr := "127.0.0.1"
+	if addr := os.Getenv("MOCK_SERVER_BIND"); addr != "" {
+		bindAddr = addr
+	}
+	return router.Run(bindAddr + ":" + s.port)
 }
 
 // handleHealth handles GET /api/health
@@ -281,7 +289,7 @@ func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 		s.appKeysMutex.Unlock()
 
 		if s.enableLogging {
-			log.Printf("📝 Auto-created app %s with ECDSA/secp256k1", appInstanceID)
+			log.Printf("Auto-created app %s with ECDSA/secp256k1", appInstanceID)
 		}
 	}
 
@@ -325,7 +333,7 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 	hash := "0x" + hex.EncodeToString(hashBytes[:])
 
 	if s.enableLogging {
-		log.Printf("📥 Sign request: app_instance_id=%s, message_len=%d, hash=%s...",
+		log.Printf("Sign request: app_instance_id=%s, message_len=%d, hash=%s...",
 			req.AppInstanceID, len(req.Message), hash[:20])
 	}
 
@@ -380,7 +388,7 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 	// Generate signature using appropriate key
 	signature, err := s.signWithKey(protocol, curve, req.Message, pubKeyHex)
 	if err != nil {
-		log.Printf("❌ Signing failed: %v", err)
+		log.Printf("Signing failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success":      false,
 			"message":      "Signing failed: " + err.Error(),
@@ -394,7 +402,7 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 	signatureHex := hex.EncodeToString(signature)
 
 	if s.enableLogging {
-		log.Printf("✅ Signed successfully: hash=%s..., sig_len=%d", hash[:20], len(signature))
+		log.Printf("Signed successfully: hash=%s..., sig_len=%d", hash[:20], len(signature))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -890,7 +898,7 @@ func (s *MockServer) handleSignWithSecret(c *gin.Context) {
 	signatureHex := hex.EncodeToString(signature)
 
 	if s.enableLogging {
-		log.Printf("🔐 HMAC sign: name=%s, app=%s, msg_len=%d", name, req.AppInstanceID, len(messageBytes))
+		log.Printf("HMAC sign: name=%s, app=%s, msg_len=%d", name, req.AppInstanceID, len(messageBytes))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1008,6 +1016,6 @@ func main() {
 	log.Println("=" + strings.Repeat("=", 60))
 
 	if err := server.Start(); err != nil {
-		log.Fatalf("❌ Failed to start server: %v", err)
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }

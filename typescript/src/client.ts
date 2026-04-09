@@ -1,15 +1,6 @@
-// -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
-//
-// This software and its associated documentation files (the "Software") are
-// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
-// Unauthorized copying of this file, via any medium, is strictly prohibited.
-//
-// No license, express or implied, is hereby granted, except by written agreement
-// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
-// is a violation of applicable laws.
-//
-// -----------------------------------------------------------------------------
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
 
 import {
   ClientOptions,
@@ -40,8 +31,10 @@ import { sha256 } from '@noble/hashes/sha256';
 
 const DEFAULT_REQUEST_TIMEOUT = 30000;
 const DEFAULT_PENDING_WAIT_TIMEOUT = 10 * 1000;
-const DEFAULT_STATUS_POLL_INTERVAL = 1000;
+const DEFAULT_STATUS_POLL_INTERVAL = 200;
 const MAX_STATUS_POLL_INTERVAL = 5000;
+
+const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB
 
 interface APIResponse {
   success: boolean;
@@ -59,6 +52,8 @@ interface APIResponse {
   curve?: string;
   api_key?: string;
   algorithm?: string;
+  tx_id?: string;
+  request_id?: number;
 }
 
 interface APIPublicKeyInfo {
@@ -102,7 +97,7 @@ interface CacheRequest {
  * @example
  * ```typescript
  * const client = new Client('http://localhost:8089');
- * client.setDefaultAppID('your-app-id');
+ * client.setDefaultAppInstanceID('your-app-id');
  *
  * // Sign a message
  * const result = await client.sign(Buffer.from('message'), 'my-key');
@@ -116,10 +111,12 @@ interface CacheRequest {
  */
 export class Client {
   private consensusURL: string;
-  private defaultAppID: string = '';
+  private defaultAppInstanceID: string = '';
   private requestTimeout: number;
   private pendingWaitTimeout: number;
   private debug: boolean;
+  private keyCacheTTL: number;
+  private keyCache: Map<string, { keys: BoundPublicKeyInfo[]; expiresAt: number }> = new Map();
 
   /**
    * Create a new TEENet SDK client
@@ -131,6 +128,7 @@ export class Client {
     this.requestTimeout = options?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT;
     this.pendingWaitTimeout = Math.max(options?.pendingWaitTimeout ?? DEFAULT_PENDING_WAIT_TIMEOUT, 0);
     this.debug = Boolean(options?.debug);
+    this.keyCacheTTL = options?.keyCacheTTL ?? 60000; // Default 60s, -1 to disable
   }
 
   /**
@@ -140,7 +138,7 @@ export class Client {
   init(): void {
     const appID = process.env.APP_INSTANCE_ID;
     if (appID) {
-      this.defaultAppID = appID;
+      this.defaultAppInstanceID = appID;
     } else {
       console.warn('APP_INSTANCE_ID environment variable not set');
     }
@@ -150,27 +148,27 @@ export class Client {
    * Set the default application ID
    * @param appID - Your TEENet application ID
    */
-  setDefaultAppID(appID: string): void {
-    this.defaultAppID = appID;
+  setDefaultAppInstanceID(appID: string): void {
+    this.defaultAppInstanceID = appID;
   }
 
   /**
    * Set the default App ID from environment variable
    * @throws Error if APP_INSTANCE_ID is not set
    */
-  setDefaultAppIDFromEnv(): void {
+  setDefaultAppInstanceIDFromEnv(): void {
     const appID = process.env.APP_INSTANCE_ID;
     if (!appID) {
       throw new Error('APP_INSTANCE_ID environment variable not set');
     }
-    this.defaultAppID = appID;
+    this.defaultAppInstanceID = appID;
   }
 
   /**
    * Get the currently configured default App ID
    */
-  getDefaultAppID(): string {
-    return this.defaultAppID;
+  getDefaultAppInstanceID(): string {
+    return this.defaultAppInstanceID;
   }
 
   /**
@@ -200,18 +198,21 @@ export class Client {
    * @param publicKeyName - Bound public key name to use for signing
    * @returns SignResult containing the signature or pending status
    */
-  async sign(message: Buffer, publicKeyName: string): Promise<SignResult> {
-    if (!this.defaultAppID) {
-      throw new Error('App ID not set. Call setDefaultAppID() first.');
+  async sign(message: Buffer, publicKeyName: string, passkeyToken?: string): Promise<SignResult> {
+    if (!this.defaultAppInstanceID) {
+      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
     }
     if (!message || message.length === 0) {
       return this.signFailure(ErrorCode.INVALID_INPUT, 'message must not be empty');
     }
 
     const payload: Record<string, unknown> = {
-      app_instance_id: this.defaultAppID,
+      app_instance_id: this.defaultAppInstanceID,
       message: message.toString('base64'),
     };
+    if (passkeyToken) {
+      payload.passkey_token = passkeyToken;
+    }
 
     if (!publicKeyName || !publicKeyName.trim()) {
       return this.signFailure(ErrorCode.INVALID_INPUT, 'public key name is required');
@@ -226,7 +227,7 @@ export class Client {
     const keyHex = keyInfo.keyData.startsWith('0x') ? keyInfo.keyData.slice(2) : keyInfo.keyData;
     payload.public_key = Buffer.from(keyHex, 'hex').toString('base64');
     this.logDebug('sign.submit', {
-      appId: this.defaultAppID,
+      appId: this.defaultAppInstanceID,
       pendingWaitTimeout: this.pendingWaitTimeout,
       statusPollInterval: DEFAULT_STATUS_POLL_INTERVAL,
     });
@@ -250,6 +251,8 @@ export class Client {
       requiredVotes: response.required_votes ?? 0,
       status: response.status || '',
       hash,
+      txID: response.tx_id,
+      requestID: response.request_id,
     };
 
     if (votingInfo.status === 'pending') {
@@ -262,6 +265,15 @@ export class Client {
         requiredVotes: votingInfo.requiredVotes,
       });
       return this.waitForSignResult(hash, waitTimeout);
+    }
+
+    if (votingInfo.status === 'pending_approval') {
+      this.logDebug('sign.pending_approval', {
+        hash,
+        txID: votingInfo.txID,
+        requestID: votingInfo.requestID,
+      });
+      return this.signFailure(ErrorCode.APPROVAL_PENDING, 'approval pending: request requires passkey approval', votingInfo);
     }
 
     const signatureHex = response.signature || '';
@@ -292,7 +304,7 @@ export class Client {
       throw new Error('hash is required');
     }
 
-    const response = await this.getCacheDetail(`/api/cache/${hash}`);
+    const response = await this.getCacheDetail(`/api/cache/${encodeURIComponent(hash)}`);
     if (!response.found || !response.entry) {
       return {
         found: false,
@@ -460,23 +472,49 @@ export class Client {
    * Get all bound public keys for the default App ID
    */
   async getPublicKeys(): Promise<BoundPublicKeyInfo[]> {
-    if (!this.defaultAppID) {
-      throw new Error('App ID not set. Call setDefaultAppID() first.');
+    if (!this.defaultAppInstanceID) {
+      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
     }
 
-    const response = await this.get(`/api/publickeys/${this.defaultAppID}`);
+    // Check cache (evict expired entry if stale)
+    if (this.keyCacheTTL > 0) {
+      const cached = this.keyCache.get(this.defaultAppInstanceID);
+      if (cached) {
+        if (Date.now() < cached.expiresAt) {
+          return cached.keys;
+        }
+        this.keyCache.delete(this.defaultAppInstanceID);
+      }
+    }
+
+    const response = await this.get(`/api/publickeys/${encodeURIComponent(this.defaultAppInstanceID)}`);
     if (!response.success) {
       throw new Error(response.error || 'Failed to get public keys');
     }
 
     const keys = (response.public_keys || []) as APIPublicKeyInfo[];
-    return keys.map((key) => ({
+    const result = keys.map((key) => ({
       id: key.id,
       name: key.name,
       keyData: key.key_data,
       protocol: key.protocol,
       curve: key.curve,
+      threshold: key.threshold,
+      participantCount: key.participant_count,
+      maxParticipantCount: key.max_participant_count,
+      applicationId: key.application_id,
+      createdByInstanceId: key.created_by_instance_id,
     }));
+
+    // Store in cache
+    if (this.keyCacheTTL > 0) {
+      this.keyCache.set(this.defaultAppInstanceID, {
+        keys: result,
+        expiresAt: Date.now() + this.keyCacheTTL,
+      });
+    }
+
+    return result;
   }
 
   private async getBoundPublicKeyByName(publicKeyName: string): Promise<BoundPublicKeyInfo> {
@@ -494,7 +532,9 @@ export class Client {
 
   /**
    * Verify a signature against a message
-   * @param message - The original message
+   * @param message - The message to verify. For most protocols this is the raw bytes
+   *   and hashing is done internally. Exception: for SECP256K1+ECDSA, the caller must
+   *   pass the pre-hashed digest (e.g. a 32-byte Keccak-256 or SHA-256 hash).
    * @param signature - The signature to verify
    * @param publicKeyName - Bound public key name used to verify
    * @returns true if the signature is valid
@@ -537,12 +577,12 @@ export class Client {
    * @param curve - The elliptic curve
    */
   private async generateKey(protocol: string, curve: string): Promise<GenerateKeyResult> {
-    if (!this.defaultAppID) {
-      throw new Error('App ID not set. Call setDefaultAppID() first.');
+    if (!this.defaultAppInstanceID) {
+      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
     }
 
     const response = await this.post('/api/generate-key', {
-      app_instance_id: this.defaultAppID,
+      app_instance_id: this.defaultAppInstanceID,
       protocol,
       curve,
     });
@@ -580,12 +620,12 @@ export class Client {
    * @returns The API key value
    */
   async getAPIKey(name: string): Promise<APIKeyResult> {
-    if (!this.defaultAppID) {
-      throw new Error('App ID not set. Call setDefaultAppID() first.');
+    if (!this.defaultAppInstanceID) {
+      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
     }
 
     const response = await this.get(
-      `/api/apikey/${name}?app_instance_id=${this.defaultAppID}`
+      `/api/apikey/${encodeURIComponent(name)}?${new URLSearchParams({ app_instance_id: this.defaultAppInstanceID })}`
     );
 
     if (!response.success) {
@@ -609,12 +649,12 @@ export class Client {
    * @returns The HMAC-SHA256 signature
    */
   async signWithAPISecret(name: string, message: Buffer): Promise<APISignResult> {
-    if (!this.defaultAppID) {
-      throw new Error('App ID not set. Call setDefaultAppID() first.');
+    if (!this.defaultAppInstanceID) {
+      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
     }
 
-    const response = await this.post(`/api/apikey/${name}/sign`, {
-      app_instance_id: this.defaultAppID,
+    const response = await this.post(`/api/apikey/${encodeURIComponent(name)}/sign`, {
+      app_instance_id: this.defaultAppInstanceID,
       message: message.toString('hex'),
     });
 
@@ -640,11 +680,11 @@ export class Client {
    * Invite a new passkey user to the application.
    */
   async invitePasskeyUser(req: PasskeyInviteRequest): Promise<PasskeyInviteResult> {
-    if (!this.defaultAppID) {
-      return { success: false, error: 'App ID not set. Call setDefaultAppID() first.' };
+    if (!this.defaultAppInstanceID) {
+      return { success: false, error: 'App ID not set. Call setDefaultAppInstanceID() first.' };
     }
     const body: Record<string, unknown> = {
-      app_instance_id: this.defaultAppID,
+      app_instance_id: this.defaultAppInstanceID,
       display_name: req.displayName,
     };
     if (req.applicationId && req.applicationId > 0) body.application_id = req.applicationId;
@@ -668,10 +708,10 @@ export class Client {
    * @param limit - Page size (0 = server default)
    */
   async listPasskeyUsers(page = 0, limit = 0): Promise<PasskeyUsersResult> {
-    if (!this.defaultAppID) {
+    if (!this.defaultAppInstanceID) {
       return { success: false, error: 'App ID not set.', users: [], total: 0, page: 0, limit: 0 };
     }
-    const q = new URLSearchParams({ app_instance_id: this.defaultAppID });
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID });
     if (page > 0) q.set('page', String(page));
     if (limit > 0) q.set('limit', String(limit));
     const resp = await this.requestAdmin(`/api/admin/passkey/users?${q}`, 'GET');
@@ -691,10 +731,10 @@ export class Client {
    * Delete a passkey user by their ID.
    */
   async deletePasskeyUser(userId: number): Promise<AdminResult> {
-    if (!this.defaultAppID) {
+    if (!this.defaultAppInstanceID) {
       return { success: false, error: 'App ID not set.' };
     }
-    const q = new URLSearchParams({ app_instance_id: this.defaultAppID });
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID });
     const resp = await this.requestAdmin(`/api/admin/passkey/users/${userId}?${q}`, 'DELETE');
     const ok = resp.statusCode >= 200 && resp.statusCode < 300;
     return {
@@ -709,10 +749,10 @@ export class Client {
    * @param limit - Page size (0 = server default)
    */
   async listAuditRecords(page = 0, limit = 0): Promise<AuditRecordsResult> {
-    if (!this.defaultAppID) {
+    if (!this.defaultAppInstanceID) {
       return { success: false, error: 'App ID not set.', records: [], total: 0, page: 0, limit: 0 };
     }
-    const q = new URLSearchParams({ app_instance_id: this.defaultAppID });
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID });
     if (page > 0) q.set('page', String(page));
     if (limit > 0) q.set('limit', String(limit));
     const resp = await this.requestAdmin(`/api/admin/audit-records?${q}`, 'GET');
@@ -732,11 +772,11 @@ export class Client {
    * Create or replace the permission policy for a named public key.
    */
   async upsertPermissionPolicy(req: PolicyRequest): Promise<AdminResult> {
-    if (!this.defaultAppID) {
+    if (!this.defaultAppInstanceID) {
       return { success: false, error: 'App ID not set.' };
     }
     const body: Record<string, unknown> = {
-      app_instance_id: this.defaultAppID,
+      app_instance_id: this.defaultAppInstanceID,
       public_key_name: req.publicKeyName,
       enabled: req.enabled,
       levels: req.levels.map((l) => ({
@@ -759,11 +799,11 @@ export class Client {
    * Retrieve the permission policy for a named public key.
    */
   async getPermissionPolicy(publicKeyName: string): Promise<PolicyResult> {
-    if (!this.defaultAppID) {
+    if (!this.defaultAppInstanceID) {
       return { success: false, error: 'App ID not set.' };
     }
     const q = new URLSearchParams({
-      app_instance_id: this.defaultAppID,
+      app_instance_id: this.defaultAppInstanceID,
       public_key_name: publicKeyName,
     });
     const resp = await this.requestAdmin(`/api/admin/policy?${q}`, 'GET');
@@ -794,14 +834,120 @@ export class Client {
    * Delete the permission policy for a named public key.
    */
   async deletePermissionPolicy(publicKeyName: string): Promise<AdminResult> {
-    if (!this.defaultAppID) {
+    return this.adminDelete('/api/admin/policy', { public_key_name: publicKeyName });
+  }
+
+  /**
+   * Cancel a pending approval request.
+   * @param id - Request session ID or task ID
+   * @param idType - "session" (default) or "task"
+   */
+  async cancelRequest(id: number, idType?: string, approvalToken?: string): Promise<ApprovalResult> {
+    const type = idType || 'session';
+    return this.requestApproval(
+      `/api/approvals/requests/${encodeURIComponent(String(id))}/cancel?type=${encodeURIComponent(type)}`,
+      'POST',
+      approvalToken || ''
+    );
+  }
+
+  /**
+   * Get passkey registration options for an invited user.
+   */
+  async passkeyRegistrationOptions(inviteToken: string): Promise<ApprovalResult> {
+    return this.requestApproval(
+      `/api/approvals/registration/options?token=${encodeURIComponent(inviteToken)}`,
+      'GET',
+      ''
+    );
+  }
+
+  /**
+   * Complete passkey registration with the WebAuthn credential.
+   */
+  async passkeyRegistrationVerify(inviteToken: string, credential: unknown): Promise<ApprovalResult> {
+    return this.requestApproval(
+      '/api/approvals/registration/verify',
+      'POST',
+      '',
+      { invite_token: inviteToken, credential }
+    );
+  }
+
+  /**
+   * Verify passkey login and confirm the passkey belongs to expectedPasskeyUserID.
+   */
+  async passkeyLoginVerifyAs(
+    loginSessionID: number,
+    credential: unknown,
+    expectedPasskeyUserID: number
+  ): Promise<ApprovalResult> {
+    return this.requestApproval(
+      '/api/approvals/login/verify-as',
+      'POST',
+      '',
+      {
+        login_session_id: loginSessionID,
+        credential,
+        expected_passkey_user_id: expectedPasskeyUserID,
+      }
+    );
+  }
+
+  /**
+   * Delete a public key by name.
+   */
+  async deletePublicKey(keyName: string): Promise<AdminResult> {
+    return this.adminDelete(`/api/admin/publickeys/${encodeURIComponent(keyName)}`);
+  }
+
+  /**
+   * Create a new API key via admin bridge.
+   */
+  async createAPIKey(req: import('./types').CreateAPIKeyRequest): Promise<import('./types').CreateAPIKeyResult> {
+    if (!this.defaultAppInstanceID) {
       return { success: false, error: 'App ID not set.' };
     }
-    const q = new URLSearchParams({
-      app_instance_id: this.defaultAppID,
-      public_key_name: publicKeyName,
+    const resp = await this.requestAdmin('/api/admin/apikeys', 'POST', {
+      app_instance_id: this.defaultAppInstanceID,
+      name: req.name,
+      description: req.description,
+      api_key: req.apiKey,
+      api_secret: req.apiSecret,
     });
-    const resp = await this.requestAdmin(`/api/admin/policy?${q}`, 'DELETE');
+    const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    const d = resp.data ?? {};
+    return {
+      success: ok,
+      error: ok ? undefined : this.adminError(d, resp.statusCode),
+      id: typeof d.id === 'number' ? d.id : undefined,
+      name: typeof d.name === 'string' ? d.name : undefined,
+      hasApiKey: typeof d.has_api_key === 'boolean' ? d.has_api_key : undefined,
+      hasApiSecret: typeof d.has_api_secret === 'boolean' ? d.has_api_secret : undefined,
+    };
+  }
+
+  /**
+   * Delete an API key by name.
+   */
+  async deleteAPIKey(keyName: string): Promise<AdminResult> {
+    return this.adminDelete(`/api/admin/apikeys/${encodeURIComponent(keyName)}`);
+  }
+
+  /**
+   * Clear any locally cached public keys (no-op in TypeScript SDK,
+   * present for API parity with Go SDK).
+   */
+  invalidateKeyCache(): void {
+    this.keyCache.clear();
+  }
+
+  private async adminDelete(path: string, extraParams?: Record<string, string>): Promise<AdminResult> {
+    if (!this.defaultAppInstanceID) {
+      return { success: false, error: 'App ID not set.' };
+    }
+    const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID, ...extraParams });
+    const resp = await this.requestAdmin(`${path}?${q}`, 'DELETE');
     const ok = resp.statusCode >= 200 && resp.statusCode < 300;
     return {
       success: ok,
@@ -825,6 +971,7 @@ export class Client {
         body: (method === 'POST' || method === 'PUT') ? JSON.stringify(body ?? {}) : undefined,
         signal: controller.signal,
       });
+      this.checkResponseSize(response);
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       return { statusCode: response.status, data };
     } finally {
@@ -853,10 +1000,19 @@ export class Client {
     const r = raw as Record<string, unknown>;
     return {
       id: typeof r.id === 'number' ? r.id : 0,
-      passkeyUserId: typeof r.passkey_user_id === 'number' ? r.passkey_user_id : undefined,
+      taskId: typeof r.task_id === 'number' ? r.task_id : undefined,
+      requestSessionId: typeof r.request_session_id === 'number' ? r.request_session_id : undefined,
+      eventType: typeof r.event_type === 'string' ? r.event_type : undefined,
       action: typeof r.action === 'string' ? r.action : undefined,
-      resource: typeof r.resource === 'string' ? r.resource : undefined,
+      status: typeof r.status === 'string' ? r.status : undefined,
+      actorPasskeyUserId: typeof r.actor_passkey_user_id === 'number' ? r.actor_passkey_user_id : undefined,
+      actorDisplayName: typeof r.actor_display_name === 'string' ? r.actor_display_name : undefined,
+      txId: typeof r.tx_id === 'string' ? r.tx_id : undefined,
+      hash: typeof r.hash === 'string' ? r.hash : undefined,
+      signature: typeof r.signature === 'string' ? r.signature : undefined,
+      appInstanceId: typeof r.app_instance_id === 'string' ? r.app_instance_id : undefined,
       details: typeof r.details === 'string' ? r.details : undefined,
+      errorMessage: typeof r.error_message === 'string' ? r.error_message : undefined,
       createdAt: typeof r.created_at === 'string' ? r.created_at : undefined,
     };
   }
@@ -904,6 +1060,7 @@ export class Client {
         signal: controller.signal,
       });
 
+      this.checkResponseSize(response);
       return (await response.json()) as APIResponse;
     } finally {
       clearTimeout(timeout);
@@ -923,6 +1080,7 @@ export class Client {
         signal: controller.signal,
       });
 
+      this.checkResponseSize(response);
       return (await response.json()) as CacheDetailResponse;
     } finally {
       clearTimeout(timeout);
@@ -949,9 +1107,17 @@ export class Client {
         signal: controller.signal,
       });
 
+      this.checkResponseSize(response);
       return (await response.json()) as APIResponse;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private checkResponseSize(response: Response): void {
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
+      throw new Error(`Response too large: ${contentLength} bytes (max ${MAX_RESPONSE_SIZE})`);
     }
   }
 

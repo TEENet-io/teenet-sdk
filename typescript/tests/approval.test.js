@@ -331,7 +331,7 @@ test('sign decodes signed response signature with 0x prefix', async () => {
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, true);
@@ -369,7 +369,7 @@ test('sign returns decode error code when signed signature hex is invalid', asyn
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
@@ -386,7 +386,7 @@ test('sign returns invalid input when message is empty', async () => {
     res.end();
   });
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.alloc(0), 'pk1');
     assert.equal(result.success, false);
@@ -403,7 +403,7 @@ test('sign returns invalid input when public key name is empty', async () => {
     res.end();
   });
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.from('hello'), '');
     assert.equal(result.success, false);
@@ -429,7 +429,7 @@ test('sign returns invalid input when public key name not bound', async () => {
     res.end();
   });
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.from('hello'), 'missing');
     assert.equal(result.success, false);
@@ -506,7 +506,7 @@ test('sign waits pending request until signed', async () => {
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     client.pendingWaitTimeout = 2000;
     const result = await client.sign(Buffer.from('hello'), 'pk1');
@@ -565,7 +565,7 @@ test('sign returns threshold-not-met error when pending times out', async () => 
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     client.pendingWaitTimeout = 50;
     const result = await client.sign(Buffer.from('hello'), 'pk1');
@@ -604,7 +604,7 @@ test('sign maps server rejection to stable error code', async () => {
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
@@ -635,7 +635,7 @@ test('sign maps submit network failure to stable error code', async () => {
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   try {
     const result = await client.sign(Buffer.from('hello'), 'pk1');
     assert.equal(result.success, false);
@@ -679,7 +679,7 @@ test('sign maps status polling network failure to stable error code', async () =
   });
 
   const client = createClient(baseURL);
-  client.setDefaultAppID('app-1');
+  client.setDefaultAppInstanceID('app-1');
   client.pendingWaitTimeout = 100;
 
   try {

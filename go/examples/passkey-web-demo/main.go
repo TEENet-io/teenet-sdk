@@ -1,3 +1,7 @@
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
+
 package main
 
 import (
@@ -139,7 +143,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		callErr := withClient("", func(client *sdk.Client, _ string) error {
 			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var innerErr error
-			signRes, innerErr = client.Sign(message, publicKeyName)
+			signRes, innerErr = client.Sign(r.Context(), message, publicKeyName)
 			return innerErr
 		})
 		if callErr != nil {
@@ -193,7 +197,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		var res *sdk.ApprovalResult
 		err := withClient("", func(client *sdk.Client, _ string) error {
 			var callErr error
-			res, callErr = client.PasskeyLoginOptions()
+			res, callErr = client.PasskeyLoginOptions(r.Context())
 			return callErr
 		})
 		if err != nil {
@@ -218,7 +222,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		var res *sdk.ApprovalResult
 		callErr := withClient("", func(client *sdk.Client, _ string) error {
 			var err error
-			res, err = client.PasskeyLoginVerify(loginID, credentialBytes)
+			res, err = client.PasskeyLoginVerify(r.Context(), loginID, credentialBytes)
 			return err
 		})
 		if callErr != nil {
@@ -250,7 +254,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		var res *sdk.ApprovalResult
 		err := withClient(token, func(client *sdk.Client, approvalToken string) error {
 			var callErr error
-			res, callErr = client.ApprovalPending(approvalToken, nil)
+			res, callErr = client.ApprovalPending(r.Context(), approvalToken, nil)
 			return callErr
 		})
 		if err != nil {
@@ -273,7 +277,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			var res *sdk.ApprovalResult
 			err := withClient(token, func(client *sdk.Client, approvalToken string) error {
 				var callErr error
-				res, callErr = client.ApprovalRequestChallenge(reqID, approvalToken)
+				res, callErr = client.ApprovalRequestChallenge(r.Context(), reqID, approvalToken)
 				return callErr
 			})
 			if err != nil {
@@ -292,7 +296,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			var res *sdk.ApprovalResult
 			err := withClient(token, func(client *sdk.Client, approvalToken string) error {
 				var callErr error
-				res, callErr = client.ApprovalActionChallenge(taskID, approvalToken)
+				res, callErr = client.ApprovalActionChallenge(r.Context(), taskID, approvalToken)
 				return callErr
 			})
 			if err != nil {
@@ -344,7 +348,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			var res *sdk.ApprovalResult
 			err := withClient(token, func(client *sdk.Client, approvalToken string) error {
 				var callErr error
-				res, callErr = client.ApprovalRequestConfirm(reqID, payloadBytes, approvalToken)
+				res, callErr = client.ApprovalRequestConfirm(r.Context(), reqID, payloadBytes, approvalToken)
 				return callErr
 			})
 			if err != nil {
@@ -369,7 +373,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			var res *sdk.ApprovalResult
 			err := withClient(token, func(client *sdk.Client, approvalToken string) error {
 				var callErr error
-				res, callErr = client.ApprovalAction(taskID, payloadBytes, approvalToken)
+				res, callErr = client.ApprovalAction(r.Context(), taskID, payloadBytes, approvalToken)
 				return callErr
 			})
 			if err != nil {

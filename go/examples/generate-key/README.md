@@ -5,8 +5,8 @@ This example demonstrates how to generate cryptographic keys using the TEENet SD
 ## Overview
 
 The SDK provides two key generation functions:
-- `GenerateSchnorrKey(name, curve)` - For Schnorr signature keys
-- `GenerateECDSAKey(name, curve)` - For ECDSA signature keys
+- `GenerateSchnorrKey(ctx, curve)` - For Schnorr signature keys
+- `GenerateECDSAKey(ctx, curve)` - For ECDSA signature keys
 
 ## Supported Combinations
 
@@ -21,7 +21,7 @@ The SDK provides two key generation functions:
 
 ## Prerequisites
 
-1. TEENet consensus service running (default: `http://localhost:8080`)
+1. TEENet consensus service running (default: `http://localhost:8089`)
 2. Valid `APP_INSTANCE_ID` environment variable set
 
 ## Usage
@@ -31,7 +31,7 @@ The SDK provides two key generation functions:
 export APP_INSTANCE_ID="your-app-instance-id"
 
 # Optional: set consensus URL
-export CONSENSUS_URL="http://localhost:8080"
+export CONSENSUS_URL="http://localhost:8089"
 
 # Run the example
 go run main.go
@@ -41,11 +41,11 @@ go run main.go
 
 ```
 === TEENet Key Generation Example ===
-Consensus URL: http://localhost:8080
+Consensus URL: http://localhost:8089
 App Instance ID: abc123
 
-📝 Generating Schnorr key (secp256k1)...
-✅ Schnorr key generated successfully!
+Generating Schnorr key (secp256k1)...
+Schnorr key generated successfully!
   Key ID: 1
   Name: my-schnorr-key
   Protocol: schnorr
@@ -55,8 +55,8 @@ App Instance ID: abc123
   Created by Instance: abc123
   DKG Threshold: 2 of 5 participants
 
-📝 Generating ECDSA key (secp256k1)...
-✅ ECDSA key generated successfully!
+Generating ECDSA key (secp256k1)...
+ECDSA key generated successfully!
   Key ID: 2
   Name: my-ecdsa-key
   Protocol: ecdsa
@@ -65,7 +65,7 @@ App Instance ID: abc123
   Application ID: 42
   Created by Instance: abc123
 
-🎉 All keys generated successfully!
+All keys generated successfully!
 ```
 
 ## Key Features
@@ -81,14 +81,16 @@ App Instance ID: abc123
 After generating keys, you can use them for signing:
 
 ```go
+ctx := context.Background()
+
 // Generate a key using constants (recommended)
-keyResult, err := client.GenerateSchnorrKey("my-key", sdk.CurveSECP256K1)
+keyResult, err := client.GenerateSchnorrKey(ctx, sdk.CurveSECP256K1)
 if err != nil {
     log.Fatal(err)
 }
 
 // Sign with generated key name
-signResult, err := client.Sign([]byte("message to sign"), keyResult.PublicKey.Name)
+signResult, err := client.Sign(ctx, []byte("message to sign"), keyResult.PublicKey.Name)
 if err != nil {
     log.Fatal(err)
 }
@@ -118,7 +120,7 @@ The SDK provides detailed error messages for common issues:
 - Invalid curve-protocol combinations
 - Missing APP_INSTANCE_ID
 - Network connectivity problems
-- Invalid key names (must be ≤50 characters)
+- Invalid key names (must be <=50 characters)
 
 ## Related Examples
 

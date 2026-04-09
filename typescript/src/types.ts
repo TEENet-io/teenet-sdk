@@ -1,15 +1,6 @@
-// -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
-//
-// This software and its associated documentation files (the "Software") are
-// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
-// Unauthorized copying of this file, via any medium, is strictly prohibited.
-//
-// No license, express or implied, is hereby granted, except by written agreement
-// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
-// is a violation of applicable laws.
-//
-// -----------------------------------------------------------------------------
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
 
 /**
  * Protocol constants for signature algorithms
@@ -42,7 +33,21 @@ export interface ClientOptions {
   pendingWaitTimeout?: number;
   /** Enable verbose sign/polling debug logs (default: false) */
   debug?: boolean;
+  /** Key cache TTL in milliseconds (default: 60000). Set to -1 to disable caching. */
+  keyCacheTTL?: number;
 }
+
+/**
+ * Status constants for voting/approval flow
+ */
+export const Status = {
+  PENDING: 'pending',
+  SIGNED: 'signed',
+  FAILED: 'failed',
+  PENDING_APPROVAL: 'pending_approval',
+} as const;
+
+export type StatusType = (typeof Status)[keyof typeof Status];
 
 export const ErrorCode = {
   INVALID_INPUT: 'INVALID_INPUT',
@@ -54,6 +59,7 @@ export const ErrorCode = {
   STATUS_QUERY_FAILED: 'STATUS_QUERY_FAILED',
   THRESHOLD_TIMEOUT: 'THRESHOLD_TIMEOUT',
   SIGN_FAILED: 'SIGN_FAILED',
+  APPROVAL_PENDING: 'APPROVAL_PENDING',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -88,6 +94,10 @@ export interface VotingInfo {
   status: string;
   /** Message hash */
   hash: string;
+  /** Transaction ID for approval flow */
+  txID?: string;
+  /** Request ID for approval flow */
+  requestID?: number;
 }
 
 /**
@@ -257,10 +267,19 @@ export interface PasskeyUsersResult {
  */
 export interface AuditRecord {
   id: number;
-  passkeyUserId?: number;
+  taskId?: number;
+  requestSessionId?: number;
+  eventType?: string;
   action?: string;
-  resource?: string;
+  status?: string;
+  actorPasskeyUserId?: number;
+  actorDisplayName?: string;
+  txId?: string;
+  hash?: string;
+  signature?: string;
+  appInstanceId?: string;
   details?: string;
+  errorMessage?: string;
   createdAt?: string;
 }
 
@@ -343,4 +362,61 @@ export interface BoundPublicKeyInfo {
   protocol: string;
   /** Elliptic curve */
   curve: string;
+  /** Threshold for multi-sig */
+  threshold?: number;
+  /** Number of participants */
+  participantCount?: number;
+  /** Maximum participant count */
+  maxParticipantCount?: number;
+  /** Application ID */
+  applicationId?: number;
+  /** Instance ID that created this key */
+  createdByInstanceId?: string;
+}
+
+/**
+ * Request to create a new API key via admin bridge.
+ */
+export interface CreateAPIKeyRequest {
+  /** Name of the API key */
+  name: string;
+  /** Optional human-readable description */
+  description?: string;
+  /** The API key value to store */
+  apiKey?: string;
+  /** The API secret to store */
+  apiSecret?: string;
+}
+
+/**
+ * Result of creating an API key.
+ */
+export interface CreateAPIKeyResult {
+  success: boolean;
+  error?: string;
+  id?: number;
+  name?: string;
+  hasApiKey?: boolean;
+  hasApiSecret?: boolean;
+}
+
+/**
+ * Result of passkey registration options request.
+ */
+export interface PasskeyRegistrationOptionsResult {
+  success: boolean;
+  error?: string;
+  inviteToken?: string;
+  options?: unknown;
+  expiresAt?: string;
+}
+
+/**
+ * Result of passkey registration verification.
+ */
+export interface PasskeyRegistrationVerifyResult {
+  success: boolean;
+  error?: string;
+  passkeyUserId?: number;
+  displayName?: string;
 }

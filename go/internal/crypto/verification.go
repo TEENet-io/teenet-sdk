@@ -1,15 +1,6 @@
-// -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
-//
-// This software and its associated documentation files (the "Software") are
-// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
-// Unauthorized copying of this file, via any medium, is strictly prohibited.
-//
-// No license, express or implied, is hereby granted, except by written agreement
-// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
-// is a violation of applicable laws.
-//
-// -----------------------------------------------------------------------------
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
 
 // Package crypto provides signature verification for TEENet SDK.
 package crypto
@@ -133,6 +124,13 @@ func verifySecp256k1ECDSA(messageHash []byte, pubKey *btcec.PublicKey, signature
 		// 65-byte format: r(32) || s(32) || v(1) — recovery id v is not needed for verification.
 		r := new(big.Int).SetBytes(signature[:32])
 		s := new(big.Int).SetBytes(signature[32:64])
+
+		// Enforce low-S normalization to reject malleable signatures (matching 64-byte branch).
+		halfOrder := new(big.Int).Rsh(ecdsaPubKey.Curve.Params().N, 1)
+		if s.Cmp(halfOrder) > 0 {
+			return false, fmt.Errorf("non-canonical ECDSA signature: s exceeds half the curve order (high-S)")
+		}
+
 		return ecdsa.Verify(ecdsaPubKey, messageHash, r, s), nil
 
 	case 64:
@@ -156,6 +154,17 @@ func verifySecp256k1ECDSA(messageHash []byte, pubKey *btcec.PublicKey, signature
 		if err != nil {
 			return false, fmt.Errorf("failed to parse ECDSA signature (length %d): %v", len(signature), err)
 		}
+
+		// Enforce low-S normalization on DER signatures (matching 64/65-byte branches).
+		// sig.S() returns a ModNScalar; convert to *big.Int for comparison.
+		sScalar := sig.S()
+		sBytes := sScalar.Bytes()
+		s := new(big.Int).SetBytes(sBytes[:])
+		halfOrder := new(big.Int).Rsh(ecdsaPubKey.Curve.Params().N, 1)
+		if s.Cmp(halfOrder) > 0 {
+			return false, fmt.Errorf("non-canonical ECDSA signature: s exceeds half the curve order (high-S)")
+		}
+
 		return sig.Verify(messageHash, pubKey), nil
 	}
 }
@@ -242,6 +251,12 @@ func verifyP256ECDSA(message []byte, publicKey *ecdsa.PublicKey, signature []byt
 	curveOrder := publicKey.Curve.Params().N
 	if ecdsaSig.R.Cmp(curveOrder) >= 0 || ecdsaSig.S.Cmp(curveOrder) >= 0 {
 		return false, fmt.Errorf("invalid signature: r or s is >= curve order")
+	}
+
+	// Enforce low-S normalization to reject malleable signatures (matching secp256k1 behavior).
+	halfOrder := new(big.Int).Rsh(curveOrder, 1)
+	if ecdsaSig.S.Cmp(halfOrder) > 0 {
+		return false, fmt.Errorf("non-canonical ECDSA signature: s exceeds half the curve order (high-S)")
 	}
 
 	// Verify the ECDSA signature

@@ -18,7 +18,7 @@ const client = new Client('http://localhost:8089', {
   pendingWaitTimeout: 10000,  // max wait in sign() for voting completion
   debug: true,                // verbose sign/polling trace logs
 });
-client.setDefaultAppID('your-app-id');
+client.setDefaultAppInstanceID('your-app-instance-id');
 
 // Sign a message
 const message = Buffer.from('Hello, TEENet!');
@@ -146,8 +146,8 @@ Options:
 
 | Method | Description |
 |--------|-------------|
-| `setDefaultAppID(appID)` | Set the default application ID |
-| `getDefaultAppID()` | Get the current default App ID |
+| `setDefaultAppInstanceID(appInstanceID)` | Set the default application instance ID |
+| `getDefaultAppInstanceID()` | Get the current default App Instance ID |
 | `sign(message, publicKeyName)` | Sign a message with bound key name |
 | `getStatus(hash)` | Get voting status from consensus cache |
 | `passkeyLoginOptions()` | Get passkey login options |
@@ -162,7 +162,7 @@ Options:
 | `approvalActionWithCredential(taskId, action, getCredential, approvalToken)` | Challenge + WebAuthn + action in one SDK call |
 | `passkeyLoginWithCredential(getCredential)` | Login options + WebAuthn + verify in one SDK call |
 | `verify(message, signature, publicKeyName)` | Verify a signature with bound key name |
-| `getPublicKeys()` | Get all bound public keys for default App ID |
+| `getPublicKeys()` | Get all bound public keys for default App Instance ID |
 | `generateECDSAKey(curve)` | Generate ECDSA key |
 | `generateSchnorrKey(curve)` | Generate Schnorr key |
 | `getAPIKey(name)` | Get API key by name |
@@ -203,11 +203,6 @@ const hmacValid = verifyHMACSHA256(message, secret, signature);
 | Schnorr | SECP256K1 | BIP-340 Schnorr |
 | ECDSA | SECP256R1 | NIST P-256 |
 
-## Contract Checklist
-
-- [docs/sign-contract-checklist.md](/home/sun/tee/teenet-sdk/docs/sign-contract-checklist.md)
-- [docs/error-code-matrix.md](/home/sun/tee/teenet-sdk/docs/error-code-matrix.md)
-
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
+Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.

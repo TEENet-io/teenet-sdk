@@ -14,6 +14,7 @@ go get github.com/TEENet-io/teenet-sdk/go
 package main
 
 import (
+    "context"
     "fmt"
     "log"
 
@@ -21,6 +22,8 @@ import (
 )
 
 func main() {
+    ctx := context.Background()
+
     // Create client
     client := sdk.NewClient("http://localhost:8089")
     client.SetDefaultAppInstanceID("your-app-instance-id")
@@ -28,7 +31,7 @@ func main() {
 
     // Sign a message
     message := []byte("Hello, TEENet!")
-    result, err := client.Sign(message, "my-key")
+    result, err := client.Sign(ctx, message, "my-key")
     if err != nil {
         log.Fatal(err)
     }
@@ -38,7 +41,7 @@ func main() {
     fmt.Printf("Signature: %x\n", result.Signature)
 
     // Verify the signature
-    valid, err := client.Verify(message, result.Signature, "my-key")
+    valid, err := client.Verify(ctx, message, result.Signature, "my-key")
     if err != nil {
         log.Fatal(err)
     }
@@ -91,7 +94,7 @@ client.Init()
 
 ```go
 // Sign with specific bound key name (required)
-result, err := client.Sign([]byte("message"), "my-key")
+result, err := client.Sign(ctx, []byte("message"), "my-key")
 
 // Check result
 if result.Success {
@@ -104,7 +107,7 @@ if result.Success {
 ### Get Status
 
 ```go
-status, err := client.GetStatus("0x...")
+status, err := client.GetStatus(ctx, "0x...")
 if err != nil {
     log.Fatal(err)
 }
@@ -125,7 +128,7 @@ getCredential := func(options interface{}) ([]byte, error) {
 }
 
 // 0) Passkey login (SDK orchestrates options + verify)
-loginRes, _ := client.PasskeyLoginWithCredential(getCredential)
+loginRes, _ := client.PasskeyLoginWithCredential(ctx, getCredential)
 if !loginRes.Success {
     log.Fatalf("login failed: %s", loginRes.Error)
 }
@@ -135,7 +138,7 @@ if approvalToken == "" {
 }
 
 // 1) Initiator side: just call Sign (approval request is auto-initialized by backend policy)
-signRes, err := client.Sign([]byte(`{"to":"0x1234","amount":"1"}`), "my-key")
+signRes, err := client.Sign(ctx, []byte(`{"to":"0x1234","amount":"1"}`), "my-key")
 if err != nil {
     log.Fatalf("sign failed: %v", err)
 }
@@ -145,15 +148,15 @@ if signRes.ErrorCode != "APPROVAL_PENDING" {
 requestID := signRes.VotingInfo.RequestID
 
 // Optional: approver can query pending tasks for current passkey identity
-pending, _ := client.ApprovalPending(approvalToken, nil)
+pending, _ := client.ApprovalPending(ctx, approvalToken, nil)
 _ = pending
 
 // 2) Approver confirms request (SDK orchestrates challenge + confirm)
-confirmRes, _ := client.ApprovalRequestConfirmWithCredential(requestID, getCredential, approvalToken)
+confirmRes, _ := client.ApprovalRequestConfirmWithCredential(ctx, requestID, getCredential, approvalToken)
 taskID := uint64(confirmRes.Data["task_id"].(float64))
 
 // 3) Approver takes task action (SDK orchestrates challenge + action)
-_, _ = client.ApprovalActionWithCredential(taskID, "APPROVE", getCredential, approvalToken)
+_, _ = client.ApprovalActionWithCredential(ctx, taskID, "APPROVE", getCredential, approvalToken)
 ```
 
 Notes:
@@ -165,13 +168,13 @@ Notes:
 
 ```go
 // Verify with specific bound key name
-valid, err := client.Verify(message, signature, "my-key")
+valid, err := client.Verify(ctx, message, signature, "my-key")
 ```
 
 ### Get Public Key
 
 ```go
-keys, err := client.GetPublicKeys()
+keys, err := client.GetPublicKeys(ctx)
 // publicKey: hex-encoded public key
 // protocol: "ecdsa" or "schnorr"
 // curve: "ed25519", "secp256k1", or "secp256r1"
@@ -181,10 +184,10 @@ keys, err := client.GetPublicKeys()
 
 ```go
 // Generate ECDSA key
-result, err := client.GenerateECDSAKey("secp256k1")  // or "secp256r1"
+result, err := client.GenerateECDSAKey(ctx, "secp256k1")  // or "secp256r1"
 
 // Generate Schnorr key
-result, err := client.GenerateSchnorrKey("ed25519")  // or "secp256k1", "secp256r1"
+result, err := client.GenerateSchnorrKey(ctx, "ed25519")  // or "secp256k1", "secp256r1"
 
 // Use generated key
 if result.Success {
@@ -192,7 +195,7 @@ if result.Success {
     fmt.Printf("Public Key: %s\n", result.PublicKey.KeyData)
 
     // Sign with generated key
-    signResult, _ := client.Sign(message, result.PublicKey.Name)
+    signResult, _ := client.Sign(ctx, message, result.PublicKey.Name)
 }
 ```
 
@@ -200,13 +203,13 @@ if result.Success {
 
 ```go
 // Get API key
-result, err := client.GetAPIKey("my-api-key")
+result, err := client.GetAPIKey(ctx, "my-api-key")
 if result.Success {
     fmt.Printf("API Key: %s\n", result.APIKey)
 }
 
 // Sign with API secret (HMAC-SHA256)
-result, err := client.SignWithAPISecret("my-secret", []byte("message"))
+result, err := client.SignWithAPISecret(ctx, "my-secret", []byte("message"))
 if result.Success {
     fmt.Printf("Signature: %s\n", result.Signature)
     fmt.Printf("Algorithm: %s\n", result.Algorithm)
@@ -320,10 +323,6 @@ cd ../mock-server
 go test ./...
 ```
 
-Cross-language sign contract checklist:
-- [docs/sign-contract-checklist.md](/home/sun/tee/teenet-sdk/docs/sign-contract-checklist.md)
-- [docs/error-code-matrix.md](/home/sun/tee/teenet-sdk/docs/error-code-matrix.md)
-
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
+Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.

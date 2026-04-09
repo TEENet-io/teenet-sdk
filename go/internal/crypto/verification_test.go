@@ -347,6 +347,12 @@ func TestVerifySecp256r1ECDSA(t *testing.T) {
 		t.Fatalf("Failed to sign: %v", err)
 	}
 
+	// Enforce low-S normalization to match verifier behavior
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if s.Cmp(halfOrder) > 0 {
+		s.Sub(elliptic.P256().Params().N, s)
+	}
+
 	// Create 64-byte raw signature
 	rBytes := r.Bytes()
 	sBytes := s.Bytes()
@@ -383,6 +389,12 @@ func TestVerifySecp256r1ECDSA_RawPubKey(t *testing.T) {
 	r, s, err := ecdsa.Sign(rand.Reader, privateKey, messageHash)
 	if err != nil {
 		t.Fatalf("Failed to sign: %v", err)
+	}
+
+	// Enforce low-S normalization to match verifier behavior
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if s.Cmp(halfOrder) > 0 {
+		s.Sub(elliptic.P256().Params().N, s)
 	}
 
 	rBytes := r.Bytes()
@@ -626,6 +638,82 @@ func TestCaseInsensitiveProtocolAndCurve(t *testing.T) {
 		if !valid {
 			t.Errorf("Expected valid signature with protocol=%s, curve=%s", tc.protocol, tc.curve)
 		}
+	}
+}
+
+// TestVerifySecp256k1ECDSA_65byte_RejectsHighS verifies that 65-byte secp256k1
+// ECDSA signatures with a high-S value are rejected to prevent signature malleability.
+func TestVerifySecp256k1ECDSA_65byte_RejectsHighS(t *testing.T) {
+	privateKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate secp256k1 key: %v", err)
+	}
+	pubKey := privateKey.PubKey()
+
+	message := []byte("test high-S rejection 65-byte")
+	hasher := sha256.New()
+	hasher.Write(message)
+	messageHash := hasher.Sum(nil)
+
+	sig := btcecdsa.Sign(privateKey, messageHash)
+
+	// Extract r and s from DER signature.
+	rBytes, sBytes := extractRSFromSignature(sig.Serialize())
+	r := new(big.Int).SetBytes(rBytes)
+	s := new(big.Int).SetBytes(sBytes)
+
+	// Force high-S: if s is already low, flip it to n - s.
+	halfOrder := new(big.Int).Rsh(btcec.S256().N, 1)
+	if s.Cmp(halfOrder) <= 0 {
+		s.Sub(btcec.S256().N, s)
+	}
+
+	// Build 65-byte signature: r(32) || s(32) || v(1).
+	highSSig := make([]byte, 65)
+	r.FillBytes(highSSig[:32])
+	s.FillBytes(highSSig[32:64])
+	highSSig[64] = 0 // recovery id
+
+	_, err = VerifySignature(messageHash, pubKey.SerializeCompressed(), highSSig, ProtocolECDSA, CurveSECP256K1)
+	if err == nil {
+		t.Error("Expected error for high-S 65-byte secp256k1 ECDSA signature")
+	}
+}
+
+// TestVerifyP256ECDSA_RejectsHighS verifies that P-256 ECDSA signatures with a
+// high-S value are rejected to prevent signature malleability.
+func TestVerifyP256ECDSA_RejectsHighS(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate P-256 key: %v", err)
+	}
+
+	message := []byte("test P256 high-S rejection")
+	hasher := sha256.New()
+	hasher.Write(message)
+	messageHash := hasher.Sum(nil)
+
+	r, s, err := ecdsa.Sign(rand.Reader, privateKey, messageHash)
+	if err != nil {
+		t.Fatalf("Failed to sign: %v", err)
+	}
+
+	// Force high-S: if s is already low, flip it to n - s.
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if s.Cmp(halfOrder) <= 0 {
+		s.Sub(elliptic.P256().Params().N, s)
+	}
+
+	sig := make([]byte, 64)
+	r.FillBytes(sig[:32])
+	s.FillBytes(sig[32:])
+
+	pubKeyBytes := elliptic.Marshal(elliptic.P256(), privateKey.X, privateKey.Y)
+
+	// VerifySignature for secp256r1 ECDSA hashes the raw message internally.
+	_, err = VerifySignature(message, pubKeyBytes, sig, ProtocolECDSA, CurveSECP256R1)
+	if err == nil {
+		t.Error("Expected error for high-S P256 ECDSA signature")
 	}
 }
 

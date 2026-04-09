@@ -13,7 +13,7 @@ A simplified Go SDK for TEE-DAO key management operations using the consensus se
 ## Installation
 
 ```bash
-go get github.com/TEENet-io/teenet-sdk
+go get github.com/TEENet-io/teenet-sdk/go
 ```
 
 ## Quick Start
@@ -21,7 +21,7 @@ go get github.com/TEENet-io/teenet-sdk
 ### 1. Initialize Client
 
 ```go
-import sdk "github.com/TEENet-io/teenet-sdk"
+import sdk "github.com/TEENet-io/teenet-sdk/go"
 
 // Create client pointing to consensus service
 client := sdk.NewClient("http://localhost:8089")
@@ -38,7 +38,7 @@ client.SetDefaultAppInstanceIDFromEnv() // Reads APP_INSTANCE_ID from environmen
 message := []byte("Hello, TEENet!")
 
 // Sign the message (handles both direct signing and voting automatically)
-result, err := client.Sign(message, "my-key")
+result, err := client.Sign(ctx, message, "my-key")
 if err != nil {
     log.Fatalf("Signing failed: %v", err)
 }
@@ -64,7 +64,7 @@ message := []byte("Hello, TEENet!")
 signature := result.Signature
 
 // Verify signature with bound key name
-valid, err := client.Verify(message, signature, "my-key")
+valid, err := client.Verify(ctx, message, signature, "my-key")
 if err != nil {
     log.Fatalf("Verification failed: %v", err)
 }
@@ -75,7 +75,7 @@ fmt.Printf("Signature valid: %v\n", valid)
 ### 4. Get Bound Public Keys
 
 ```go
-keys, err := client.GetPublicKeys()
+keys, err := client.GetPublicKeys(ctx)
 if err != nil {
     log.Fatalf("Failed to get public keys: %v", err)
 }
@@ -152,20 +152,20 @@ Sets the default APP_INSTANCE_ID for signing operations.
 #### `SetDefaultAppInstanceIDFromEnv() error`
 Loads APP_INSTANCE_ID from environment variable.
 
-#### `Sign(message []byte, publicKeyName string) (*SignResult, error)`
+#### `Sign(ctx context.Context, message []byte, publicKeyName string) (*SignResult, error)`
 Signs a message. Automatically handles both direct signing and voting modes.
 
 **Returns:**
 - `SignResult`: Contains signature, success status, and voting information
 - `error`: Error if signing fails
 
-#### `GetStatus(hash string) (*VoteStatus, error)`
+#### `GetStatus(ctx context.Context, hash string) (*VoteStatus, error)`
 Retrieves voting status for a specific hash.
 
-#### `Verify(message []byte, signature []byte, publicKeyName string) (bool, error)`
+#### `Verify(ctx context.Context, message []byte, signature []byte, publicKeyName string) (bool, error)`
 Verifies a signature against the message using a bound key name.
 
-#### `GetPublicKeys() ([]PublicKeyMeta, error)`
+#### `GetPublicKeys(ctx context.Context) ([]PublicKeyMeta, error)`
 Retrieves all bound public keys for the default APP_INSTANCE_ID.
 
 #### `Close() error`
@@ -231,13 +231,16 @@ type VoteStatus struct {
 package main
 
 import (
+    "context"
     "fmt"
     "log"
 
-    sdk "github.com/TEENet-io/teenet-sdk"
+    sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
+    ctx := context.Background()
+
     // Initialize client
     client := sdk.NewClient("http://localhost:8089")
     client.SetDefaultAppInstanceID("my-app-id")
@@ -245,7 +248,7 @@ func main() {
 
     // Sign message
     message := []byte("Important transaction data")
-    result, err := client.Sign(message, "my-key")
+    result, err := client.Sign(ctx, message, "my-key")
     if err != nil {
         log.Fatalf("Sign error: %v", err)
     }
@@ -254,16 +257,16 @@ func main() {
         log.Fatalf("Signing failed: %s", result.Error)
     }
 
-    fmt.Printf("✅ Signed successfully\n")
+    fmt.Printf("Signed successfully\n")
     fmt.Printf("Signature: %x\n", result.Signature)
 
     // Verify signature
-    valid, err := client.Verify(message, result.Signature, "my-key")
+    valid, err := client.Verify(ctx, message, result.Signature, "my-key")
     if err != nil {
         log.Fatalf("Verify error: %v", err)
     }
 
-    fmt.Printf("✅ Signature valid: %v\n", valid)
+    fmt.Printf("Signature valid: %v\n", valid)
 }
 ```
 
@@ -273,14 +276,17 @@ func main() {
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "sync"
 
-    sdk "github.com/TEENet-io/teenet-sdk"
+    sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
+    ctx := context.Background()
+
     // Simulate 2-of-3 voting scenario
     // Three instances with different APP_INSTANCE_IDs vote on same message
 
@@ -297,7 +303,7 @@ func main() {
         client1.SetDefaultAppInstanceID("voter-app-1")
         defer client1.Close()
 
-        result, err := client1.Sign(message, "my-key")
+        result, err := client1.Sign(ctx, message, "my-key")
         if err != nil {
             log.Printf("App 1 error: %v", err)
             return
@@ -314,7 +320,7 @@ func main() {
         client2.SetDefaultAppInstanceID("voter-app-2")
         defer client2.Close()
 
-        result, err := client2.Sign(message, "my-key")
+        result, err := client2.Sign(ctx, message, "my-key")
         if err != nil {
             log.Printf("App 2 error: %v", err)
             return
@@ -331,7 +337,7 @@ func main() {
         client3.SetDefaultAppInstanceID("voter-app-3")
         defer client3.Close()
 
-        result, err := client3.Sign(message, "my-key")
+        result, err := client3.Sign(ctx, message, "my-key")
         if err != nil {
             log.Printf("App 3 error: %v", err)
             return
@@ -345,7 +351,7 @@ func main() {
     // Check results
     for i, result := range results {
         if result != nil && result.Success {
-            fmt.Printf("App %d: ✅ Signature received: %x\n", i+1, result.Signature[:16])
+            fmt.Printf("App %d: Signature received: %x\n", i+1, result.Signature[:16])
             if result.VotingInfo != nil {
                 fmt.Printf("       Votes: %d/%d\n",
                     result.VotingInfo.CurrentVotes,
@@ -412,7 +418,7 @@ func main() {
 ### Error Response Structure
 
 ```go
-result, err := client.Sign(message, "my-key")
+result, err := client.Sign(ctx, message, "my-key")
 if err != nil {
     // Network or system error
     log.Printf("System error: %v", err)
@@ -438,7 +444,6 @@ teenet-sdk/
 │   └── util/           # Utility functions
 └── examples/           # Example applications
     ├── basic/          # Basic usage examples
-    ├── signature-tool/ # Web-based signature tool
     └── voting-demo/    # Multi-party voting demo
 ```
 
@@ -458,7 +463,6 @@ See the `examples/` directory for complete working applications:
   - `voting/`: Multi-party voting scenario
   - `forwarding/`: Request forwarding example
 
-- **signature-tool/**: Web-based signature tool with frontend UI
 - **voting-demo/**: Interactive voting demonstration app
 
 ## Testing
@@ -468,12 +472,6 @@ Run tests:
 go test ./...
 ```
 
-Cross-language sign contract checklist:
-- [docs/sign-contract-checklist.md](/home/sun/tee/teenet-sdk/docs/sign-contract-checklist.md)
-- [docs/error-code-matrix.md](/home/sun/tee/teenet-sdk/docs/error-code-matrix.md)
-- [docs/minimal-sign-integration.md](/home/sun/tee/teenet-sdk/docs/minimal-sign-integration.md)
-- [docs/error-codes.contract.json](/home/sun/tee/teenet-sdk/docs/error-codes.contract.json)
-
 ## License
 
-Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
+Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.

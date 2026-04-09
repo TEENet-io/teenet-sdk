@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test tests",
+    "test": "npm run build && node --test tests/*.test.js",
     "lint": "eslint src --ext .ts",
     "prepublishOnly": "npm run build"
   },
@@ -21,7 +21,7 @@
     "secp256k1"
   ],
   "author": "TEENet Technology (Hong Kong) Limited",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@noble/curves": "^1.4.0",
     "@noble/hashes": "^1.4.0"

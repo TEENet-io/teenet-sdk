@@ -17,8 +17,8 @@ Demonstrates basic signing and verification operations.
 **Usage:**
 ```bash
 cd simple
-export APP_ID="your-app-id"
-export CONSENSUS_URL="http://your-consensus-url:8089"  # optional
+export APP_INSTANCE_ID="your-app-instance-id"
+export CONSENSUS_URL="http://localhost:8089"  # optional
 go run main.go
 ```
 
@@ -27,7 +27,7 @@ go run main.go
 Demonstrates M-of-N threshold voting with multiple voters.
 
 **Features:**
-- Concurrent voting from multiple app IDs
+- Concurrent voting from multiple app instance IDs
 - Threshold-based signature generation
 - Vote tracking and status monitoring
 
@@ -37,7 +37,7 @@ cd voting
 go run main.go
 ```
 
-**Note:** Edit `main.go` to configure your voter app IDs and consensus URL.
+**Note:** Edit `main.go` to configure your voter app instance IDs and consensus URL.
 
 ### 3. Forwarding Voting (`forwarding/`)
 
@@ -54,7 +54,7 @@ cd forwarding
 go run main.go
 ```
 
-**Note:** Edit `main.go` to configure consensus URLs and voter app IDs.
+**Note:** Edit `main.go` to configure consensus URLs and voter app instance IDs.
 
 ## Building
 
@@ -70,13 +70,13 @@ go build
 
 ### Simple Example
 
-- `APP_ID` (required): Your TEENet application ID
-- `CONSENSUS_URL` (optional): Consensus service URL (default: http://172.28.220.29:8089)
+- `APP_INSTANCE_ID` (required): Your TEENet application instance ID
+- `CONSENSUS_URL` (optional): Consensus service URL (default: http://localhost:8089)
 
 ### Voting Examples
 
 Configuration is hardcoded in the source files. Edit `main.go` to customize:
-- Voter app IDs
+- Voter app instance IDs
 - Consensus URLs
 - Message content
 
@@ -84,12 +84,12 @@ Configuration is hardcoded in the source files. Edit `main.go` to customize:
 
 ### Get Public Key
 ```go
-keys, err := client.GetPublicKeys()
+keys, err := client.GetPublicKeys(ctx)
 ```
 
 ### Sign Message
 ```go
-result, err := client.Sign([]byte("message"), "my-key")
+result, err := client.Sign(ctx, []byte("message"), "my-key")
 if err != nil {
     log.Fatal(err)
 }
@@ -98,11 +98,10 @@ fmt.Printf("Signature: %x\n", result.Signature)
 
 ### Verify Signature
 ```go
-valid, err := client.Verify(message, signature, "my-key")
+valid, err := client.Verify(ctx, message, signature, "my-key")
 ```
 
 ## More Examples
 
 For web-based examples with GUI, see:
-- `../signature-tool/` - Web signature tool
 - `../voting-demo/` - Web voting demonstration

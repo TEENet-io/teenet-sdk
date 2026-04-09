@@ -19,6 +19,7 @@ test('sign error code contract matches shared definition', () => {
     ErrorCode.STATUS_QUERY_FAILED,
     ErrorCode.SIGN_FAILED,
     ErrorCode.THRESHOLD_TIMEOUT,
+    ErrorCode.APPROVAL_PENDING,
   ];
 
   assert.deepEqual(actual, contract.sign_error_codes);

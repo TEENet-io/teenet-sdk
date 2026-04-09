@@ -1,15 +1,6 @@
-// -----------------------------------------------------------------------------
-// Copyright (c) 2025 TEENet Technology (Hong Kong) Limited.
-//
-// This software and its associated documentation files (the "Software") are
-// the proprietary and confidential information of TEENet Technology (Hong Kong) Limited.
-// Unauthorized copying of this file, via any medium, is strictly prohibited.
-//
-// No license, express or implied, is hereby granted, except by written agreement
-// with TEENet Technology (Hong Kong) Limited. Use of this software without permission
-// is a violation of applicable laws.
-//
-// -----------------------------------------------------------------------------
+// Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+// Licensed under the GNU General Public License v3.0.
+// See LICENSE file in the project root for full license text.
 
 package sdk
 
@@ -440,6 +431,78 @@ func TestApprovalActionWithCredential(t *testing.T) {
 	}
 	if got := res.Data["status"]; got != "APPROVED" {
 		t.Fatalf("unexpected status: %v", got)
+	}
+}
+
+// TestCheckInit_NilClient verifies that calling methods on a nil *Client returns
+// errNilClient instead of panicking.
+func TestCheckInit_NilClient(t *testing.T) {
+	var c *Client // nil pointer
+
+	// Methods returning (result, error) must return a non-nil error.
+	_, err := c.Sign(context.Background(), []byte("msg"), "key")
+	if err == nil {
+		t.Error("Sign on nil client should return error")
+	}
+
+	_, err = c.Verify(context.Background(), []byte("msg"), []byte("sig"), "key")
+	if err == nil {
+		t.Error("Verify on nil client should return error")
+	}
+
+	_, err = c.GetPublicKeys(context.Background())
+	if err == nil {
+		t.Error("GetPublicKeys on nil client should return error")
+	}
+
+	_, err = c.GetStatus(context.Background(), "hash")
+	if err == nil {
+		t.Error("GetStatus on nil client should return error")
+	}
+
+	_, err = c.GenerateSchnorrKey(context.Background(), "ed25519")
+	if err == nil {
+		t.Error("GenerateSchnorrKey on nil client should return error")
+	}
+
+	_, err = c.GenerateECDSAKey(context.Background(), "secp256k1")
+	if err == nil {
+		t.Error("GenerateECDSAKey on nil client should return error")
+	}
+
+	_, err = c.GetAPIKey(context.Background(), "key")
+	if err == nil {
+		t.Error("GetAPIKey on nil client should return error")
+	}
+
+	err = c.Init()
+	if err == nil {
+		t.Error("Init on nil client should return error")
+	}
+
+	// Void/getter methods must not panic on nil receiver.
+	c.SetDefaultAppInstanceID("test")
+	c.InvalidateKeyCache()
+	_ = c.GetDefaultAppInstanceID()
+	_ = c.GetConsensusURL()
+	_ = c.GetRequestTimeout()
+	_ = c.GetPendingWaitTimeout()
+
+	// Close on nil should return nil, not panic.
+	err = c.Close()
+	if err != nil {
+		t.Error("Close on nil client should return nil")
+	}
+}
+
+// TestCheckInit_ZeroValueClient verifies that a zero-value *Client (impl == nil)
+// returns errNilClient from methods that call checkInit().
+func TestCheckInit_ZeroValueClient(t *testing.T) {
+	c := &Client{} // zero value: impl is nil
+
+	_, err := c.Sign(context.Background(), []byte("msg"), "key")
+	if err == nil {
+		t.Error("Sign on zero-value client should return error")
 	}
 }
 
