@@ -119,7 +119,13 @@ export class Client {
   private keyCache: Map<string, { keys: BoundPublicKeyInfo[]; expiresAt: number }> = new Map();
 
   /**
-   * Create a new TEENet SDK client
+   * Create a new TEENet SDK client.
+   *
+   * The client is created in an uninitialized state. Call {@link init} to
+   * load `APP_INSTANCE_ID` from `process.env` (containers deployed by the
+   * App Lifecycle Manager have it injected automatically), or call
+   * {@link setDefaultAppInstanceID} to set it explicitly.
+   *
    * @param consensusURL - Base URL of the consensus service
    * @param options - Optional configuration
    */
@@ -132,8 +138,10 @@ export class Client {
   }
 
   /**
-   * Initialize client from environment variables
-   * Reads APP_INSTANCE_ID and sets it as the default App ID
+   * Initialize client from environment variables.
+   * Reads `APP_INSTANCE_ID` from `process.env` and sets it as the default.
+   * Useful for containers deployed by the App Lifecycle Manager, which
+   * automatically injects `APP_INSTANCE_ID` and `CONSENSUS_URL`.
    */
   init(): void {
     const appID = process.env.APP_INSTANCE_ID;

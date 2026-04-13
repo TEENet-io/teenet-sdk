@@ -1,477 +1,170 @@
 # TEENet SDK
 
-A simplified Go SDK for TEE-DAO key management operations using the consensus service.
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
+[![npm](https://img.shields.io/badge/npm-%40teenet%2Fsdk-CB3837.svg?logo=npm&logoColor=white)](https://www.npmjs.com/package/@teenet/sdk)
+[![Developer Preview](https://img.shields.io/badge/Status-Developer_Preview-orange.svg)]()
+
+The official client SDK for building applications on [TEENet](https://teenet.io) — a platform that provides hardware-isolated runtime and managed key custody for any application that needs to protect secrets.
+
+With a few lines of code, your application can sign messages with threshold keys, verify signatures, manage API secrets, and gate sensitive actions behind Passkey (WebAuthn) approval — all without ever touching a private key.
+
+Available in **Go** and **TypeScript**.
+
+> **Developer Preview.** APIs may evolve. Always test on non-production keys first.
+
+## How It Works
+
+```
+       Your Application
+              |
+              v   teenet-sdk  (HTTP)
+       +--------------+
+       |   TEENet     |
+       |   Platform   |   Hardware TEE (Intel TDX / AMD SEV)
+       +--------------+   Threshold signing across isolated nodes
+```
+
+Your app calls `Sign()`, `Verify()`, `GenerateKey()`, and approval APIs. The platform handles everything else: key sharding, threshold consensus, Passkey flows, and audit logging. Private keys are never assembled in any single place — not even inside the TEE.
 
 ## Features
 
-- **Transparent Voting**: Automatically handles M-of-N threshold voting without manual coordination
-- **Simple API**: Clean interface with Sign(), Verify(), and GetPublicKeys()
-- **Polling-Based Completion**: Pending voting is finalized inside `Sign()` via status polling
-- **Signature Verification**: Offline verification supporting multiple protocols (ECDSA, Schnorr) and curves (ED25519, SECP256K1, SECP256R1)
-- **HTTP-based**: No TLS/gRPC complexity, simple REST API communication
+- **Threshold signing** — request signatures from keys sharded across independent TEE nodes; M-of-N voting is handled transparently inside `Sign()`.
+- **Multi-algorithm** — ECDSA (SECP256K1, SECP256R1) and Schnorr (ED25519, SECP256K1 / BIP-340 Taproot).
+- **Offline verification** — verify signatures locally without a round-trip to the platform.
+- **API key vault** — store application secrets inside the TEE; sign HMAC payloads without ever seeing the raw key.
+- **Passkey approval** — gate high-value or sensitive actions behind WebAuthn confirmation, with multi-level approval policies.
+- **Dual-SDK** — identical surface in Go and TypeScript, so backend services and Node.js apps share the same mental model.
+- **Mock server** — real cryptography, zero infrastructure, for local development and CI.
 
-## Installation
+## Quick Start
+
+### Go
 
 ```bash
 go get github.com/TEENet-io/teenet-sdk/go
 ```
 
-## Quick Start
-
-### 1. Initialize Client
-
 ```go
-import sdk "github.com/TEENet-io/teenet-sdk/go"
+import (
+    "context"
+    sdk "github.com/TEENet-io/teenet-sdk/go"
+)
 
-// Create client pointing to consensus service
+ctx := context.Background()
 client := sdk.NewClient("http://localhost:8089")
+defer client.Close()
 
-// Set your APP_INSTANCE_ID (required for signing)
-client.SetDefaultAppInstanceID("your-app-instance-id")
-// Or load from environment variable
-client.SetDefaultAppInstanceIDFromEnv() // Reads APP_INSTANCE_ID from environment variable
-```
+// Load APP_INSTANCE_ID from the environment. Containers deployed by the
+// App Lifecycle Manager have this variable injected automatically.
+client.Init()
 
-### 2. Sign a Message
+// For local development, set it explicitly instead:
+// client.SetDefaultAppInstanceID("my-app-instance")
 
-```go
-message := []byte("Hello, TEENet!")
-
-// Sign the message (handles both direct signing and voting automatically)
-result, err := client.Sign(ctx, message, "my-key")
-if err != nil {
-    log.Fatalf("Signing failed: %v", err)
+// Sign — voting, if configured, is handled internally.
+result, err := client.Sign(ctx, []byte("hello, teenet"), "my-key")
+if err != nil || !result.Success {
+    // inspect result.Error / result.ErrorCode
 }
 
-if result.Success {
-    fmt.Printf("Signature: %x\n", result.Signature)
-
-    // Check if voting was involved
-    if result.VotingInfo != nil && result.VotingInfo.NeedsVoting {
-        fmt.Printf("Voting completed: %d/%d votes\n",
-            result.VotingInfo.CurrentVotes,
-            result.VotingInfo.RequiredVotes)
-    }
-} else {
-    fmt.Printf("Signing failed: %s\n", result.Error)
-}
+// Verify offline.
+ok, _ := client.Verify(ctx, []byte("hello, teenet"), result.Signature, "my-key")
 ```
 
-### 3. Verify a Signature
+### TypeScript
 
-```go
-message := []byte("Hello, TEENet!")
-signature := result.Signature
-
-// Verify signature with bound key name
-valid, err := client.Verify(ctx, message, signature, "my-key")
-if err != nil {
-    log.Fatalf("Verification failed: %v", err)
-}
-
-fmt.Printf("Signature valid: %v\n", valid)
+```bash
+npm install @teenet/sdk
 ```
 
-### 4. Get Bound Public Keys
+```ts
+import { Client } from '@teenet/sdk';
 
-```go
-keys, err := client.GetPublicKeys(ctx)
-if err != nil {
-    log.Fatalf("Failed to get public keys: %v", err)
-}
-for _, key := range keys {
-    fmt.Printf("Name=%s Protocol=%s Curve=%s\n", key.Name, key.Protocol, key.Curve)
-}
+const client = new Client('http://localhost:8089');
+client.init(); // loads APP_INSTANCE_ID from process.env (auto-injected when deployed)
+
+const result = await client.sign(Buffer.from('hello, teenet'), 'my-key');
+const valid  = await client.verify(Buffer.from('hello, teenet'), result.signature, 'my-key');
 ```
 
-## How It Works
+### Mock Server
 
-### Direct Signing Mode
+Run a local mock of the platform (real crypto, pre-configured test keys) for development and testing:
 
-When voting is not configured for an APP_INSTANCE_ID, signing happens immediately:
-
-```
-SDK → app-comm-consensus → TEE-DAO → Response with signature
-```
-
-The `Sign()` method returns immediately with the signature.
-
-### Voting Mode (M-of-N Threshold)
-
-When voting is configured (e.g., 2-of-3 threshold):
-
-```
-SDK 1 → Submit vote → app-comm-consensus (cache: 1/2 votes)
-SDK 2 → Submit vote → app-comm-consensus (cache: 2/2 votes) → Threshold met!
-                    ↓
-                TEE-DAO signs
+```bash
+cd mock-server
+make build && make run
 ```
 
-Each SDK:
-1. Submits signing request with `app_instance_id`
-2. If response is `pending`, polls `/api/cache/{hash}` via SDK internal logic
-3. Returns final `signed`/`failed` result, or timeout error with vote counts
+The mock listens on `:8089` and ships with ready-to-use app instances for every supported curve and protocol. See [`mock-server/README.md`](mock-server/README.md).
 
-## Network Requirements
+## What You Can Do
 
-No inbound port is required. SDK only sends outbound HTTP requests to the consensus service.
+| Category | Methods |
+|----------|---------|
+| **Signing** | `Sign`, `Verify`, `GetStatus` |
+| **Key management** | `GenerateECDSAKey`, `GenerateSchnorrKey`, `GetPublicKeys` |
+| **API keys** | `GetAPIKey`, `SignWithAPISecret` |
+| **Passkey approval** | `PasskeyLoginWithCredential`, `ApprovalRequestInit`, `ApprovalRequestConfirm`, `ApprovalAction` |
+| **Admin** | `InvitePasskeyUser`, `UpsertPermissionPolicy`, `CreateAPIKey`, … |
 
-## Configuration
+Both SDKs expose the same surface — Go uses `PascalCase`, TypeScript uses `camelCase`.
 
-### Client Options
+## Supported Algorithms
 
-```go
-opts := &sdk.ClientOptions{
-    RequestTimeout:     30 * time.Second, // HTTP request timeout (default: 30s)
-    PendingWaitTimeout: 10 * time.Second, // Max wait in Sign() for voting completion
-    Debug:              true, // Verbose sign/polling trace logs
-}
-client := sdk.NewClientWithOptions("http://localhost:8089", opts)
-```
-
-Note: `PendingWaitTimeout` controls max wait for voting completion.
-Polling interval/backoff is managed internally by SDK.
-
-### Environment Variables
-
-- `APP_INSTANCE_ID`: Application instance ID for signing operations (injected by App Lifecycle Manager)
-
-## API Reference
-
-### Client Methods
-
-#### `NewClient(consensusURL string) *Client`
-Creates a new SDK client with default settings.
-
-#### `NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client`
-Creates a new SDK client with custom configuration options.
-
-#### `SetDefaultAppInstanceID(appID string)`
-Sets the default APP_INSTANCE_ID for signing operations.
-
-#### `SetDefaultAppInstanceIDFromEnv() error`
-Loads APP_INSTANCE_ID from environment variable.
-
-#### `Sign(ctx context.Context, message []byte, publicKeyName string) (*SignResult, error)`
-Signs a message. Automatically handles both direct signing and voting modes.
-
-**Returns:**
-- `SignResult`: Contains signature, success status, and voting information
-- `error`: Error if signing fails
-
-#### `GetStatus(ctx context.Context, hash string) (*VoteStatus, error)`
-Retrieves voting status for a specific hash.
-
-#### `Verify(ctx context.Context, message []byte, signature []byte, publicKeyName string) (bool, error)`
-Verifies a signature against the message using a bound key name.
-
-#### `GetPublicKeys(ctx context.Context) ([]PublicKeyMeta, error)`
-Retrieves all bound public keys for the default APP_INSTANCE_ID.
-
-#### `Close() error`
-Closes the client and releases resources.
-
-### Types
-
-#### `SignResult`
-```go
-type SignResult struct {
-    Signature  []byte       `json:"signature,omitempty"`   // Signature bytes
-    Success    bool         `json:"success"`               // Whether signing finalized successfully
-    Error      string       `json:"error,omitempty"`       // Error message if failed
-    ErrorCode  string       `json:"error_code,omitempty"`  // Stable machine-readable error code
-    VotingInfo *VotingInfo  `json:"voting_info,omitempty"` // Voting details (if applicable)
-}
-```
-
-#### `VotingInfo`
-```go
-type VotingInfo struct {
-    NeedsVoting   bool   `json:"needs_voting"`    // Whether voting was performed
-    CurrentVotes  int    `json:"current_votes"`   // Current number of votes
-    RequiredVotes int    `json:"required_votes"`  // Required vote threshold
-    Status        string `json:"status"`          // pending, signed, failed
-    Hash          string `json:"hash"`            // Message hash
-}
-```
-
-#### `VoteStatus`
-```go
-type VoteStatus struct {
-    Found         bool   `json:"found"`
-    Hash          string `json:"hash"`
-    Status        string `json:"status"`
-    CurrentVotes  int    `json:"current_votes"`
-    RequiredVotes int    `json:"required_votes"`
-    Signature     []byte `json:"signature,omitempty"`
-    ErrorMessage  string `json:"error_message,omitempty"`
-}
-```
-
-### Error Codes
-
-`SignResult.ErrorCode` values:
-
-| Code | Meaning | Retry |
-|------|---------|-------|
-| `SIGN_REQUEST_FAILED` | Request submission/network failure | Yes |
-| `SIGN_REQUEST_REJECTED` | Consensus rejected request payload/business check | Usually No |
-| `SIGNATURE_DECODE_FAILED` | Returned signature format invalid | No |
-| `UNEXPECTED_STATUS` | Service returned unsupported status | No |
-| `MISSING_HASH` | Pending response missing hash | No |
-| `STATUS_QUERY_FAILED` | Polling status request failed | Yes |
-| `SIGN_FAILED` | Voting finalized as failed | Usually No |
-| `THRESHOLD_TIMEOUT` | Votes not enough before timeout | Yes |
+| Protocol | Curve | Use Case |
+|----------|-------|----------|
+| Schnorr (FROST) | ED25519 | EdDSA |
+| Schnorr (FROST) | SECP256K1 | BIP-340 / Bitcoin Taproot |
+| ECDSA (GG20) | SECP256K1 | Bitcoin, Ethereum |
+| ECDSA (GG20) | SECP256R1 | NIST P-256, WebAuthn |
 
 ## Examples
 
-### Example 1: Simple Signing and Verification
+Complete working examples live under [`go/examples/`](go/examples) and [`typescript/examples/`](typescript/examples):
 
-```go
-package main
+- **basic** — sign, verify, multi-party voting
+- **generate-key** — create new threshold keys
+- **apikey** — store secrets and sign HMAC payloads inside the TEE
+- **passkey-web-demo** — browser WebAuthn approval flow
+- **voting-demo** — interactive M-of-N voting UI
+- **finance-console** — sample dashboard built on the SDK
+- **admin** — invite users, manage permission policies
 
-import (
-    "context"
-    "fmt"
-    "log"
-
-    sdk "github.com/TEENet-io/teenet-sdk/go"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // Initialize client
-    client := sdk.NewClient("http://localhost:8089")
-    client.SetDefaultAppInstanceID("my-app-id")
-    defer client.Close()
-
-    // Sign message
-    message := []byte("Important transaction data")
-    result, err := client.Sign(ctx, message, "my-key")
-    if err != nil {
-        log.Fatalf("Sign error: %v", err)
-    }
-
-    if !result.Success {
-        log.Fatalf("Signing failed: %s", result.Error)
-    }
-
-    fmt.Printf("Signed successfully\n")
-    fmt.Printf("Signature: %x\n", result.Signature)
-
-    // Verify signature
-    valid, err := client.Verify(ctx, message, result.Signature, "my-key")
-    if err != nil {
-        log.Fatalf("Verify error: %v", err)
-    }
-
-    fmt.Printf("Signature valid: %v\n", valid)
-}
-```
-
-### Example 2: Voting Scenario
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-    "sync"
-
-    sdk "github.com/TEENet-io/teenet-sdk/go"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // Simulate 2-of-3 voting scenario
-    // Three instances with different APP_INSTANCE_IDs vote on same message
-
-    message := []byte("Multi-party approval required")
-
-    var wg sync.WaitGroup
-    results := make([]*sdk.SignResult, 3)
-
-    // App 1 submits vote
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        client1 := sdk.NewClient("http://localhost:8089")
-        client1.SetDefaultAppInstanceID("voter-app-1")
-        defer client1.Close()
-
-        result, err := client1.Sign(ctx, message, "my-key")
-        if err != nil {
-            log.Printf("App 1 error: %v", err)
-            return
-        }
-        results[0] = result
-        fmt.Printf("App 1: Vote submitted, waiting...\n")
-    }()
-
-    // App 2 submits vote (threshold will be met after this)
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        client2 := sdk.NewClient("http://localhost:8089")
-        client2.SetDefaultAppInstanceID("voter-app-2")
-        defer client2.Close()
-
-        result, err := client2.Sign(ctx, message, "my-key")
-        if err != nil {
-            log.Printf("App 2 error: %v", err)
-            return
-        }
-        results[1] = result
-        fmt.Printf("App 2: Vote submitted, threshold met!\n")
-    }()
-
-    // App 3 submits vote (after threshold already met)
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-        client3 := sdk.NewClient("http://localhost:8089")
-        client3.SetDefaultAppInstanceID("voter-app-3")
-        defer client3.Close()
-
-        result, err := client3.Sign(ctx, message, "my-key")
-        if err != nil {
-            log.Printf("App 3 error: %v", err)
-            return
-        }
-        results[2] = result
-        fmt.Printf("App 3: Received result\n")
-    }()
-
-    wg.Wait()
-
-    // Check results
-    for i, result := range results {
-        if result != nil && result.Success {
-            fmt.Printf("App %d: Signature received: %x\n", i+1, result.Signature[:16])
-            if result.VotingInfo != nil {
-                fmt.Printf("       Votes: %d/%d\n",
-                    result.VotingInfo.CurrentVotes,
-                    result.VotingInfo.RequiredVotes)
-            }
-        }
-    }
-}
-```
-
-## Architecture
-
-### Components
-
-```
-┌─────────────────────┐
-│   Your Application  │
-│     (SDK Client)    │
-└──────────┬──────────┘
-           │ HTTP REST API
-           ↓
-┌─────────────────────┐
-│ app-comm-consensus  │
-│  - Voting Manager   │
-│  - Cache System     │
-└──────────┬──────────┘
-           │ gRPC
-           ↓
-┌─────────────────────┐
-│user-management-system│
-│  (TEE-DAO Gateway)  │
-└──────────┬──────────┘
-           │ TEE SDK
-           ↓
-┌─────────────────────┐
-│   TEE-DAO Network   │
-│  (Signing Service)  │
-└─────────────────────┘
-```
-
-### Voting Polling Flow
-
-```
-1. SDK submits: POST /api/submit-request
-   {
-     "app_instance_id": "voter-1",
-     "message": "base64..."
-   }
-
-2. app-comm-consensus caches the request and voting state
-3. SDK polls: GET /api/cache/{hash}
-4. When threshold met, consensus returns `signed` + `signature`
-5. SDK `Sign()` returns signed/failed, or timeout with current votes
-```
-
-## Error Handling
-
-### Common Errors
-
-- `"default App ID is not set"`: Call `SetDefaultAppInstanceID()` or `SetDefaultAppInstanceIDFromEnv()` before signing
-- `"Failed to decode signature"`: Invalid signature format from server
-- `"Failed to get public key"`: APP_INSTANCE_ID not found or not configured
-
-### Error Response Structure
-
-```go
-result, err := client.Sign(ctx, message, "my-key")
-if err != nil {
-    // Network or system error
-    log.Printf("System error: %v", err)
-}
-
-if !result.Success {
-    // Application-level error (e.g., signing failed)
-    log.Printf("Application error: %s", result.Error)
-}
-```
-
-## Project Structure
+## Repository Layout
 
 ```
 teenet-sdk/
-├── client.go           # Public API facade
-├── types.go            # Public type definitions and constants
-├── internal/           # Internal implementation (not exposed)
-│   ├── client/         # Client implementation
-│   ├── crypto/         # Cryptographic operations
-│   ├── network/        # HTTP client
-│   ├── types/          # Internal type definitions
-│   └── util/           # Utility functions
-└── examples/           # Example applications
-    ├── basic/          # Basic usage examples
-    └── voting-demo/    # Multi-party voting demo
+├── go/             # Go SDK + examples
+├── typescript/     # TypeScript SDK (@teenet/sdk) + examples
+├── mock-server/    # Local platform mock with real crypto
+└── docs/
 ```
 
-### Architecture
+## Documentation
 
-The SDK uses a clean facade pattern:
-- **Public API** (`client.go`, `types.go`): Simple, stable interface for users
-- **Internal packages** (`internal/*`): Modular implementation with separation of concerns
-- **Examples**: Complete working applications demonstrating various use cases
+- **Platform overview** — [teenet-io.github.io](https://teenet-io.github.io/)
+- **Go SDK** — [`go/`](go)
+- **TypeScript SDK** — [`typescript/README.md`](typescript/README.md)
+- **Mock server** — [`mock-server/README.md`](mock-server/README.md)
 
-## Examples
+## TEENet Platform
 
-See the `examples/` directory for complete working applications:
+The SDK is the client surface for [TEENet](https://teenet.io) — a platform providing hardware-isolated runtime and managed key custody for applications that need to protect secrets, from AI agent wallets to autonomous trading systems to cross-chain bridges. TEENet is currently in Developer Preview.
 
-- **basic/**: Simple command-line examples
-  - `simple/`: Basic signing and verification
-  - `voting/`: Multi-party voting scenario
-  - `forwarding/`: Request forwarding example
+Built on TEENet: [TEENet Wallet](https://github.com/TEENet-io/teenet-wallet) — a Passkey-protected, AI-agent-ready crypto wallet.
 
-- **voting-demo/**: Interactive voting demonstration app
+## Contributing
 
-## Testing
+Contributions are welcome — bug fixes, new examples, additional language bindings, documentation improvements. Please open an issue or pull request.
 
-Run tests:
-```bash
-go test ./...
-```
+## Disclaimer
+
+This software is experimental and provided "as is" without warranty. It is intended for development and evaluation. Test thoroughly before using with production keys or real assets.
 
 ## License
 
-Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
+Copyright (C) 2025-2026 TEENet Technology (Hong Kong) Limited.
+
+GPL-3.0 — see [LICENSE](LICENSE).

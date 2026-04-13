@@ -37,6 +37,7 @@ import (
 	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 // Protocol constants
@@ -136,10 +137,39 @@ type VotingConfig struct {
 
 // MockPasskeyUser represents a registered passkey user
 type MockPasskeyUser struct {
-	ID            uint   `json:"id"`
-	DisplayName   string `json:"display_name"`
-	AppInstanceID string `json:"app_instance_id,omitempty"`
-	CreatedAt     string `json:"created_at"`
+	ID             uint   `json:"id"`
+	DisplayName    string `json:"display_name"`
+	AppInstanceID  string `json:"app_instance_id,omitempty"`
+	UserHandle     string `json:"user_handle,omitempty"`
+	CredentialID   string `json:"credential_id,omitempty"`
+	PublicKey      []byte `json:"public_key,omitempty"`
+	AAGUID         string `json:"aaguid,omitempty"`
+	SignCount      uint32 `json:"sign_count,omitempty"`
+	BackupEligible bool   `json:"backup_eligible,omitempty"`
+	BackupState    bool   `json:"backup_state,omitempty"`
+	RPID           string `json:"rp_id,omitempty"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// MockPasskeyInvite represents a stored passkey registration invite.
+type MockPasskeyInvite struct {
+	Token         string     `json:"token"`
+	DisplayName   string     `json:"display_name"`
+	AppInstanceID string     `json:"app_instance_id,omitempty"`
+	UserHandle    string     `json:"user_handle,omitempty"`
+	SessionData   string     `json:"session_data,omitempty"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	UsedAt        *time.Time `json:"used_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+// MockPasskeyLoginSession stores discoverable login session data.
+type MockPasskeyLoginSession struct {
+	ID          uint64     `json:"id"`
+	SessionData string     `json:"session_data"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	UsedAt      *time.Time `json:"used_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // ApprovalTask represents an approval workflow task
@@ -200,9 +230,15 @@ type MockServer struct {
 	secp256k1Key *btcec.PrivateKey
 	secp256r1Key *ecdsa.PrivateKey
 
-	// App ID to key mapping (for pre-configured apps)
-	appKeys      map[string]*AppKeyInfo
-	appKeysMutex sync.RWMutex
+	// App ID to key mapping. Each app_instance_id can hold multiple keys
+	// (different protocol/curve combinations), mirroring the real TEE-DAO
+	// model where one app namespace owns many keys of arbitrary types.
+	// Layout: app_instance_id -> public_key_hex -> AppKeyInfo.
+	// defaultAppKey tracks the "first / primary" key per app for fallback
+	// lookups when a request does not carry an explicit public_key.
+	appKeys       map[string]map[string]*AppKeyInfo
+	defaultAppKey map[string]string
+	appKeysMutex  sync.RWMutex
 
 	// Generated keys storage (per app) - public info only
 	generatedKeys      map[string][]*GeneratedKeyInfo // app_instance_id -> list of keys
@@ -214,8 +250,8 @@ type MockServer struct {
 	storedKeyPairsMutex sync.RWMutex
 
 	// API keys storage
-	apiKeys      map[string]map[string]*APIKeyInfo // app_instance_id -> name -> APIKeyInfo
-	apiKeysMutex sync.RWMutex
+	apiKeys         map[string]map[string]*APIKeyInfo // app_instance_id -> name -> APIKeyInfo
+	apiKeysMutex    sync.RWMutex
 	apiKeyIDCounter uint32
 
 	// Voting cache
@@ -227,24 +263,28 @@ type MockServer struct {
 	votingConfigsMutex sync.RWMutex
 
 	// Passkey users
-	passkeyUsers      map[uint]*MockPasskeyUser // id -> user
-	passkeyUsersMutex sync.RWMutex
+	passkeyUsers         map[uint]*MockPasskeyUser // id -> user
+	passkeyUsersMutex    sync.RWMutex
 	passkeyUserIDCounter uint32
+	passkeyInvites       map[string]*MockPasskeyInvite // token -> invite
+	passkeyInvitesMutex  sync.RWMutex
+	passkeyLoginSessions map[uint64]*MockPasskeyLoginSession // id -> login session
+	passkeyLoginMutex    sync.RWMutex
 
 	// Approval tasks
-	approvalTasks      map[uint64]*ApprovalTask // task_id -> task
-	approvalTasksMutex sync.RWMutex
-	approvalTaskIDCounter uint64
+	approvalTasks           map[uint64]*ApprovalTask // task_id -> task
+	approvalTasksMutex      sync.RWMutex
+	approvalTaskIDCounter   uint64
 	requestSessionIDCounter uint64
 
 	// Audit records
-	auditRecords      []*MockAuditRecord
-	auditRecordsMutex sync.RWMutex
+	auditRecords         []*MockAuditRecord
+	auditRecordsMutex    sync.RWMutex
 	auditRecordIDCounter uint32
 
 	// Permission policies
-	policies      map[string]*PermissionPolicy // "app_instance_id:key_name" -> policy
-	policiesMutex sync.RWMutex
+	policies        map[string]*PermissionPolicy // "app_instance_id:key_name" -> policy
+	policiesMutex   sync.RWMutex
 	policyIDCounter uint32
 
 	// Token secret for mock approval tokens
@@ -252,6 +292,9 @@ type MockServer struct {
 
 	// Login session counter
 	loginSessionIDCounter uint64
+
+	// WebAuthn service
+	webAuthn *MockWebAuthnService
 
 	// Configuration
 	port          string
@@ -266,20 +309,29 @@ func NewMockServer(port string) *MockServer {
 		log.Fatalf("failed to generate token secret: %v", err)
 	}
 
+	webAuthn, err := NewMockWebAuthnService()
+	if err != nil {
+		log.Fatalf("failed to initialize webauthn service: %v", err)
+	}
+
 	s := &MockServer{
-		port:            port,
-		enableLogging:   true,
-		appKeys:         make(map[string]*AppKeyInfo),
-		generatedKeys:   make(map[string][]*GeneratedKeyInfo),
-		storedKeyPairs:  make(map[string]*StoredKeyPair),
-		apiKeys:         make(map[string]map[string]*APIKeyInfo),
-		keyIDCounter:    1000,
-		votingCache:     make(map[string]*CacheEntry),
-		votingConfigs:   make(map[string]*VotingConfig),
-		passkeyUsers:    make(map[uint]*MockPasskeyUser),
-		approvalTasks:   make(map[uint64]*ApprovalTask),
-		policies:        make(map[string]*PermissionPolicy),
-		tokenSecret:     secret,
+		port:                 port,
+		enableLogging:        true,
+		appKeys:              make(map[string]map[string]*AppKeyInfo),
+		defaultAppKey:        make(map[string]string),
+		generatedKeys:        make(map[string][]*GeneratedKeyInfo),
+		storedKeyPairs:       make(map[string]*StoredKeyPair),
+		apiKeys:              make(map[string]map[string]*APIKeyInfo),
+		keyIDCounter:         1000,
+		votingCache:          make(map[string]*CacheEntry),
+		votingConfigs:        make(map[string]*VotingConfig),
+		passkeyUsers:         make(map[uint]*MockPasskeyUser),
+		passkeyInvites:       make(map[string]*MockPasskeyInvite),
+		passkeyLoginSessions: make(map[uint64]*MockPasskeyLoginSession),
+		approvalTasks:        make(map[uint64]*ApprovalTask),
+		policies:             make(map[string]*PermissionPolicy),
+		tokenSecret:          secret,
+		webAuthn:             webAuthn,
 	}
 
 	// Generate consistent cryptographic keys (for default apps)
@@ -300,6 +352,60 @@ func NewMockServer(port string) *MockServer {
 	s.initSamplePasskeyUsers()
 
 	return s
+}
+
+// setAppKey registers a key under an app_instance_id. The first key
+// registered for an app becomes its default. Caller must hold appKeysMutex.
+func (s *MockServer) setAppKeyLocked(appID string, info *AppKeyInfo) {
+	if s.appKeys[appID] == nil {
+		s.appKeys[appID] = make(map[string]*AppKeyInfo)
+	}
+	s.appKeys[appID][info.PublicKey] = info
+	if _, hasDefault := s.defaultAppKey[appID]; !hasDefault {
+		s.defaultAppKey[appID] = info.PublicKey
+	}
+}
+
+// setAppKey is the thread-safe variant of setAppKeyLocked.
+func (s *MockServer) setAppKey(appID string, info *AppKeyInfo) {
+	s.appKeysMutex.Lock()
+	defer s.appKeysMutex.Unlock()
+	s.setAppKeyLocked(appID, info)
+}
+
+// lookupAppKey resolves an (appID, pubKeyHex) pair to the AppKeyInfo that
+// should be used for signing. If pubKeyHex is non-empty and matches a
+// registered key for the app, that key is returned. Otherwise the app's
+// default key is returned. Returns (nil, false) if the app has no keys.
+func (s *MockServer) lookupAppKey(appID, pubKeyHex string) (*AppKeyInfo, bool) {
+	s.appKeysMutex.RLock()
+	defer s.appKeysMutex.RUnlock()
+	keys, ok := s.appKeys[appID]
+	if !ok || len(keys) == 0 {
+		return nil, false
+	}
+	if pubKeyHex != "" {
+		if info, ok := keys[pubKeyHex]; ok {
+			return info, true
+		}
+	}
+	if def, ok := s.defaultAppKey[appID]; ok {
+		if info, ok := keys[def]; ok {
+			return info, true
+		}
+	}
+	for _, info := range keys {
+		return info, true
+	}
+	return nil, false
+}
+
+// appExists reports whether any key is registered for the given app.
+func (s *MockServer) appExists(appID string) bool {
+	s.appKeysMutex.RLock()
+	defer s.appKeysMutex.RUnlock()
+	_, ok := s.appKeys[appID]
+	return ok
 }
 
 // initDefaultAppKeys initializes default application keys for testing
@@ -328,14 +434,14 @@ func (s *MockServer) initDefaultAppKeys() {
 	}
 
 	for _, app := range apps {
-		s.appKeys[app.appID] = &AppKeyInfo{
+		s.setAppKey(app.appID, &AppKeyInfo{
 			PublicKey:    hex.EncodeToString(app.pubKey),
 			PublicKeyRaw: app.pubKey,
 			Protocol:     app.protocol,
 			Curve:        app.curve,
 			ProtocolNum:  app.protocolNum,
 			CurveNum:     app.curveNum,
-		}
+		})
 	}
 }
 
@@ -376,20 +482,30 @@ func (s *MockServer) initVotingConfigs() {
 	secp256k1PubKey := s.secp256k1Key.PubKey()
 	rawPubBytes := secp256k1PubKey.SerializeUncompressed()[1:] // 64 bytes, no 0x04 prefix
 
-	s.votingConfigs["test-voting-2of3"] = &VotingConfig{
-		EnableVoting:         true,
-		RequiredVotes:        2,
-		TargetAppInstanceIDs: []string{"test-voting-2of3"},
-		HasPasskeyPolicy:     false,
-		PasskeyPolicyEnabled: false,
+	// Multi-party voting group: three voter apps share the same public
+	// key so that a 2-of-3 threshold can actually be reached by
+	// submitting the same message from different app_instance_ids.
+	votingTargets := []string{
+		"test-voting-2of3",
+		"test-voting-2of3-voter2",
+		"test-voting-2of3-voter3",
 	}
-	s.appKeys["test-voting-2of3"] = &AppKeyInfo{
-		PublicKey:    hex.EncodeToString(rawPubBytes),
-		PublicKeyRaw: rawPubBytes,
-		Protocol:     "ecdsa",
-		Curve:        "secp256k1",
-		ProtocolNum:  ProtocolECDSA,
-		CurveNum:     CurveSECP256K1,
+	for _, voterID := range votingTargets {
+		s.votingConfigs[voterID] = &VotingConfig{
+			EnableVoting:         true,
+			RequiredVotes:        2,
+			TargetAppInstanceIDs: votingTargets,
+			HasPasskeyPolicy:     false,
+			PasskeyPolicyEnabled: false,
+		}
+		s.setAppKey(voterID, &AppKeyInfo{
+			PublicKey:    hex.EncodeToString(rawPubBytes),
+			PublicKeyRaw: rawPubBytes,
+			Protocol:     "ecdsa",
+			Curve:        "secp256k1",
+			ProtocolNum:  ProtocolECDSA,
+			CurveNum:     CurveSECP256K1,
+		})
 	}
 
 	// Approval-required app: needs passkey approval before signing
@@ -400,14 +516,14 @@ func (s *MockServer) initVotingConfigs() {
 		HasPasskeyPolicy:     true,
 		PasskeyPolicyEnabled: true,
 	}
-	s.appKeys["test-approval-required"] = &AppKeyInfo{
+	s.setAppKey("test-approval-required", &AppKeyInfo{
 		PublicKey:    hex.EncodeToString(rawPubBytes),
 		PublicKeyRaw: rawPubBytes,
 		Protocol:     "ecdsa",
 		Curve:        "secp256k1",
 		ProtocolNum:  ProtocolECDSA,
 		CurveNum:     CurveSECP256K1,
-	}
+	})
 
 	// All other default test apps: direct signing (no voting)
 	directApps := []string{
@@ -444,7 +560,131 @@ func (s *MockServer) initSamplePasskeyUsers() {
 		AppInstanceID: "test-approval-required",
 		CreatedAt:     now,
 	}
-	atomic.StoreUint32(&s.passkeyUserIDCounter, 100)
+	startID := uint32(time.Now().Unix())
+	if startID < 100 {
+		startID = 100
+	}
+	atomic.StoreUint32(&s.passkeyUserIDCounter, startID)
+}
+
+func credentialIDFromPayload(credential interface{}) string {
+	payload, ok := credential.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	if id, _ := payload["id"].(string); strings.TrimSpace(id) != "" {
+		return strings.TrimSpace(id)
+	}
+	if rawID, _ := payload["rawId"].(string); strings.TrimSpace(rawID) != "" {
+		return strings.TrimSpace(rawID)
+	}
+	return ""
+}
+
+func credentialJSONBytes(credential interface{}) []byte {
+	if credential == nil {
+		return nil
+	}
+	raw, err := json.Marshal(credential)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func hasCredentialResponseFields(credential interface{}, fields ...string) bool {
+	payload, ok := credential.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	response, ok := payload["response"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, field := range fields {
+		value, _ := response[field].(string)
+		if strings.TrimSpace(value) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isRealRegistrationCredential(credential interface{}) bool {
+	return hasCredentialResponseFields(credential, "clientDataJSON", "attestationObject")
+}
+
+func isRealLoginCredential(credential interface{}) bool {
+	return hasCredentialResponseFields(credential, "clientDataJSON", "authenticatorData", "signature")
+}
+
+func (s *MockServer) getPasskeyInvite(inviteToken string) *MockPasskeyInvite {
+	if strings.TrimSpace(inviteToken) == "" {
+		return nil
+	}
+	s.passkeyInvitesMutex.RLock()
+	defer s.passkeyInvitesMutex.RUnlock()
+	invite := s.passkeyInvites[inviteToken]
+	if invite == nil {
+		return nil
+	}
+	copy := *invite
+	return &copy
+}
+
+func (s *MockServer) getPasskeyLoginSession(sessionID uint64) *MockPasskeyLoginSession {
+	if sessionID == 0 {
+		return nil
+	}
+	s.passkeyLoginMutex.RLock()
+	defer s.passkeyLoginMutex.RUnlock()
+	session := s.passkeyLoginSessions[sessionID]
+	if session == nil {
+		return nil
+	}
+	copy := *session
+	return &copy
+}
+
+func (s *MockServer) resolvePasskeyUserByHandleAndCredential(userHandle, credentialID string) *MockPasskeyUser {
+	if strings.TrimSpace(userHandle) == "" || strings.TrimSpace(credentialID) == "" {
+		return nil
+	}
+	s.passkeyUsersMutex.RLock()
+	defer s.passkeyUsersMutex.RUnlock()
+	for _, user := range s.passkeyUsers {
+		if user.UserHandle == userHandle && user.CredentialID == credentialID {
+			copy := *user
+			return &copy
+		}
+	}
+	return nil
+}
+
+func (s *MockServer) resolvePasskeyLoginUser(credential interface{}) *MockPasskeyUser {
+	credentialID := credentialIDFromPayload(credential)
+
+	s.passkeyUsersMutex.RLock()
+	defer s.passkeyUsersMutex.RUnlock()
+
+	if credentialID != "" {
+		for _, user := range s.passkeyUsers {
+			if user.CredentialID == credentialID {
+				copy := *user
+				return &copy
+			}
+		}
+	}
+
+	if user := s.passkeyUsers[1]; user != nil {
+		copy := *user
+		return &copy
+	}
+	for _, user := range s.passkeyUsers {
+		copy := *user
+		return &copy
+	}
+	return nil
 }
 
 // Start starts the mock server
@@ -499,8 +739,10 @@ func (s *MockServer) Start() error {
 
 	log.Printf("Mock Consensus Server starting on port %s", s.port)
 	log.Printf("Available test App IDs:")
-	for appID, keyInfo := range s.appKeys {
-		log.Printf("   - %s (%s/%s)", appID, keyInfo.Protocol, keyInfo.Curve)
+	for appID, keys := range s.appKeys {
+		for _, keyInfo := range keys {
+			log.Printf("   - %s (%s/%s)", appID, keyInfo.Protocol, keyInfo.Curve)
+		}
 	}
 
 	bindAddr := "127.0.0.1"
@@ -530,41 +772,47 @@ func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 		return
 	}
 
-	s.appKeysMutex.RLock()
-	keyInfo, exists := s.appKeys[appInstanceID]
-	s.appKeysMutex.RUnlock()
-
-	if !exists {
+	if !s.appExists(appInstanceID) {
 		// Auto-create a new app with default ECDSA secp256k1 key
-		s.appKeysMutex.Lock()
 		secp256k1PubKey := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
-		keyInfo = &AppKeyInfo{
+		s.setAppKey(appInstanceID, &AppKeyInfo{
 			PublicKey:    hex.EncodeToString(secp256k1PubKey),
 			PublicKeyRaw: secp256k1PubKey,
 			Protocol:     "ecdsa",
 			Curve:        "secp256k1",
 			ProtocolNum:  ProtocolECDSA,
 			CurveNum:     CurveSECP256K1,
-		}
-		s.appKeys[appInstanceID] = keyInfo
-		s.appKeysMutex.Unlock()
+		})
 
 		if s.enableLogging {
 			log.Printf("Auto-created app %s with ECDSA/secp256k1", appInstanceID)
 		}
 	}
 
-	// Build public keys list: default key + any generated keys
-	keys := []gin.H{
-		{
-			"id":                     1,
-			"name":                   "default",
-			"key_data":               "0x" + keyInfo.PublicKey,
-			"protocol":               keyInfo.Protocol,
-			"curve":                  keyInfo.Curve,
-			"application_id":         1,
-			"created_by_instance_id": appInstanceID,
-		},
+	// Snapshot all keys registered under this app. An app_instance_id may
+	// hold multiple keys of different protocol/curve combinations; the
+	// default key (first one registered) is surfaced as name="default".
+	s.appKeysMutex.RLock()
+	defaultPub := s.defaultAppKey[appInstanceID]
+	appKeyMap := make(map[string]*AppKeyInfo, len(s.appKeys[appInstanceID]))
+	for k, v := range s.appKeys[appInstanceID] {
+		appKeyMap[k] = v
+	}
+	s.appKeysMutex.RUnlock()
+
+	// Shape each entry to match proto PublicKeyConfig fields returned by
+	// the real app-comm-consensus: id, name, key_data (plain hex, no 0x),
+	// curve, protocol, application_id.
+	keys := []gin.H{}
+	if defaultInfo, ok := appKeyMap[defaultPub]; ok {
+		keys = append(keys, gin.H{
+			"id":             1,
+			"name":           "default",
+			"key_data":       defaultInfo.PublicKey,
+			"protocol":       defaultInfo.Protocol,
+			"curve":          defaultInfo.Curve,
+			"application_id": 1,
+		})
 	}
 
 	// Append generated keys
@@ -572,25 +820,21 @@ func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 	if genKeys, ok := s.generatedKeys[appInstanceID]; ok {
 		for _, gk := range genKeys {
 			keys = append(keys, gin.H{
-				"id":                      gk.ID,
-				"name":                    gk.Name,
-				"key_data":               "0x" + gk.KeyData,
-				"protocol":               gk.Protocol,
-				"curve":                  gk.Curve,
-				"threshold":              gk.Threshold,
-				"participant_count":       gk.ParticipantCount,
-				"max_participant_count":   gk.MaxParticipantCount,
-				"application_id":         gk.ApplicationID,
-				"created_by_instance_id": gk.CreatedByInstanceID,
+				"id":             gk.ID,
+				"name":           gk.Name,
+				"key_data":       gk.KeyData,
+				"protocol":       gk.Protocol,
+				"curve":          gk.Curve,
+				"application_id": gk.ApplicationID,
 			})
 		}
 	}
 	s.generatedKeysMutex.RUnlock()
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"app_id":      appInstanceID,
-		"public_keys": keys,
+		"success":         true,
+		"app_instance_id": appInstanceID,
+		"public_keys":     keys,
 	})
 }
 
@@ -621,11 +865,14 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 			req.AppInstanceID, len(req.Message), hash[:20])
 	}
 
-	// Get app key info
-	s.appKeysMutex.RLock()
-	keyInfo, exists := s.appKeys[req.AppInstanceID]
-	s.appKeysMutex.RUnlock()
-
+	// Resolve which key to use. If the request carries a public_key, prefer
+	// the matching key under this app; otherwise fall back to the app's
+	// default. Supports multiple protocol/curve combinations per app.
+	var reqPubKeyHex string
+	if len(req.PublicKey) > 0 {
+		reqPubKeyHex = hex.EncodeToString(req.PublicKey)
+	}
+	keyInfo, exists := s.lookupAppKey(req.AppInstanceID, reqPubKeyHex)
 	if !exists {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -720,7 +967,11 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 			pubKeyHex = keyInfo.PublicKey
 		}
 
-		// Check or create cache entry
+		// Register the vote and decide whether the threshold has been
+		// reached. All touches of the shared entry happen inside this
+		// critical section; we then snapshot the scalar values we need
+		// for the response so the lock can be released before any slow
+		// work (signing, logging, JSON serialization).
 		s.votingCacheMutex.Lock()
 		entry, entryExists := s.votingCache[hash]
 		if !entryExists {
@@ -736,7 +987,6 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 			}
 			s.votingCache[hash] = entry
 		}
-		// Register this vote
 		entry.Requests[req.AppInstanceID] = &SignRequest{
 			AppInstanceID: req.AppInstanceID,
 			Timestamp:     time.Now(),
@@ -744,68 +994,75 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 		}
 		entry.UpdatedAt = time.Now()
 
-		// Count approved votes
 		approvedCount := 0
 		for _, vote := range entry.Requests {
 			if vote.Approved {
 				approvedCount++
 			}
 		}
+		requiredVotes := entry.RequiredVotes
+		thresholdReached := approvedCount >= requiredVotes
+		s.votingCacheMutex.Unlock()
 
-		if approvedCount >= entry.RequiredVotes {
-			// Threshold reached — sign now
-			signature, err := s.signWithKey(protocol, curve, req.Message, pubKeyHex)
-			if err != nil {
-				entry.Status = "failed"
-				entry.ErrorMessage = err.Error()
-				s.votingCacheMutex.Unlock()
-				log.Printf("Voting signing failed: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"message": "Signing failed: " + err.Error(),
-					"hash":    hash,
-					"status":  "failed",
-				})
-				return
-			}
-			signatureHex := hex.EncodeToString(signature)
-			entry.Status = "signed"
-			entry.Signature = signatureHex
-			s.votingCacheMutex.Unlock()
-
+		if !thresholdReached {
 			if s.enableLogging {
-				log.Printf("Voting threshold reached, signed: hash=%s..., votes=%d/%d",
-					hash[:20], approvedCount, votingCfg.RequiredVotes)
+				log.Printf("Voting in progress: hash=%s..., votes=%d/%d",
+					hash[:20], approvedCount, requiredVotes)
 			}
-
 			c.JSON(http.StatusOK, gin.H{
 				"success":        true,
-				"message":        "Voting threshold reached, signing completed",
+				"message":        "Vote registered, waiting for threshold",
 				"hash":           hash,
-				"status":         "signed",
-				"signature":      signatureHex,
-				"needs_voting":   false,
+				"status":         "pending",
+				"needs_voting":   true,
 				"current_votes":  approvedCount,
-				"required_votes": entry.RequiredVotes,
+				"required_votes": requiredVotes,
 			})
 			return
 		}
 
+		// Threshold reached — sign outside the cache lock so concurrent
+		// readers/writers of the voting cache are not blocked on ECDSA.
+		signature, signErr := s.signWithKey(protocol, curve, req.Message, pubKeyHex)
+		if signErr != nil {
+			s.votingCacheMutex.Lock()
+			if cur, ok := s.votingCache[hash]; ok {
+				cur.Status = "failed"
+				cur.ErrorMessage = signErr.Error()
+			}
+			s.votingCacheMutex.Unlock()
+			log.Printf("Voting signing failed: %v", signErr)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Signing failed: " + signErr.Error(),
+				"hash":    hash,
+				"status":  "failed",
+			})
+			return
+		}
+
+		signatureHex := hex.EncodeToString(signature)
+		s.votingCacheMutex.Lock()
+		if cur, ok := s.votingCache[hash]; ok {
+			cur.Status = "signed"
+			cur.Signature = signatureHex
+		}
 		s.votingCacheMutex.Unlock()
 
 		if s.enableLogging {
-			log.Printf("Voting in progress: hash=%s..., votes=%d/%d",
-				hash[:20], approvedCount, votingCfg.RequiredVotes)
+			log.Printf("Voting threshold reached, signed: hash=%s..., votes=%d/%d",
+				hash[:20], approvedCount, requiredVotes)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success":        true,
-			"message":        "Vote registered, waiting for threshold",
+			"message":        "Voting threshold reached, signing completed",
 			"hash":           hash,
-			"status":         "pending",
-			"needs_voting":   true,
+			"status":         "signed",
+			"signature":      signatureHex,
+			"needs_voting":   false,
 			"current_votes":  approvedCount,
-			"required_votes": entry.RequiredVotes,
+			"required_votes": requiredVotes,
 		})
 		return
 	}
@@ -939,18 +1196,24 @@ func (s *MockServer) signWithStoredKey(protocol, curve uint32, message []byte, k
 				return nil, fmt.Errorf("SECP256K1 key not available")
 			}
 			// Caller is responsible for hashing; sign the bytes directly.
-			sig := btcecdsa.Sign(keyPair.SECP256K1Key, message)
-			derSig := sig.Serialize()
-			signature := make([]byte, 65)
-			rBytes, sBytes := extractRSFromDER(derSig)
-			copy(signature[:32], padTo32(rBytes))
-			copy(signature[32:64], padTo32(sBytes))
-			pubKeyBytes := keyPair.SECP256K1Key.PubKey().SerializeUncompressed()
-			if len(pubKeyBytes) == 65 && pubKeyBytes[64]%2 == 0 {
-				signature[64] = 0
-			} else {
-				signature[64] = 1
+			// SignCompact returns [v+27(+4 compressed)][R_32][S_32]; we
+			// rearrange to Ethereum-style [R][S][v] with v in 0..3 so
+			// that downstream ecrecover works correctly. Earlier code
+			// derived v from the pubkey's Y parity, which is a constant
+			// per key and produces invalid recovery IDs for half of
+			// signatures.
+			compact, err := btcecdsa.SignCompact(keyPair.SECP256K1Key, message, false)
+			if err != nil {
+				return nil, fmt.Errorf("SECP256K1 ECDSA signing failed: %v", err)
 			}
+			signature := make([]byte, 65)
+			copy(signature[:32], compact[1:33])
+			copy(signature[32:64], compact[33:65])
+			v := compact[0] - 27
+			if v >= 4 {
+				v -= 4
+			}
+			signature[64] = v
 			return signature, nil
 
 		case CurveSECP256R1:
@@ -1022,31 +1285,22 @@ func (s *MockServer) signECDSA(curve uint32, message []byte) ([]byte, error) {
 	case CurveSECP256K1:
 		// ECDSA on secp256k1 — caller is responsible for hashing.
 		// The message bytes received are used directly as the digest.
-		sig := btcecdsa.Sign(s.secp256k1Key, message)
-
-		// Ethereum-style 65-byte signature: R (32) + S (32) + V (1)
-		// Serialize the signature to DER and then extract R and S
-		derSig := sig.Serialize()
-
-		// Parse the DER signature to get R and S values
-		// DER format: 0x30 [total-len] 0x02 [r-len] [r] 0x02 [s-len] [s]
-		signature := make([]byte, 65)
-
-		// Use a simpler approach: serialize to compact format
-		// The btcec v2 Signature has Serialize() that returns DER
-		// We need to extract R and S manually
-		rBytes, sBytes := extractRSFromDER(derSig)
-		copy(signature[:32], padTo32(rBytes))
-		copy(signature[32:64], padTo32(sBytes))
-
-		// Recovery ID
-		pubKeyBytes := s.secp256k1Key.PubKey().SerializeUncompressed()
-		if len(pubKeyBytes) == 65 && pubKeyBytes[64]%2 == 0 {
-			signature[64] = 0
-		} else {
-			signature[64] = 1
+		//
+		// SignCompact returns [v+27(+4 compressed)][R_32][S_32]. We
+		// rearrange to Ethereum-style [R][S][v] with v in 0..3 so that
+		// downstream ecrecover works correctly.
+		compact, err := btcecdsa.SignCompact(s.secp256k1Key, message, false)
+		if err != nil {
+			return nil, fmt.Errorf("SECP256K1 ECDSA signing failed: %v", err)
 		}
-
+		signature := make([]byte, 65)
+		copy(signature[:32], compact[1:33])
+		copy(signature[32:64], compact[33:65])
+		v := compact[0] - 27
+		if v >= 4 {
+			v -= 4
+		}
+		signature[64] = v
 		return signature, nil
 
 	case CurveSECP256R1:
@@ -1156,11 +1410,9 @@ func (s *MockServer) handleGenerateKey(c *gin.Context) {
 			return
 		}
 		keyPair.SECP256K1Key = privKey
-		if protocolNum == ProtocolSchnorr {
-			pubKeyRaw = privKey.PubKey().SerializeCompressed()
-		} else {
-			pubKeyRaw = privKey.PubKey().SerializeUncompressed()[1:]
-		}
+		// Wallet address derivation expects a compressed secp256k1 public key
+		// for both ECDSA and Schnorr flows.
+		pubKeyRaw = privKey.PubKey().SerializeCompressed()
 		pubKeyHex = hex.EncodeToString(pubKeyRaw)
 
 	case "secp256r1":
@@ -1213,17 +1465,17 @@ func (s *MockServer) handleGenerateKey(c *gin.Context) {
 	s.generatedKeys[req.AppInstanceID] = append(s.generatedKeys[req.AppInstanceID], keyInfo)
 	s.generatedKeysMutex.Unlock()
 
-	// Also update app keys (set as default for this app)
-	s.appKeysMutex.Lock()
-	s.appKeys[req.AppInstanceID] = &AppKeyInfo{
+	// Register the generated key under the app. Multiple keys with
+	// different protocol/curve combinations may coexist under the same
+	// app_instance_id; the first one registered becomes the default.
+	s.setAppKey(req.AppInstanceID, &AppKeyInfo{
 		PublicKey:    pubKeyHex,
 		PublicKeyRaw: pubKeyRaw,
 		Protocol:     protocolLower,
 		Curve:        curveLower,
 		ProtocolNum:  protocolNum,
 		CurveNum:     curveNum,
-	}
-	s.appKeysMutex.Unlock()
+	})
 
 	if s.enableLogging {
 		log.Printf("Key generated: id=%d, app=%s, pubkey=%s...", keyID, req.AppInstanceID, pubKeyHex[:16])
@@ -1301,10 +1553,21 @@ func (s *MockServer) handleGetAPIKey(c *gin.Context) {
 	})
 }
 
-// SignWithSecretRequest is the request for signing with API secret
+// SignWithSecretRequest is the request for signing with API secret.
+//
+// Encoding rules:
+//   - Default (or Encoding == "hex"): Message is hex-encoded bytes. Both
+//     SDKs (Go and TypeScript) hex-encode the payload on the wire.
+//   - Encoding == "raw": Message is raw UTF-8 text. Use this for direct
+//     curl / test invocations.
+//
+// Auto-detection (try hex, fall back to raw) was removed because inputs
+// like "deadbeef" are both valid hex AND valid text, producing different
+// HMAC results depending on which branch happened to match.
 type SignWithSecretRequest struct {
 	AppInstanceID string `json:"app_instance_id" binding:"required"`
 	Message       string `json:"message" binding:"required"`
+	Encoding      string `json:"encoding,omitempty"`
 }
 
 // handleSignWithSecret handles POST /api/apikey/:name/sign
@@ -1328,12 +1591,27 @@ func (s *MockServer) handleSignWithSecret(c *gin.Context) {
 		return
 	}
 
-	// Parse message (support hex encoding)
+	// Decode the message according to the declared encoding.
 	var messageBytes []byte
-	if decoded, err := hex.DecodeString(req.Message); err == nil && len(decoded) > 0 {
-		messageBytes = decoded
-	} else {
+	switch strings.ToLower(req.Encoding) {
+	case "raw":
 		messageBytes = []byte(req.Message)
+	case "", "hex":
+		decoded, err := hex.DecodeString(strings.TrimPrefix(req.Message, "0x"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   fmt.Sprintf("message must be hex-encoded (or set encoding=\"raw\"): %v", err),
+			})
+			return
+		}
+		messageBytes = decoded
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("unknown encoding %q (supported: hex, raw)", req.Encoding),
+		})
+		return
 	}
 
 	// Get or create API secret
@@ -1376,52 +1654,6 @@ func (s *MockServer) handleSignWithSecret(c *gin.Context) {
 }
 
 // Key generation helpers
-
-// extractRSFromDER extracts R and S values from a DER-encoded ECDSA signature
-func extractRSFromDER(der []byte) (r, s []byte) {
-	if len(der) < 8 {
-		return nil, nil
-	}
-
-	// DER format: 0x30 [total-len] 0x02 [r-len] [r] 0x02 [s-len] [s]
-	if der[0] != 0x30 {
-		return nil, nil
-	}
-
-	pos := 2 // Skip 0x30 and total length
-
-	// Read R
-	if der[pos] != 0x02 {
-		return nil, nil
-	}
-	pos++
-	rLen := int(der[pos])
-	pos++
-	r = der[pos : pos+rLen]
-	pos += rLen
-
-	// Read S
-	if der[pos] != 0x02 {
-		return nil, nil
-	}
-	pos++
-	sLen := int(der[pos])
-	pos++
-	s = der[pos : pos+sLen]
-
-	return r, s
-}
-
-// padTo32 pads a byte slice to 32 bytes (left-pad with zeros)
-func padTo32(b []byte) []byte {
-	if len(b) >= 32 {
-		// If longer (e.g., has leading zero for sign), take last 32 bytes
-		return b[len(b)-32:]
-	}
-	result := make([]byte, 32)
-	copy(result[32-len(b):], b)
-	return result
-}
 
 func generateConsistentED25519Key() ed25519.PrivateKey {
 	seed := make([]byte, ed25519.SeedSize)
@@ -1541,14 +1773,42 @@ func (s *MockServer) addAuditRecord(eventType, action, status, appInstanceID, ha
 // Cache handlers
 // ============================================================================
 
+// cloneCacheEntry returns a detached copy of the entry safe to serialize
+// after the voting cache lock has been released. Callers must hold the
+// read lock while calling this.
+func cloneCacheEntry(e *CacheEntry) *CacheEntry {
+	if e == nil {
+		return nil
+	}
+	copyEntry := *e
+	if e.Message != nil {
+		copyEntry.Message = append([]byte(nil), e.Message...)
+	}
+	if e.PublicKey != nil {
+		copyEntry.PublicKey = append([]byte(nil), e.PublicKey...)
+	}
+	if e.Requests != nil {
+		copyEntry.Requests = make(map[string]*SignRequest, len(e.Requests))
+		for k, v := range e.Requests {
+			if v == nil {
+				continue
+			}
+			vv := *v
+			copyEntry.Requests[k] = &vv
+		}
+	}
+	return &copyEntry
+}
+
 // handleCacheStatus handles GET /api/cache/status
 func (s *MockServer) handleCacheStatus(c *gin.Context) {
 	s.votingCacheMutex.RLock()
 	entries := make([]*CacheEntry, 0, len(s.votingCache))
 	for _, e := range s.votingCache {
-		entries = append(entries, e)
+		entries = append(entries, cloneCacheEntry(e))
 	}
 	s.votingCacheMutex.RUnlock()
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
 		"total_entries": len(entries),
@@ -1566,6 +1826,10 @@ func (s *MockServer) handleGetCache(c *gin.Context) {
 
 	s.votingCacheMutex.RLock()
 	entry, exists := s.votingCache[hash]
+	var snapshot *CacheEntry
+	if exists {
+		snapshot = cloneCacheEntry(entry)
+	}
 	s.votingCacheMutex.RUnlock()
 
 	if !exists {
@@ -1579,7 +1843,7 @@ func (s *MockServer) handleGetCache(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"found":   true,
-		"entry":   entry,
+		"entry":   snapshot,
 	})
 }
 
@@ -1629,13 +1893,13 @@ func (s *MockServer) handleGetConfig(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"success":                      true,
-		"app_instance_id":             appInstanceID,
-		"enable_voting":               cfg.EnableVoting,
-		"required_votes":              cfg.RequiredVotes,
-		"target_app_instance_ids":     cfg.TargetAppInstanceIDs,
-		"has_passkey_policy":           cfg.HasPasskeyPolicy,
-		"passkey_policy_enabled":       cfg.PasskeyPolicyEnabled,
+		"success":                 true,
+		"app_instance_id":         appInstanceID,
+		"enable_voting":           cfg.EnableVoting,
+		"required_votes":          cfg.RequiredVotes,
+		"target_app_instance_ids": cfg.TargetAppInstanceIDs,
+		"has_passkey_policy":      cfg.HasPasskeyPolicy,
+		"passkey_policy_enabled":  cfg.PasskeyPolicyEnabled,
 	})
 }
 
@@ -1643,19 +1907,69 @@ func (s *MockServer) handleGetConfig(c *gin.Context) {
 // Approval bridge handlers
 // ============================================================================
 
-// handlePasskeyLoginOptions handles GET /api/auth/passkey/options
+// randomChallengeB64URL returns a 32-byte base64url-encoded challenge
+// suitable for PublicKeyCredentialRequestOptions / CreationOptions. This
+// mirrors the format a real WebAuthn relying party would emit so that
+// browsers accept the options passed to navigator.credentials.get/create.
+func randomChallengeB64URL() string {
+	buf := make([]byte, 32)
+	_, _ = rand.Read(buf)
+	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
+// prunePasskeyLoginSessions drops expired login sessions. Called
+// opportunistically from handlePasskeyLoginOptions so a long-running
+// mock server doesn't accumulate dead sessions indefinitely.
+func (s *MockServer) prunePasskeyLoginSessions() {
+	now := time.Now()
+	s.passkeyLoginMutex.Lock()
+	for id, session := range s.passkeyLoginSessions {
+		if now.After(session.ExpiresAt) {
+			delete(s.passkeyLoginSessions, id)
+		}
+	}
+	s.passkeyLoginMutex.Unlock()
+}
+
+// handlePasskeyLoginOptions handles GET /api/auth/passkey/options.
+// Returns a fully-formed PublicKeyCredentialRequestOptions so real
+// browsers accept the challenge at navigator.credentials.get(). The
+// mock does not validate the returned credential signature — any
+// credential sent to /verify is accepted.
 func (s *MockServer) handlePasskeyLoginOptions(c *gin.Context) {
+	s.prunePasskeyLoginSessions()
+
 	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
-	challenge := fmt.Sprintf("mock-challenge-%d", sessionID)
+	options, sessionData, err := s.webAuthn.BeginDiscoverableLogin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to start login",
+		})
+		return
+	}
+	sessionJSON, err := EncodeSessionData(sessionData)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to encode login session",
+		})
+		return
+	}
+	expiresAt := time.Now().Add(5 * time.Minute)
+	s.passkeyLoginMutex.Lock()
+	s.passkeyLoginSessions[sessionID] = &MockPasskeyLoginSession{
+		ID:          sessionID,
+		SessionData: sessionJSON,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now().UTC(),
+	}
+	s.passkeyLoginMutex.Unlock()
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"options": gin.H{
-				"challenge": challenge,
-				"rp":        gin.H{"name": "TEENet Mock"},
-			},
-			"login_session_id": sessionID,
-		},
+		"options":          options,
+		"login_session_id": sessionID,
+		"expires_at":       expiresAt.UTC().Format(time.RFC3339),
 	})
 }
 
@@ -1668,27 +1982,120 @@ func (s *MockServer) handlePasskeyLoginVerify(c *gin.Context) {
 	// Parse body; ignore errors — this is a mock
 	_ = c.ShouldBindJSON(&body)
 
-	// Use first available passkey user (ID=1) as default
+	if isRealLoginCredential(body.Credential) {
+		loginSession := s.getPasskeyLoginSession(body.LoginSessionID)
+		if loginSession == nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   "login session not found",
+			})
+			return
+		}
+		if loginSession.UsedAt != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "login session already used",
+			})
+			return
+		}
+		if time.Now().After(loginSession.ExpiresAt) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "login session expired",
+			})
+			return
+		}
+		sessionData, err := DecodeSessionData(loginSession.SessionData)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "invalid login session data",
+			})
+			return
+		}
+
+		var matchedUser *MockPasskeyUser
+		handler := func(rawID, userHandle []byte) (webauthn.User, error) {
+			credID := base64.RawURLEncoding.EncodeToString(rawID)
+			handle := base64.RawURLEncoding.EncodeToString(userHandle)
+			user := s.resolvePasskeyUserByHandleAndCredential(handle, credID)
+			if user == nil {
+				return nil, fmt.Errorf("passkey user not found")
+			}
+			webUser, err := BuildWebAuthnUserFromPasskey(user)
+			if err != nil {
+				return nil, err
+			}
+			matchedUser = user
+			return webUser, nil
+		}
+
+		credential, err := s.webAuthn.FinishDiscoverableLogin(handler, sessionData, credentialJSONBytes(body.Credential))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "assertion failed",
+			})
+			return
+		}
+		if matchedUser == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "passkey user not found",
+			})
+			return
+		}
+
+		now := time.Now().UTC()
+		s.passkeyLoginMutex.Lock()
+		if stored := s.passkeyLoginSessions[body.LoginSessionID]; stored != nil && stored.UsedAt == nil {
+			stored.UsedAt = &now
+		}
+		s.passkeyLoginMutex.Unlock()
+
+		s.passkeyUsersMutex.Lock()
+		if stored := s.passkeyUsers[matchedUser.ID]; stored != nil {
+			stored.SignCount = credential.Authenticator.SignCount
+			stored.BackupEligible = credential.Flags.BackupEligible
+			stored.BackupState = credential.Flags.BackupState
+		}
+		s.passkeyUsersMutex.Unlock()
+
+		token := s.generateToken(matchedUser.ID)
+		expiresAt := time.Now().Add(30 * time.Minute).Unix()
+		c.JSON(http.StatusOK, gin.H{
+			"token":           token,
+			"passkey_user_id": matchedUser.ID,
+			"display_name":    matchedUser.DisplayName,
+			"expires_at":      expiresAt,
+		})
+		return
+	}
+
+	user := s.resolvePasskeyLoginUser(body.Credential)
 	userID := uint(1)
+	displayName := ""
+	if user != nil {
+		userID = user.ID
+		displayName = user.DisplayName
+	}
 	token := s.generateToken(userID)
 	expiresAt := time.Now().Add(30 * time.Minute).Unix()
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"token":            token,
-			"passkey_user_id":  userID,
-			"expires_at":       expiresAt,
-		},
+		"token":           token,
+		"passkey_user_id": userID,
+		"display_name":    displayName,
+		"expires_at":      expiresAt,
 	})
 }
 
 // handlePasskeyLoginVerifyAs handles POST /api/auth/passkey/verify-as
 func (s *MockServer) handlePasskeyLoginVerifyAs(c *gin.Context) {
 	var body struct {
-		LoginSessionID       uint64      `json:"login_session_id"`
-		Credential           interface{} `json:"credential"`
-		ExpectedPasskeyUserID uint       `json:"expected_passkey_user_id"`
+		LoginSessionID        uint64      `json:"login_session_id"`
+		Credential            interface{} `json:"credential"`
+		ExpectedPasskeyUserID uint        `json:"expected_passkey_user_id"`
 	}
 	_ = c.ShouldBindJSON(&body)
 
@@ -1714,12 +2121,9 @@ func (s *MockServer) handlePasskeyLoginVerifyAs(c *gin.Context) {
 	expiresAt := time.Now().Add(30 * time.Minute).Unix()
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"token":           token,
-			"passkey_user_id": userID,
-			"expires_at":      expiresAt,
-		},
+		"token":           token,
+		"passkey_user_id": userID,
+		"expires_at":      expiresAt,
 	})
 }
 
@@ -1872,10 +2276,32 @@ func (s *MockServer) handleApprovalAction(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&body)
 
-	s.approvalTasksMutex.Lock()
+	action := strings.ToUpper(body.Action)
+	if action != "APPROVE" && action != "REJECT" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "action must be APPROVE or REJECT",
+		})
+		return
+	}
+
+	// Snapshot the task fields we need. We release approvalTasksMutex
+	// before doing any slow work (cache lookup, ECDSA signing) so the
+	// lock is never held across an operation that also grabs another
+	// mutex — eliminating the previous approvalTasks → votingCache
+	// lock-order hazard.
+	s.approvalTasksMutex.RLock()
 	task, exists := s.approvalTasks[taskID]
+	var taskHash, taskApp, taskTxID, taskPubKeyName string
+	if exists {
+		taskHash = task.Hash
+		taskApp = task.AppInstanceID
+		taskTxID = task.TxID
+		taskPubKeyName = task.PublicKeyName
+	}
+	s.approvalTasksMutex.RUnlock()
+
 	if !exists {
-		s.approvalTasksMutex.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error":   "task not found",
@@ -1883,56 +2309,59 @@ func (s *MockServer) handleApprovalAction(c *gin.Context) {
 		return
 	}
 
-	action := strings.ToUpper(body.Action)
 	var signatureHex string
+	finalStatus := "REJECTED"
 
 	if action == "APPROVE" {
-		// Attempt to sign the associated message
-		if task.Hash != "" {
+		finalStatus = "APPROVED"
+		// Pull the message bytes for signing without holding any lock
+		// across the sign call.
+		var message []byte
+		if taskHash != "" {
 			s.votingCacheMutex.RLock()
-			cacheEntry, cacheExists := s.votingCache[task.Hash]
+			if cacheEntry, cacheExists := s.votingCache[taskHash]; cacheExists && len(cacheEntry.Message) > 0 {
+				message = append([]byte(nil), cacheEntry.Message...)
+			}
 			s.votingCacheMutex.RUnlock()
+		}
 
-			if cacheExists && len(cacheEntry.Message) > 0 {
-				// Get key info for this app
-				s.appKeysMutex.RLock()
-				appKey, appKeyExists := s.appKeys[task.AppInstanceID]
-				s.appKeysMutex.RUnlock()
-
-				if appKeyExists {
-					sig, sigErr := s.signWithKey(appKey.ProtocolNum, appKey.CurveNum, cacheEntry.Message, appKey.PublicKey)
-					if sigErr == nil {
-						signatureHex = hex.EncodeToString(sig)
-						// Update cache entry
-						s.votingCacheMutex.Lock()
-						cacheEntry.Status = "signed"
-						cacheEntry.Signature = signatureHex
-						s.votingCacheMutex.Unlock()
+		if message != nil {
+			// Resolve the key bound to the approval task. PublicKeyName
+			// holds the pubkey hex captured at submit time; we look it
+			// up explicitly so the correct protocol/curve is used when
+			// the app has multiple keys.
+			if appKey, appKeyExists := s.lookupAppKey(taskApp, taskPubKeyName); appKeyExists {
+				if sig, sigErr := s.signWithKey(appKey.ProtocolNum, appKey.CurveNum, message, appKey.PublicKey); sigErr == nil {
+					signatureHex = hex.EncodeToString(sig)
+					// Write the signature back to the cache entry
+					// under the cache lock alone.
+					s.votingCacheMutex.Lock()
+					if cur, ok := s.votingCache[taskHash]; ok {
+						cur.Status = "signed"
+						cur.Signature = signatureHex
 					}
+					s.votingCacheMutex.Unlock()
 				}
 			}
 		}
-		task.Status = "APPROVED"
-		task.Signature = signatureHex
-	} else if action == "REJECT" {
-		task.Status = "REJECTED"
-	} else {
-		s.approvalTasksMutex.Unlock()
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "action must be APPROVE or REJECT",
-		})
-		return
+	}
+
+	// Finally, write the updated task status back under the approval
+	// tasks lock alone.
+	s.approvalTasksMutex.Lock()
+	if cur, ok := s.approvalTasks[taskID]; ok {
+		cur.Status = finalStatus
+		cur.Signature = signatureHex
 	}
 	s.approvalTasksMutex.Unlock()
 
-	s.addAuditRecord("APPROVAL_ACTION", action, task.Status, task.AppInstanceID, task.Hash, task.TxID, userID)
+	s.addAuditRecord("APPROVAL_ACTION", action, finalStatus, taskApp, taskHash, taskTxID, userID)
 
 	resp := gin.H{
 		"success": true,
 		"data": gin.H{
 			"task_id": taskID,
-			"status":  task.Status,
+			"status":  finalStatus,
 			"action":  action,
 		},
 	}
@@ -2076,14 +2505,31 @@ func (s *MockServer) handleAdminInvitePasskey(c *gin.Context) {
 	_ = c.ShouldBindJSON(&body)
 
 	inviteToken := fmt.Sprintf("mock-invite-%d", atomic.AddUint64(&s.loginSessionIDCounter, 1))
-	expiresAt := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	userHandle, err := RandomBase64(32)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to generate user_handle"})
+		return
+	}
+	now := time.Now().UTC()
+	expiresAt := now.Add(24 * time.Hour)
 	registerURL := fmt.Sprintf("http://localhost:%s/register?token=%s", s.port, inviteToken)
+
+	s.passkeyInvitesMutex.Lock()
+	s.passkeyInvites[inviteToken] = &MockPasskeyInvite{
+		Token:         inviteToken,
+		DisplayName:   strings.TrimSpace(body.DisplayName),
+		AppInstanceID: strings.TrimSpace(body.AppInstanceID),
+		UserHandle:    userHandle,
+		ExpiresAt:     expiresAt,
+		CreatedAt:     now,
+	}
+	s.passkeyInvitesMutex.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
 		"invite_token": inviteToken,
 		"register_url": registerURL,
 		"display_name": body.DisplayName,
-		"expires_at":   expiresAt,
+		"expires_at":   expiresAt.Format(time.RFC3339),
 	})
 }
 
@@ -2254,12 +2700,38 @@ func (s *MockServer) handleAdminDeletePublicKey(c *gin.Context) {
 
 	deleted := false
 
-	// Remove from appKeys if it matches
+	// Remove from appKeys if it matches. Delete by key name requires
+	// cross-referencing generatedKeys to find the matching pubkey hex,
+	// then unregistering just that entry while preserving other keys
+	// under the same app.
 	if appInstanceID != "" {
+		var toDelete []string
+		s.generatedKeysMutex.RLock()
+		for _, gk := range s.generatedKeys[appInstanceID] {
+			if gk.Name == name {
+				toDelete = append(toDelete, gk.KeyData)
+			}
+		}
+		s.generatedKeysMutex.RUnlock()
+
 		s.appKeysMutex.Lock()
-		if _, exists := s.appKeys[appInstanceID]; exists {
+		keys := s.appKeys[appInstanceID]
+		for _, pubHex := range toDelete {
+			if _, ok := keys[pubHex]; ok {
+				delete(keys, pubHex)
+				deleted = true
+			}
+			if s.defaultAppKey[appInstanceID] == pubHex {
+				delete(s.defaultAppKey, appInstanceID)
+				for remaining := range keys {
+					s.defaultAppKey[appInstanceID] = remaining
+					break
+				}
+			}
+		}
+		if len(keys) == 0 {
 			delete(s.appKeys, appInstanceID)
-			deleted = true
+			delete(s.defaultAppKey, appInstanceID)
 		}
 		s.appKeysMutex.Unlock()
 	}
@@ -2356,19 +2828,75 @@ func (s *MockServer) handleAdminDeleteAPIKey(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "API key not found"})
 }
 
-// handlePasskeyRegisterOptions handles GET /api/passkey/register/options
+// handlePasskeyRegisterOptions handles GET /api/passkey/register/options.
+// Returns a fully-formed PublicKeyCredentialCreationOptions so real
+// browsers accept the options at navigator.credentials.create(). Minimum
+// fields required by the WebAuthn spec: challenge, rp.name, user{id,
+// name, displayName}, pubKeyCredParams. The mock does not validate the
+// attestation on /verify — any credential is accepted.
 func (s *MockServer) handlePasskeyRegisterOptions(c *gin.Context) {
 	inviteToken := c.Query("invite_token")
-	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+	if inviteToken == "" {
+		inviteToken = c.Query("token")
+	}
+	invite := s.getPasskeyInvite(inviteToken)
+	if invite == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "invite not found",
+		})
+		return
+	}
+	if invite.UsedAt != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "invite already used",
+		})
+		return
+	}
+	if time.Now().After(invite.ExpiresAt) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "invite expired",
+		})
+		return
+	}
+
+	webUser, err := BuildWebAuthnUserFromInvite(invite)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to build webauthn user",
+		})
+		return
+	}
+	options, sessionData, err := s.webAuthn.BeginRegistration(webUser)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to begin registration",
+		})
+		return
+	}
+	sessionJSON, err := EncodeSessionData(sessionData)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "failed to encode registration session",
+		})
+		return
+	}
+
+	s.passkeyInvitesMutex.Lock()
+	if stored := s.passkeyInvites[inviteToken]; stored != nil {
+		stored.SessionData = sessionJSON
+	}
+	s.passkeyInvitesMutex.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
-		"options": gin.H{
-			"challenge": fmt.Sprintf("mock-reg-challenge-%d", sessionID),
-			"rp":        gin.H{"name": "TEENet Mock"},
-			"user":      gin.H{"id": sessionID, "name": "new-user"},
-		},
+		"options":      options,
 		"invite_token": inviteToken,
-		"expires_at":   time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339),
+		"expires_at":   invite.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }
 
@@ -2382,16 +2910,124 @@ func (s *MockServer) handlePasskeyRegisterVerify(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&body)
 
+	if isRealRegistrationCredential(body.Credential) {
+		invite := s.getPasskeyInvite(body.InviteToken)
+		if invite == nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   "invite not found",
+			})
+			return
+		}
+		if invite.UsedAt != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "invite already used",
+			})
+			return
+		}
+		if time.Now().After(invite.ExpiresAt) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "invite expired",
+			})
+			return
+		}
+		if invite.SessionData == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "registration not started",
+			})
+			return
+		}
+
+		sessionData, err := DecodeSessionData(invite.SessionData)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "invalid registration session",
+			})
+			return
+		}
+		webUser, err := BuildWebAuthnUserFromInvite(invite)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "failed to build webauthn user",
+			})
+			return
+		}
+		credential, err := s.webAuthn.FinishRegistration(webUser, sessionData, credentialJSONBytes(body.Credential))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "registration failed: " + err.Error(),
+			})
+			return
+		}
+
+		credID := base64.RawURLEncoding.EncodeToString(credential.ID)
+		aaguid := hex.EncodeToString(credential.Authenticator.AAGUID)
+		newID := uint(atomic.AddUint32(&s.passkeyUserIDCounter, 1))
+		now := time.Now().UTC()
+
+		displayName := strings.TrimSpace(invite.DisplayName)
+		if displayName == "" {
+			displayName = fmt.Sprintf("User %d", newID)
+		}
+
+		user := &MockPasskeyUser{
+			ID:             newID,
+			DisplayName:    displayName,
+			AppInstanceID:  invite.AppInstanceID,
+			UserHandle:     invite.UserHandle,
+			CredentialID:   credID,
+			PublicKey:      credential.PublicKey,
+			AAGUID:         aaguid,
+			SignCount:      credential.Authenticator.SignCount,
+			BackupEligible: credential.Flags.BackupEligible,
+			BackupState:    credential.Flags.BackupState,
+			RPID:           s.webAuthn.rpID,
+			CreatedAt:      now.Format(time.RFC3339),
+		}
+
+		s.passkeyUsersMutex.Lock()
+		s.passkeyUsers[newID] = user
+		s.passkeyUsersMutex.Unlock()
+
+		s.passkeyInvitesMutex.Lock()
+		if stored := s.passkeyInvites[body.InviteToken]; stored != nil {
+			stored.UsedAt = &now
+		}
+		s.passkeyInvitesMutex.Unlock()
+
+		c.JSON(http.StatusOK, gin.H{
+			"passkey_user_id": newID,
+			"display_name":    displayName,
+		})
+		return
+	}
+
 	newID := uint(atomic.AddUint32(&s.passkeyUserIDCounter, 1))
-	displayName := body.DisplayName
+	invite := s.getPasskeyInvite(body.InviteToken)
+	displayName := strings.TrimSpace(body.DisplayName)
+	if displayName == "" && invite != nil {
+		displayName = strings.TrimSpace(invite.DisplayName)
+	}
 	if displayName == "" {
 		displayName = fmt.Sprintf("User %d", newID)
+	}
+	appInstanceID := strings.TrimSpace(body.AppInstanceID)
+	if appInstanceID == "" && invite != nil {
+		appInstanceID = strings.TrimSpace(invite.AppInstanceID)
 	}
 
 	user := &MockPasskeyUser{
 		ID:            newID,
 		DisplayName:   displayName,
-		AppInstanceID: body.AppInstanceID,
+		AppInstanceID: appInstanceID,
+		UserHandle:    "",
+		CredentialID:  credentialIDFromPayload(body.Credential),
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
 

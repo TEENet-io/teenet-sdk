@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,9 +21,14 @@ import (
 // setupTestServer spins up the MockServer using httptest so no real TCP port is used.
 func setupTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	t.Setenv("PASSKEY_RP_ID", "localhost")
+	t.Setenv("PASSKEY_RP_ORIGIN", "http://localhost:8080")
+	t.Setenv("PASSKEY_RP_NAME", "TEENet Mock")
+	t.Setenv("PASSKEY_REQUIRE_UV", "true")
+	t.Setenv("PASSKEY_PLATFORM_ONLY", "false")
 	gin.SetMode(gin.TestMode)
 	s := NewMockServer("0") // port unused with httptest
-	s.enableLogging = false  // reduce noise during tests
+	s.enableLogging = false // reduce noise during tests
 
 	router := gin.New()
 	api := router.Group("/api")
@@ -127,6 +133,17 @@ func postJSON(t *testing.T, url string, body interface{}, token string) map[stri
 	return result
 }
 
+func unwrapPublicKeyOptions(t *testing.T, raw map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	if raw == nil {
+		t.Fatalf("expected options object")
+	}
+	if pk, ok := raw["publicKey"].(map[string]interface{}); ok {
+		return pk
+	}
+	return raw
+}
+
 func putJSON(t *testing.T, url string, body interface{}, token string) map[string]interface{} {
 	t.Helper()
 	payload, _ := json.Marshal(body)
@@ -177,8 +194,7 @@ func statusCode(m map[string]interface{}) int {
 func login(t *testing.T, base string) string {
 	t.Helper()
 	opts := getJSON(t, base+"/api/auth/passkey/options", "")
-	data, _ := opts["data"].(map[string]interface{})
-	sessionID := data["login_session_id"]
+	sessionID := opts["login_session_id"]
 	result := postJSON(t, base+"/api/auth/passkey/verify", map[string]interface{}{
 		"login_session_id": sessionID,
 		"credential":       map[string]interface{}{"mock": true},
@@ -186,8 +202,7 @@ func login(t *testing.T, base string) string {
 	if statusCode(result) != 200 {
 		t.Fatalf("login failed: %v", result)
 	}
-	d, _ := result["data"].(map[string]interface{})
-	token, _ := d["token"].(string)
+	token, _ := result["token"].(string)
 	if token == "" {
 		t.Fatalf("login returned empty token")
 	}
@@ -248,8 +263,8 @@ func TestGetPublicKeys_KnownApp(t *testing.T) {
 		t.Errorf("expected curve=secp256k1, got %v", key0["curve"])
 	}
 	keyData, _ := key0["key_data"].(string)
-	if !strings.HasPrefix(keyData, "0x") {
-		t.Errorf("expected key_data with 0x prefix, got %q", keyData)
+	if keyData == "" || strings.HasPrefix(keyData, "0x") {
+		t.Errorf("expected plain-hex key_data (no 0x prefix, matching app-comm-consensus), got %q", keyData)
 	}
 }
 
@@ -270,8 +285,8 @@ func TestGetPublicKeys_NonExistentAutoCreates(t *testing.T) {
 	}
 	key0 := keys[0].(map[string]interface{})
 	keyData, _ := key0["key_data"].(string)
-	if !strings.HasPrefix(keyData, "0x") {
-		t.Errorf("expected 0x prefix, got %q", keyData)
+	if keyData == "" || strings.HasPrefix(keyData, "0x") {
+		t.Errorf("expected plain-hex key_data (no 0x prefix), got %q", keyData)
 	}
 }
 
@@ -396,23 +411,29 @@ func TestDirectSigning_MissingAppInstanceID(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
+	// A request with no app_instance_id at all must be rejected as 400
+	// by Gin's binding:"required" check.
 	result := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
 		"message": []byte("test"),
 	}, "")
-	if statusCode(result) != 200 {
-		// any non-2xx could also be valid for unknown app
+	if statusCode(result) != 400 {
+		t.Errorf("omitted app_instance_id: expected 400, got %d: %v", statusCode(result), result)
 	}
-	// Unknown app with empty ID should fail
-	if result["success"] == true && result["status"] != "signed" {
-		// If it succeeded it should be "signed" or "failed"
+	if result["success"] == true {
+		t.Errorf("omitted app_instance_id: expected success=false")
 	}
-	// A truly missing app_instance_id (empty string) returns bad request
+
+	// An explicit empty string must likewise be rejected.
 	result2 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
 		"app_instance_id": "",
 		"message":         []byte("test"),
 	}, "")
-	// The server returns 400 when app_instance_id not found
-	_ = result2
+	if statusCode(result2) != 400 {
+		t.Errorf("empty app_instance_id: expected 400, got %d: %v", statusCode(result2), result2)
+	}
+	if result2["success"] == true {
+		t.Errorf("empty app_instance_id: expected success=false")
+	}
 }
 
 func TestDirectSigning_UnknownApp(t *testing.T) {
@@ -438,7 +459,7 @@ func TestVotingMode_Threshold2of3(t *testing.T) {
 
 	message := []byte("voting test message for 2of3")
 
-	// First vote (voter1) — should be pending
+	// First vote (voter1) — should be pending, count=1/2.
 	r1 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
 		"app_instance_id": "test-voting-2of3",
 		"message":         message,
@@ -452,13 +473,11 @@ func TestVotingMode_Threshold2of3(t *testing.T) {
 	if r1["needs_voting"] != true {
 		t.Errorf("first vote: expected needs_voting=true")
 	}
-	currentVotes, _ := r1["current_votes"].(float64)
-	if currentVotes != 1 {
-		t.Errorf("expected current_votes=1, got %v", r1["current_votes"])
+	if currentVotes, _ := r1["current_votes"].(float64); currentVotes != 1 {
+		t.Errorf("first vote: expected current_votes=1, got %v", r1["current_votes"])
 	}
-	requiredVotes, _ := r1["required_votes"].(float64)
-	if requiredVotes != 2 {
-		t.Errorf("expected required_votes=2, got %v", r1["required_votes"])
+	if requiredVotes, _ := r1["required_votes"].(float64); requiredVotes != 2 {
+		t.Errorf("first vote: expected required_votes=2, got %v", r1["required_votes"])
 	}
 
 	hash, _ := r1["hash"].(string)
@@ -466,63 +485,51 @@ func TestVotingMode_Threshold2of3(t *testing.T) {
 		t.Fatalf("expected hash in response")
 	}
 
-	// Check cache after first vote
+	// Cache entry should exist and be pending after one vote.
 	cacheResult := getJSON(t, ts.URL+"/api/cache/"+hash, "")
 	if cacheResult["found"] != true {
 		t.Errorf("expected cache entry found=true after first vote")
 	}
-	entry, _ := cacheResult["entry"].(map[string]interface{})
-	if entry["status"] != "pending" {
+	if entry, _ := cacheResult["entry"].(map[string]interface{}); entry["status"] != "pending" {
 		t.Errorf("expected cache entry status=pending, got %v", entry["status"])
 	}
 
-	// Second vote (voter2 — different app_instance_id in same voting group)
-	// The mock uses app_instance_id as the voter key, so we use a different ID
-	// but the same message. However, the mock uses req.AppInstanceID as voter key,
-	// so we need to call with a different ID. The voting group check uses just
-	// the hash as the key, so any second call with the same message but different
-	// app_instance_id would be a different app — we need a registered voter.
-	// In the mock, test-voting-2of3 is both the signing app and the voter group.
-	// The second vote must come from a different app_instance_id.
-	// Since the mock registers votes by app_instance_id, we submit from a different
-	// registered voter that also maps to the same cache hash.
-	// But the mock only uses "test-voting-2of3" as a known app. So voter2 must
-	// also be "test-voting-2of3" — but then it would overwrite voter1's entry.
-	// Looking at the code: entry.Requests[req.AppInstanceID] = vote, so we need
-	// to call from a different app_instance_id. Let's use "voter2-test-voting-2of3"
-	// which is unknown. Since the server checks s.appKeys, unknown apps get 400.
-	//
-	// The real test: submit SAME message from SAME app again → overwrites vote but
-	// still counts as 1, then call with a NEW message from another test app.
-	// Actually, re-reading the code: the test-voting-2of3 app has EnableVoting=true,
-	// RequiredVotes=2. The Requests map uses app_instance_id as key. So a second
-	// call from the same app_instance_id = "test-voting-2of3" will overwrite the
-	// existing vote for that id, keeping count at 1.
-	// To get 2 votes we need 2 different app_instance_ids to both be "voting apps"
-	// that map to the same cache hash. The mock doesn't implement cross-app voting
-	// membership. Let's verify that calling again with different message gives new hash
-	// and verify that two calls from same app_instance_id result in a signed response
-	// when required_votes=1 for different apps.
-	//
-	// For the 2of3 test: submit again from same app → still 1 unique voter,
-	// the mock only signs when approvedCount >= RequiredVotes.
-	// The only way to reach threshold 2 with this mock is to have 2 different
-	// app_instance_id values, both registered in appKeys. Let's register a second
-	// voter by auto-creating it, but auto-created apps go to direct signing, not
-	// voting config.
-	//
-	// Conclusion: verify current behaviour — second identical submit from same ID
-	// replaces the vote, count stays at 1 (still pending).
+	// Second vote from a different voter in the same voting group —
+	// must reach threshold 2/2 and return a signed signature.
 	r2 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "test-voting-2of3-voter2",
 		"message":         message,
 	}, "")
 	if statusCode(r2) != 200 {
 		t.Fatalf("second vote: expected 200, got %d: %v", statusCode(r2), r2)
 	}
-	// Still pending because only 1 unique voter (same app_instance_id)
-	if r2["status"] != "pending" {
-		t.Logf("second vote status: %v (may be pending or signed depending on mock logic)", r2["status"])
+	if r2["status"] != "signed" {
+		t.Errorf("second vote: expected status=signed, got %v (body=%v)", r2["status"], r2)
+	}
+	if r2["needs_voting"] != false {
+		t.Errorf("second vote: expected needs_voting=false, got %v", r2["needs_voting"])
+	}
+	if currentVotes, _ := r2["current_votes"].(float64); currentVotes != 2 {
+		t.Errorf("second vote: expected current_votes=2, got %v", r2["current_votes"])
+	}
+	sig, _ := r2["signature"].(string)
+	// 65-byte Ethereum-style signature = 130 hex chars.
+	if len(sig) != 130 {
+		t.Errorf("second vote: expected 130 hex chars, got %d: %q", len(sig), sig)
+	}
+	// The cache entry hash should match between the two responses.
+	if h2, _ := r2["hash"].(string); h2 != hash {
+		t.Errorf("voter2 hash %q != voter1 hash %q", h2, hash)
+	}
+
+	// Cache must now show signed status with the same signature.
+	cacheFinal := getJSON(t, ts.URL+"/api/cache/"+hash, "")
+	finalEntry, _ := cacheFinal["entry"].(map[string]interface{})
+	if finalEntry["status"] != "signed" {
+		t.Errorf("cache final: expected status=signed, got %v", finalEntry["status"])
+	}
+	if finalEntry["signature"] != sig {
+		t.Errorf("cache final: signature mismatch, got %v want %v", finalEntry["signature"], sig)
 	}
 }
 
@@ -810,6 +817,16 @@ func TestGenerateKey_ECDSA_SECP256K1(t *testing.T) {
 	if keyData == "" {
 		t.Errorf("expected key_data")
 	}
+	keyBytes, err := hex.DecodeString(keyData)
+	if err != nil {
+		t.Fatalf("expected hex key_data, got error: %v", err)
+	}
+	if len(keyBytes) != 33 {
+		t.Fatalf("expected compressed secp256k1 pubkey length 33, got %d", len(keyBytes))
+	}
+	if keyBytes[0] != 0x02 && keyBytes[0] != 0x03 {
+		t.Fatalf("expected compressed secp256k1 prefix 0x02/0x03, got 0x%02x", keyBytes[0])
+	}
 }
 
 func TestGenerateKey_Schnorr_ED25519(t *testing.T) {
@@ -979,9 +996,10 @@ func TestSignWithAPISecret(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
+	// Default payloads are hex-encoded (matches both SDKs).
 	result := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
 		"app_instance_id": "test-ecdsa-secp256k1",
-		"message":         "hello world",
+		"message":         hex.EncodeToString([]byte("hello world")),
 	}, "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
@@ -997,6 +1015,20 @@ func TestSignWithAPISecret(t *testing.T) {
 	if algo != "HMAC-SHA256" {
 		t.Errorf("expected algorithm=HMAC-SHA256, got %q", algo)
 	}
+
+	// encoding="raw" is also accepted for direct curl callers.
+	rawResult := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
+		"app_instance_id": "test-ecdsa-secp256k1",
+		"message":         "hello world",
+		"encoding":        "raw",
+	}, "")
+	if statusCode(rawResult) != 200 {
+		t.Fatalf("encoding=raw: expected 200, got %d: %v", statusCode(rawResult), rawResult)
+	}
+	rawSig, _ := rawResult["signature"].(string)
+	if rawSig != sig {
+		t.Errorf("encoding=raw should produce the same HMAC as the hex-encoded body: got %q want %q", rawSig, sig)
+	}
 }
 
 func TestSignWithAPISecret_DifferentMessages_DifferentSignatures(t *testing.T) {
@@ -1005,16 +1037,31 @@ func TestSignWithAPISecret_DifferentMessages_DifferentSignatures(t *testing.T) {
 
 	r1 := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
 		"app_instance_id": "test-ecdsa-secp256k1",
-		"message":         "message1",
+		"message":         hex.EncodeToString([]byte("message1")),
 	}, "")
 	r2 := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
 		"app_instance_id": "test-ecdsa-secp256k1",
-		"message":         "message2",
+		"message":         hex.EncodeToString([]byte("message2")),
 	}, "")
 	sig1, _ := r1["signature"].(string)
 	sig2, _ := r2["signature"].(string)
 	if sig1 == sig2 {
 		t.Errorf("expected different signatures for different messages")
+	}
+}
+
+func TestSignWithAPISecret_InvalidHex(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	// A bare string that is not valid hex and no encoding flag should
+	// fail with 400, not silently fall back to raw bytes.
+	result := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
+		"app_instance_id": "test-ecdsa-secp256k1",
+		"message":         "hello world", // "h" is not a valid hex character
+	}, "")
+	if statusCode(result) != 400 {
+		t.Errorf("expected 400 for non-hex message without encoding flag, got %d: %v", statusCode(result), result)
 	}
 }
 
@@ -1026,21 +1073,15 @@ func TestPasskeyLoginOptions(t *testing.T) {
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d", statusCode(result))
 	}
-	if result["success"] != true {
-		t.Errorf("expected success=true")
-	}
-	data, _ := result["data"].(map[string]interface{})
-	if data == nil {
-		t.Fatalf("expected data object")
-	}
-	sessionID := data["login_session_id"]
+	sessionID := result["login_session_id"]
 	if sessionID == nil {
-		t.Errorf("expected login_session_id in data")
+		t.Errorf("expected login_session_id")
 	}
-	options, _ := data["options"].(map[string]interface{})
+	options, _ := result["options"].(map[string]interface{})
 	if options == nil {
 		t.Fatalf("expected options object")
 	}
+	options = unwrapPublicKeyOptions(t, options)
 	challenge, _ := options["challenge"].(string)
 	if challenge == "" {
 		t.Errorf("expected non-empty challenge")
@@ -1053,8 +1094,7 @@ func TestPasskeyLoginVerify(t *testing.T) {
 
 	// First get session
 	optResult := getJSON(t, ts.URL+"/api/auth/passkey/options", "")
-	data, _ := optResult["data"].(map[string]interface{})
-	sessionID := data["login_session_id"]
+	sessionID := optResult["login_session_id"]
 
 	result := postJSON(t, ts.URL+"/api/auth/passkey/verify", map[string]interface{}{
 		"login_session_id": sessionID,
@@ -1063,11 +1103,7 @@ func TestPasskeyLoginVerify(t *testing.T) {
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
-	if result["success"] != true {
-		t.Errorf("expected success=true")
-	}
-	d, _ := result["data"].(map[string]interface{})
-	token, _ := d["token"].(string)
+	token, _ := result["token"].(string)
 	if token == "" {
 		t.Fatalf("expected token in response")
 	}
@@ -1075,7 +1111,7 @@ func TestPasskeyLoginVerify(t *testing.T) {
 	if !strings.Contains(token, ".") {
 		t.Errorf("expected token to contain '.', got %q", token)
 	}
-	passkeyUserID := d["passkey_user_id"]
+	passkeyUserID := result["passkey_user_id"]
 	if passkeyUserID == nil {
 		t.Errorf("expected passkey_user_id in response")
 	}
@@ -1093,11 +1129,7 @@ func TestPasskeyLoginVerifyAs(t *testing.T) {
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
-	if result["success"] != true {
-		t.Errorf("expected success=true")
-	}
-	d, _ := result["data"].(map[string]interface{})
-	token, _ := d["token"].(string)
+	token, _ := result["token"].(string)
 	if token == "" {
 		t.Errorf("expected token")
 	}
@@ -1645,10 +1677,10 @@ func TestAdminPolicyCRUD(t *testing.T) {
 
 	// CREATE / UPSERT
 	putResult := putJSON(t, ts.URL+"/api/admin/policy", map[string]interface{}{
-		"app_instance_id":  appID,
-		"public_key_name":  keyName,
-		"enabled":          true,
-		"timeout_seconds":  300,
+		"app_instance_id": appID,
+		"public_key_name": keyName,
+		"enabled":         true,
+		"timeout_seconds": 300,
 		"levels": []map[string]interface{}{
 			{"level_index": 0, "threshold": 2, "member_ids": []uint{1, 2}},
 		},
@@ -1824,25 +1856,93 @@ func TestPasskeyRegistrationOptions(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/passkey/register/options?invite_token=mock-invite-token", "")
+	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
+		"display_name":    "Mock Invite User",
+		"app_instance_id": "test-approval-required",
+	}, "")
+	inviteToken, _ := invite["invite_token"].(string)
+	if inviteToken == "" {
+		t.Fatalf("expected invite_token")
+	}
+
+	result := getJSON(t, ts.URL+"/api/passkey/register/options?invite_token="+inviteToken, "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
 	options, _ := result["options"].(map[string]interface{})
-	if options == nil {
-		t.Fatalf("expected options object")
-	}
+	options = unwrapPublicKeyOptions(t, options)
 	challenge, _ := options["challenge"].(string)
 	if challenge == "" {
 		t.Errorf("expected non-empty challenge")
 	}
-	inviteToken, _ := result["invite_token"].(string)
-	if inviteToken != "mock-invite-token" {
-		t.Errorf("expected invite_token=mock-invite-token, got %q", inviteToken)
+	gotInviteToken, _ := result["invite_token"].(string)
+	if gotInviteToken != inviteToken {
+		t.Errorf("expected invite_token=%q, got %q", inviteToken, gotInviteToken)
 	}
 	expiresAt, _ := result["expires_at"].(string)
 	if expiresAt == "" {
 		t.Errorf("expected expires_at")
+	}
+}
+
+func TestPasskeyRegistrationOptions_WithTokenQuery(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
+		"display_name":    "Mock Token User",
+		"app_instance_id": "test-approval-required",
+	}, "")
+	inviteToken, _ := invite["invite_token"].(string)
+	if inviteToken == "" {
+		t.Fatalf("expected invite_token")
+	}
+
+	result := getJSON(t, ts.URL+"/api/passkey/register/options?token="+inviteToken, "")
+	if statusCode(result) != 200 {
+		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
+	}
+	gotInviteToken, _ := result["invite_token"].(string)
+	if gotInviteToken != inviteToken {
+		t.Errorf("expected invite_token=%q, got %q", inviteToken, gotInviteToken)
+	}
+}
+
+func TestPasskeyRegistrationOptions_UsesInviteDisplayName(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
+		"display_name":    "Charlie Test",
+		"app_instance_id": "test-approval-required",
+	}, "")
+	inviteToken, _ := invite["invite_token"].(string)
+	if inviteToken == "" {
+		t.Fatalf("expected invite_token")
+	}
+
+	result := getJSON(t, ts.URL+"/api/passkey/register/options?token="+inviteToken, "")
+	if statusCode(result) != 200 {
+		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
+	}
+	options, _ := result["options"].(map[string]interface{})
+	options = unwrapPublicKeyOptions(t, options)
+	user, _ := options["user"].(map[string]interface{})
+	if user == nil {
+		t.Fatalf("expected user object")
+	}
+	if got, _ := user["name"].(string); got != "Charlie Test" {
+		t.Errorf("expected user.name=Charlie Test, got %q", got)
+	}
+	if got, _ := user["displayName"].(string); got != "Charlie Test" {
+		t.Errorf("expected user.displayName=Charlie Test, got %q", got)
+	}
+	authenticatorSelection, _ := options["authenticatorSelection"].(map[string]interface{})
+	if authenticatorSelection == nil {
+		t.Fatalf("expected authenticatorSelection")
+	}
+	if got, _ := authenticatorSelection["residentKey"].(string); got != "required" {
+		t.Errorf("expected residentKey=required, got %q", got)
 	}
 }
 
@@ -1885,6 +1985,51 @@ func TestPasskeyRegistrationVerify_DefaultDisplayName(t *testing.T) {
 	displayName, _ := result["display_name"].(string)
 	if !strings.HasPrefix(displayName, "User ") {
 		t.Errorf("expected display_name to start with 'User ', got %q", displayName)
+	}
+}
+
+func TestPasskeyRegistrationVerify_UsesInviteDisplayNameAndLoginMatchesCredential(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
+		"display_name":    "Dana Test",
+		"app_instance_id": "test-approval-required",
+	}, "")
+	inviteToken, _ := invite["invite_token"].(string)
+	if inviteToken == "" {
+		t.Fatalf("expected invite_token")
+	}
+
+	reg := postJSON(t, ts.URL+"/api/passkey/register/verify", map[string]interface{}{
+		"invite_token": inviteToken,
+		"credential": map[string]interface{}{
+			"id": "credential-dana",
+		},
+	}, "")
+	if statusCode(reg) != 200 {
+		t.Fatalf("expected 200, got %d: %v", statusCode(reg), reg)
+	}
+	newUserID, _ := reg["passkey_user_id"].(float64)
+	displayName, _ := reg["display_name"].(string)
+	if displayName != "Dana Test" {
+		t.Fatalf("expected display_name=Dana Test, got %q", displayName)
+	}
+
+	login := postJSON(t, ts.URL+"/api/auth/passkey/verify", map[string]interface{}{
+		"login_session_id": 1,
+		"credential": map[string]interface{}{
+			"id": "credential-dana",
+		},
+	}, "")
+	if statusCode(login) != 200 {
+		t.Fatalf("expected 200, got %d: %v", statusCode(login), login)
+	}
+	if got, _ := login["display_name"].(string); got != "Dana Test" {
+		t.Errorf("expected display_name=Dana Test, got %q", got)
+	}
+	if got, _ := login["passkey_user_id"].(float64); got != newUserID {
+		t.Errorf("expected passkey_user_id=%v, got %v", newUserID, got)
 	}
 }
 

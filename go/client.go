@@ -69,13 +69,24 @@ func (c *Client) checkInit() error {
 //   - Request timeout: 30 seconds
 //   - Pending wait timeout: 10 seconds
 //
+// The client is created in an uninitialized state. Call Init() to load
+// APP_INSTANCE_ID from the environment (containers deployed by the App
+// Lifecycle Manager have it injected automatically), or call
+// SetDefaultAppInstanceID() to set it explicitly.
+//
 // Parameters:
 //   - consensusURL: Base URL of the consensus service (e.g., "http://localhost:8089")
 //
 // Returns:
 //   - A new Client instance
 //
-// Example:
+// Example (deployed — APP_INSTANCE_ID is in env):
+//
+//	client := sdk.NewClient("http://localhost:8089")
+//	client.Init()
+//	defer client.Close()
+//
+// Example (local dev):
 //
 //	client := sdk.NewClient("http://localhost:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")

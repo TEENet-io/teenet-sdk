@@ -84,9 +84,10 @@ type Client struct {
 //   - Request timeout: 30 seconds
 //   - Pending wait timeout: 10 seconds
 //
-// The client is created in an uninitialized state. You must call SetDefaultAppInstanceID()
-// before performing signing operations, or use Init() to load the APP_INSTANCE_ID from
-// the environment.
+// The client is created in an uninitialized state. Call Init() to load
+// APP_INSTANCE_ID from the environment (containers deployed by the App
+// Lifecycle Manager have it injected automatically), or call
+// SetDefaultAppInstanceID() to set it explicitly.
 //
 // Parameters:
 //   - consensusURL: Base URL of the consensus service (e.g., "http://localhost:8089")
@@ -178,7 +179,7 @@ func (c *Client) debugf(format string, args ...interface{}) {
 
 // Init initializes the client by attempting to load configuration from the environment.
 //
-// This method is optional. It tries to read the APP_INSTANCE_ID environment variable
+// This method tries to read the APP_INSTANCE_ID environment variable
 // and set it as the default instance ID. If the environment variable is not set,
 // a warning is logged but no error is returned.
 //
