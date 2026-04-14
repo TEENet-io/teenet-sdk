@@ -20,6 +20,14 @@ import (
 
 // setupTestServer spins up the MockServer using httptest so no real TCP port is used.
 func setupTestServer(t *testing.T) *httptest.Server {
+	ts, _ := setupTestServerWithInstance(t)
+	return ts
+}
+
+// setupTestServerWithInstance returns both the httptest wrapper and the
+// underlying *MockServer so tests can tweak in-memory state (voting
+// configs, keys, etc.) directly.
+func setupTestServerWithInstance(t *testing.T) (*httptest.Server, *MockServer) {
 	t.Helper()
 	t.Setenv("PASSKEY_RP_ID", "localhost")
 	t.Setenv("PASSKEY_RP_ORIGIN", "http://localhost:8080")
@@ -75,7 +83,7 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		api.POST("/passkey/register/verify", s.handlePasskeyRegisterVerify)
 	}
 
-	return httptest.NewServer(router)
+	return httptest.NewServer(router), s
 }
 
 // -------------------------------------------------------------------------
@@ -568,6 +576,283 @@ func TestVotingMode_CacheEntry(t *testing.T) {
 	}
 	if entry["status"] != "pending" {
 		t.Errorf("expected pending, got %v", entry["status"])
+	}
+}
+
+// TestVotingMode_WhitelistRejectsSelfMisconfig verifies that a voting app
+// whose own TargetAppInstanceIDs does not list itself is rejected with 403
+// — this guards against misconfigured voting groups sneaking in votes.
+func TestVotingMode_WhitelistRejectsSelfMisconfig(t *testing.T) {
+	ts, s := setupTestServerWithInstance(t)
+	defer ts.Close()
+
+	// Inject a misconfigured voter: EnableVoting=true but the group
+	// list does NOT include the voter's own id.
+	const badID = "rogue-voter"
+	s.votingConfigsMutex.Lock()
+	s.votingConfigs[badID] = &VotingConfig{
+		EnableVoting:         true,
+		RequiredVotes:        2,
+		TargetAppInstanceIDs: []string{"some-other-app"}, // badID absent
+	}
+	s.votingConfigsMutex.Unlock()
+	// Give it a key so the request passes earlier lookups.
+	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
+	s.setAppKey(badID, &AppKeyInfo{
+		PublicKey:    hex.EncodeToString(rawPub),
+		PublicKeyRaw: rawPub,
+		Protocol:     "ecdsa",
+		Curve:        "secp256k1",
+		ProtocolNum:  ProtocolECDSA,
+		CurveNum:     CurveSECP256K1,
+	})
+
+	r := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": badID,
+		"message":         []byte("rogue message"),
+	}, "")
+	if statusCode(r) != 403 {
+		t.Fatalf("expected 403, got %d: %v", statusCode(r), r)
+	}
+	if r["status"] != "rejected" {
+		t.Errorf("expected status=rejected, got %v", r["status"])
+	}
+}
+
+// TestVotingMode_CrossGroupRejected verifies that once a voting entry is
+// created by group A, a voter from unrelated group B cannot push it over
+// the threshold — even if they share a cache hash collision.
+func TestVotingMode_CrossGroupRejected(t *testing.T) {
+	ts, s := setupTestServerWithInstance(t)
+	defer ts.Close()
+
+	// Create a second independent voting group using the SAME shared
+	// secp256k1 key (so the message hash would in principle be signable
+	// by both groups — worst case for the whitelist check).
+	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
+	groupB := []string{"groupB-voter1", "groupB-voter2"}
+	s.votingConfigsMutex.Lock()
+	for _, id := range groupB {
+		s.votingConfigs[id] = &VotingConfig{
+			EnableVoting:         true,
+			RequiredVotes:        2,
+			TargetAppInstanceIDs: groupB,
+		}
+	}
+	s.votingConfigsMutex.Unlock()
+	for _, id := range groupB {
+		s.setAppKey(id, &AppKeyInfo{
+			PublicKey:    hex.EncodeToString(rawPub),
+			PublicKeyRaw: rawPub,
+			Protocol:     "ecdsa",
+			Curve:        "secp256k1",
+			ProtocolNum:  ProtocolECDSA,
+			CurveNum:     CurveSECP256K1,
+		})
+	}
+
+	message := []byte("cross-group attack message")
+
+	// Group A (built-in 2-of-3): first legitimate vote.
+	r1 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": "test-voting-2of3",
+		"message":         message,
+	}, "")
+	if statusCode(r1) != 200 || r1["status"] != "pending" {
+		t.Fatalf("group A vote1: expected pending, got %d/%v", statusCode(r1), r1)
+	}
+	hash, _ := r1["hash"].(string)
+	if hash == "" {
+		t.Fatalf("no hash from group A vote")
+	}
+
+	// Group B voter tries to push the threshold on the same hash.
+	r2 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": "groupB-voter1",
+		"message":         message,
+	}, "")
+	if statusCode(r2) != 403 {
+		t.Fatalf("cross-group vote: expected 403, got %d: %v", statusCode(r2), r2)
+	}
+	if r2["status"] != "rejected" {
+		t.Errorf("cross-group vote: expected status=rejected, got %v", r2["status"])
+	}
+
+	// Cache entry must still be pending, still 1/2, signature empty,
+	// and the rejected voter must NOT have been recorded in Requests.
+	cache := getJSON(t, ts.URL+"/api/cache/"+hash, "")
+	entry, _ := cache["entry"].(map[string]interface{})
+	if entry == nil {
+		t.Fatalf("expected cache entry to remain")
+	}
+	if entry["status"] != "pending" {
+		t.Errorf("expected status=pending after rejection, got %v", entry["status"])
+	}
+	if sig, _ := entry["signature"].(string); sig != "" {
+		t.Errorf("expected empty signature, got %q", sig)
+	}
+	if reqs, _ := entry["requests"].(map[string]interface{}); len(reqs) != 1 {
+		t.Errorf("expected exactly 1 recorded vote after rejection, got %d: %v", len(reqs), reqs)
+	} else if _, leaked := reqs["groupB-voter1"]; leaked {
+		t.Errorf("rejected voter leaked into Requests map")
+	}
+
+	// Legitimate group A voter2 should still be able to complete the vote.
+	r3 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": "test-voting-2of3-voter2",
+		"message":         message,
+	}, "")
+	if statusCode(r3) != 200 || r3["status"] != "signed" {
+		t.Fatalf("group A vote2: expected signed, got %d/%v", statusCode(r3), r3)
+	}
+}
+
+// TestVotingMode_CrossGroupRejected_Symmetric verifies the whitelist works
+// regardless of which group arrives first — a groupB-initiated entry must
+// reject groupA votes just as the opposite case rejects groupB.
+func TestVotingMode_CrossGroupRejected_Symmetric(t *testing.T) {
+	ts, s := setupTestServerWithInstance(t)
+	defer ts.Close()
+
+	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
+	groupB := []string{"symB-voter1", "symB-voter2"}
+	s.votingConfigsMutex.Lock()
+	for _, id := range groupB {
+		s.votingConfigs[id] = &VotingConfig{
+			EnableVoting:         true,
+			RequiredVotes:        2,
+			TargetAppInstanceIDs: groupB,
+		}
+	}
+	s.votingConfigsMutex.Unlock()
+	for _, id := range groupB {
+		s.setAppKey(id, &AppKeyInfo{
+			PublicKey:    hex.EncodeToString(rawPub),
+			PublicKeyRaw: rawPub,
+			Protocol:     "ecdsa",
+			Curve:        "secp256k1",
+			ProtocolNum:  ProtocolECDSA,
+			CurveNum:     CurveSECP256K1,
+		})
+	}
+
+	message := []byte("symmetric cross-group message")
+
+	// Group B initiates the entry first.
+	r1 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": "symB-voter1",
+		"message":         message,
+	}, "")
+	if statusCode(r1) != 200 || r1["status"] != "pending" {
+		t.Fatalf("group B vote1: expected pending, got %d/%v", statusCode(r1), r1)
+	}
+	hash, _ := r1["hash"].(string)
+
+	// Group A (built-in) now tries to push it — must be rejected.
+	r2 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": "test-voting-2of3",
+		"message":         message,
+	}, "")
+	if statusCode(r2) != 403 {
+		t.Fatalf("cross-group A→B vote: expected 403, got %d: %v", statusCode(r2), r2)
+	}
+
+	// Verify the entry still belongs to group B and remains pending.
+	cache := getJSON(t, ts.URL+"/api/cache/"+hash, "")
+	entry, _ := cache["entry"].(map[string]interface{})
+	if entry["status"] != "pending" {
+		t.Errorf("expected status=pending, got %v", entry["status"])
+	}
+	if entry["app_instance_id"] != "symB-voter1" {
+		t.Errorf("expected entry owner symB-voter1, got %v", entry["app_instance_id"])
+	}
+	if reqs, _ := entry["requests"].(map[string]interface{}); len(reqs) != 1 {
+		t.Errorf("expected 1 recorded vote, got %d", len(reqs))
+	}
+
+	// Group B's second voter should still be able to complete.
+	r3 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": "symB-voter2",
+		"message":         message,
+	}, "")
+	if statusCode(r3) != 200 || r3["status"] != "signed" {
+		t.Fatalf("group B vote2: expected signed, got %d/%v", statusCode(r3), r3)
+	}
+}
+
+// TestVotingMode_AppWithoutConfigFallsThroughToDirectSign verifies that an
+// app with a registered key but NO voting config entry is not affected by
+// the whitelist check and gets direct-signed — mirrors the behavior of
+// apps the server has never seen a config for.
+func TestVotingMode_AppWithoutConfigFallsThroughToDirectSign(t *testing.T) {
+	ts, s := setupTestServerWithInstance(t)
+	defer ts.Close()
+
+	// Register a key but deliberately DO NOT set a votingConfig entry.
+	const appID = "no-config-app"
+	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
+	s.setAppKey(appID, &AppKeyInfo{
+		PublicKey:    hex.EncodeToString(rawPub),
+		PublicKeyRaw: rawPub,
+		Protocol:     "ecdsa",
+		Curve:        "secp256k1",
+		ProtocolNum:  ProtocolECDSA,
+		CurveNum:     CurveSECP256K1,
+	})
+
+	r := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": appID,
+		"message":         []byte("no-config direct sign"),
+	}, "")
+	if statusCode(r) != 200 {
+		t.Fatalf("expected 200, got %d: %v", statusCode(r), r)
+	}
+	if r["status"] != "signed" {
+		t.Errorf("expected status=signed, got %v", r["status"])
+	}
+	if sig, _ := r["signature"].(string); len(sig) != 130 {
+		t.Errorf("expected 130 hex-char signature, got %d: %q", len(sig), sig)
+	}
+}
+
+// TestVotingMode_DirectSignAppBypassesWhitelist verifies that apps with
+// EnableVoting=false are NOT subject to the whitelist check — even if
+// their (irrelevant) TargetAppInstanceIDs list does not include them.
+// This documents the intentional scope of the check.
+func TestVotingMode_DirectSignAppBypassesWhitelist(t *testing.T) {
+	ts, s := setupTestServerWithInstance(t)
+	defer ts.Close()
+
+	const appID = "direct-sign-weird-config"
+	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
+	// Intentionally inconsistent: EnableVoting=false, and the group list
+	// does not contain the app itself. The whitelist check must not fire
+	// because the voting path is never entered for direct-signing apps.
+	s.votingConfigsMutex.Lock()
+	s.votingConfigs[appID] = &VotingConfig{
+		EnableVoting:         false,
+		RequiredVotes:        1,
+		TargetAppInstanceIDs: []string{"someone-else"},
+	}
+	s.votingConfigsMutex.Unlock()
+	s.setAppKey(appID, &AppKeyInfo{
+		PublicKey:    hex.EncodeToString(rawPub),
+		PublicKeyRaw: rawPub,
+		Protocol:     "ecdsa",
+		Curve:        "secp256k1",
+		ProtocolNum:  ProtocolECDSA,
+		CurveNum:     CurveSECP256K1,
+	})
+
+	r := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
+		"app_instance_id": appID,
+		"message":         []byte("direct sign bypasses whitelist"),
+	}, "")
+	if statusCode(r) != 200 {
+		t.Fatalf("expected 200, got %d: %v", statusCode(r), r)
+	}
+	if r["status"] != "signed" {
+		t.Errorf("expected status=signed, got %v", r["status"])
 	}
 }
 

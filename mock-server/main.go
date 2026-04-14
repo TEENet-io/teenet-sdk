@@ -27,6 +27,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -950,6 +951,19 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 
 	// --- Voting path ---
 	if hasCfg && votingCfg.EnableVoting {
+		// Whitelist check: the voter must declare itself as a member of
+		// its own voting group. This mirrors what real app-comm-consensus
+		// enforces and prevents a misconfigured app from casting votes
+		// toward a group it does not belong to.
+		if !slices.Contains(votingCfg.TargetAppInstanceIDs, req.AppInstanceID) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"error":   "app_instance_id not declared in its own voting group",
+				"status":  "rejected",
+			})
+			return
+		}
+
 		protocol := keyInfo.ProtocolNum
 		curve := keyInfo.CurveNum
 		var pubKeyHex string
@@ -974,7 +988,22 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 		// work (signing, logging, JSON serialization).
 		s.votingCacheMutex.Lock()
 		entry, entryExists := s.votingCache[hash]
-		if !entryExists {
+		if entryExists {
+			// Group-consistency check: a vote on an existing entry must
+			// come from a voter whose own voting group still lists the
+			// original initiator. This prevents two unrelated voting
+			// groups from colliding on the same hash and cross-voting.
+			if !slices.Contains(votingCfg.TargetAppInstanceIDs, entry.AppInstanceID) {
+				s.votingCacheMutex.Unlock()
+				c.JSON(http.StatusForbidden, gin.H{
+					"success": false,
+					"error":   "voting group mismatch with existing cache entry",
+					"status":  "rejected",
+					"hash":    hash,
+				})
+				return
+			}
+		} else {
 			entry = &CacheEntry{
 				AppInstanceID: req.AppInstanceID,
 				Hash:          hash,
