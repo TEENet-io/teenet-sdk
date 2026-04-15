@@ -33,8 +33,8 @@ func TestNewClient(t *testing.T) {
 	}
 	defer client.Close()
 
-	if client.consensusURL != "http://localhost:8080" {
-		t.Errorf("Expected consensusURL 'http://localhost:8080', got '%s'", client.consensusURL)
+	if client.serviceURL != "http://localhost:8080" {
+		t.Errorf("Expected serviceURL 'http://localhost:8080', got '%s'", client.serviceURL)
 	}
 	if client.requestTimeout != 30*time.Second {
 		t.Errorf("Expected default requestTimeout 30s, got %v", client.requestTimeout)
@@ -146,12 +146,12 @@ func TestInit_NoEnvVar(t *testing.T) {
 	}
 }
 
-func TestGetConsensusURL(t *testing.T) {
+func TestGetServiceURL(t *testing.T) {
 	client := NewClient("http://test-url:8089")
 	defer client.Close()
 
-	if client.GetConsensusURL() != "http://test-url:8089" {
-		t.Errorf("Expected 'http://test-url:8089', got '%s'", client.GetConsensusURL())
+	if client.GetServiceURL() != "http://test-url:8089" {
+		t.Errorf("Expected 'http://test-url:8089', got '%s'", client.GetServiceURL())
 	}
 }
 

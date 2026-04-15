@@ -19,7 +19,7 @@
 //
 // Basic Usage:
 //
-//	client := types.NewClient("http://consensus-url:8089")
+//	client := types.NewClient("http://service-url:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 //
@@ -59,7 +59,7 @@ const (
 
 // Client is the main interface for interacting with TEENet consensus signing services.
 //
-// A Client instance manages HTTP connections to the consensus service and handles
+// A Client instance manages HTTP connections to the TEENet service and handles
 // both direct signing and M-of-N threshold voting operations. It maintains configuration
 // such as the default APP_INSTANCE_ID and timeout settings.
 //
@@ -67,8 +67,8 @@ const (
 // is sufficient.
 type Client struct {
 	mu                 sync.RWMutex           // Protects defaultAppInstanceID and pkCache
-	httpClient         *network.HTTPClient    // HTTP client for consensus service communication
-	consensusURL       string                 // Base URL of the consensus service
+	httpClient         *network.HTTPClient    // HTTP client for TEENet service communication
+	serviceURL       string                 // Base URL of the TEENet service
 	defaultAppInstanceID string                 // Default APP_INSTANCE_ID for operations
 	pkCache              map[string]pkCacheEntry // Public key cache keyed by APP_INSTANCE_ID
 	pkGroup            singleflight.Group     // Deduplicates concurrent GetPublicKeys calls
@@ -90,7 +90,7 @@ type Client struct {
 // SetDefaultAppInstanceID() to set it explicitly.
 //
 // Parameters:
-//   - consensusURL: Base URL of the consensus service (e.g., "http://localhost:8089")
+//   - serviceURL: Base URL of the TEENet service (e.g., "http://localhost:8089")
 //
 // Returns:
 //   - A new Client instance
@@ -100,8 +100,8 @@ type Client struct {
 //	client := types.NewClient("http://localhost:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
-func NewClient(consensusURL string) *Client {
-	return NewClientWithOptions(consensusURL, nil)
+func NewClient(serviceURL string) *Client {
+	return NewClientWithOptions(serviceURL, nil)
 }
 
 // NewClientWithOptions creates a new SDK client with custom configuration options.
@@ -110,7 +110,7 @@ func NewClient(consensusURL string) *Client {
 // Pass nil for opts to use default values.
 //
 // Parameters:
-//   - consensusURL: Base URL of the consensus service
+//   - serviceURL: Base URL of the TEENet service
 //   - opts: Optional configuration (nil for defaults)
 //
 // Returns:
@@ -123,16 +123,16 @@ func NewClient(consensusURL string) *Client {
 //	    PendingWaitTimeout: 10 * time.Second,
 //	}
 //	client := types.NewClientWithOptions("http://localhost:8089", opts)
-func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Client {
+func NewClientWithOptions(serviceURL string, opts *types.ClientOptions) *Client {
 	// Validate the URL scheme early to surface misconfiguration immediately
 	// rather than producing confusing network errors on the first request.
 	// Only http:// and https:// are accepted; anything else (e.g. a bare
 	// "localhost:8089" with no scheme) would silently mis-route every request.
-	if parsed, err := url.Parse(consensusURL); err != nil {
-		log.Printf("[teenet-sdk] WARNING: consensusURL %q is not a valid URL: %v", consensusURL, err)
+	if parsed, err := url.Parse(serviceURL); err != nil {
+		log.Printf("[teenet-sdk] WARNING: serviceURL %q is not a valid URL: %v", serviceURL, err)
 	} else if scheme := strings.ToLower(parsed.Scheme); scheme != "http" && scheme != "https" {
-		log.Printf("[teenet-sdk] WARNING: consensusURL %q has scheme %q — only http:// and https:// are supported; "+
-			"requests will fail. Use https:// in production to protect against network-level interception.", consensusURL, parsed.Scheme)
+		log.Printf("[teenet-sdk] WARNING: serviceURL %q has scheme %q — only http:// and https:// are supported; "+
+			"requests will fail. Use https:// in production to protect against network-level interception.", serviceURL, parsed.Scheme)
 	}
 
 	// Set defaults
@@ -160,8 +160,8 @@ func NewClientWithOptions(consensusURL string, opts *types.ClientOptions) *Clien
 	}
 
 	return &Client{
-		httpClient:         network.NewHTTPClient(consensusURL, stdHTTPClient),
-		consensusURL:       consensusURL,
+		httpClient:         network.NewHTTPClient(serviceURL, stdHTTPClient),
+		serviceURL:       serviceURL,
 		pkCache:            make(map[string]pkCacheEntry),
 		requestTimeout:     requestTimeout,
 		pendingWaitTimeout: pendingWaitTimeout,
@@ -184,7 +184,7 @@ func (c *Client) debugf(format string, args ...interface{}) {
 // a warning is logged but no error is returned.
 //
 // This is useful for containers deployed by the App Lifecycle Manager, which
-// automatically injects APP_INSTANCE_ID and CONSENSUS_URL.
+// automatically injects APP_INSTANCE_ID and SERVICE_URL.
 //
 // Returns:
 //   - Always returns nil (errors are logged as warnings)
@@ -213,7 +213,7 @@ func (c *Client) Init() error {
 
 // SetDefaultAppInstanceID sets the APP_INSTANCE_ID for signing operations.
 //
-// The APP_INSTANCE_ID identifies your application instance to the consensus service
+// The APP_INSTANCE_ID identifies your application instance to the TEENet service
 // and determines which key material is used for signing. This must be set before
 // calling Sign(), GetPublicKeys(), or Verify().
 //
@@ -289,10 +289,10 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// GetConsensusURL returns the consensus service URL.
+// GetServiceURL returns the TEENet service URL.
 // This method is primarily for testing purposes.
-func (c *Client) GetConsensusURL() string {
-	return c.consensusURL
+func (c *Client) GetServiceURL() string {
+	return c.serviceURL
 }
 
 // GetRequestTimeout returns the request timeout duration.
@@ -359,9 +359,9 @@ func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*types.Gen
 	return c.generateKey(ctx, curve, crypto.ProtocolECDSA)
 }
 
-// GetAPIKey retrieves an API key value by name from the consensus service.
+// GetAPIKey retrieves an API key value by name from the TEENet service.
 //
-// This method queries the consensus service to retrieve an API key that was previously
+// This method queries the TEENet service to retrieve an API key that was previously
 // stored in the TEE (Trusted Execution Environment). The API key must have been created
 // with an API key value (not just a secret) for this operation to succeed.
 //

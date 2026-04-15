@@ -73,7 +73,7 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]types.PublicKeyInfo, erro
 }
 
 // InvalidateKeyCache clears the in-memory public key cache, forcing the next
-// GetPublicKeys call to fetch fresh data from the consensus service.
+// GetPublicKeys call to fetch fresh data from the TEENet service.
 // Use this after key rotation to ensure stale cached keys are not used.
 func (c *Client) InvalidateKeyCache() {
 	c.mu.Lock()

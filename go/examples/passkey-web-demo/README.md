@@ -15,7 +15,7 @@ cd /home/sun/tee/teenet-sdk/go/examples
 Required environment variables:
 
 ```bash
-export CONSENSUS_URL=http://127.0.0.1:8089
+export SERVICE_URL=http://127.0.0.1:8089
 export APP_INSTANCE_ID=<your-app-instance-id>
 ```
 
@@ -38,7 +38,7 @@ Expected logs:
 
 ```text
 [go-passkey-web-demo] http://127.0.0.1:18090
-[go-passkey-web-demo] CONSENSUS_URL=http://127.0.0.1:8089
+[go-passkey-web-demo] SERVICE_URL=http://127.0.0.1:8089
 [go-passkey-web-demo] APP_INSTANCE_ID=<your-app-instance-id>
 ```
 

@@ -9,7 +9,7 @@ import sdk "github.com/TEENet-io/teenet-sdk/go"
 // ConfigResponse contains the configuration for the current app instance
 type ConfigResponse struct {
 	AppInstanceID string `json:"app_instance_id"`
-	ConsensusURL  string `json:"consensus_url"`
+	ServiceURL  string `json:"service_url"`
 }
 
 // SignRequest is the request payload for direct signing (without voting)

@@ -13,7 +13,7 @@
 //
 // Usage:
 //
-//	APP_INSTANCE_ID=<your-app-id> CONSENSUS_URL=http://localhost:8089 go run main.go
+//	APP_INSTANCE_ID=<your-app-id> SERVICE_URL=http://localhost:8089 go run main.go
 package main
 
 import (
@@ -26,12 +26,12 @@ import (
 )
 
 func main() {
-	consensusURL := os.Getenv("CONSENSUS_URL")
-	if consensusURL == "" {
-		consensusURL = "http://localhost:8089"
+	serviceURL := os.Getenv("SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "http://localhost:8089"
 	}
 
-	client := sdk.NewClient(consensusURL)
+	client := sdk.NewClient(serviceURL)
 	if err := client.SetDefaultAppInstanceIDFromEnv(); err != nil {
 		log.Fatalf("APP_INSTANCE_ID not set: %v", err)
 	}

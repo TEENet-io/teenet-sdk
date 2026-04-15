@@ -28,9 +28,9 @@ import (
 
 func main() {
 	// Get configuration from environment or use placeholder values
-	consensusURL := os.Getenv("CONSENSUS_URL")
-	if consensusURL == "" {
-		consensusURL = "http://localhost:8089" // Default for local development
+	serviceURL := os.Getenv("SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "http://localhost:8089" // Default for local development
 	}
 
 	appID := os.Getenv("APP_INSTANCE_ID")
@@ -40,11 +40,11 @@ func main() {
 
 	fmt.Println("TEENet SDK Simple Example")
 	fmt.Println("=========================")
-	fmt.Printf("Consensus URL: %s\n", consensusURL)
+	fmt.Printf("Service URL: %s\n", serviceURL)
 	fmt.Printf("App ID: %s\n\n", appID)
 
 	// Create SDK client
-	client := sdk.NewClient(consensusURL)
+	client := sdk.NewClient(serviceURL)
 	defer client.Close()
 
 	client.SetDefaultAppInstanceID(appID)

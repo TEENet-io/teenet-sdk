@@ -19,7 +19,7 @@ npm install
 Environment variables:
 
 ```bash
-export CONSENSUS_URL=http://127.0.0.1:8089
+export SERVICE_URL=http://127.0.0.1:8089
 export DEMO_HOST=127.0.0.1
 export DEMO_PORT=18090
 export APP_INSTANCE_ID=<your-app-instance-id>
@@ -37,7 +37,7 @@ Expected logs:
 
 ```text
 [passkey-web-demo] http://127.0.0.1:18090
-[passkey-web-demo] CONSENSUS_URL=http://127.0.0.1:8089
+[passkey-web-demo] SERVICE_URL=http://127.0.0.1:8089
 [passkey-web-demo] APP_INSTANCE_ID=<your-app-instance-id>
 ```
 

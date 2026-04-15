@@ -43,14 +43,14 @@ func main() {
 	}
 
 	// Get consensus URLs from environment
-	// Example: export CONSENSUS_URLS="http://localhost:8089,http://localhost:8090"
-	consensusURLsEnv := os.Getenv("CONSENSUS_URLS")
-	if consensusURLsEnv == "" {
-		log.Fatal("CONSENSUS_URLS environment variable is required (comma-separated list of URLs)")
+	// Example: export SERVICE_URLS="http://localhost:8089,http://localhost:8090"
+	serviceURLsEnv := os.Getenv("SERVICE_URLS")
+	if serviceURLsEnv == "" {
+		log.Fatal("SERVICE_URLS environment variable is required (comma-separated list of URLs)")
 	}
 
-	consensusURLs := strings.Split(consensusURLsEnv, ",")
-	if len(consensusURLs) < 2 {
+	serviceURLs := strings.Split(serviceURLsEnv, ",")
+	if len(serviceURLs) < 2 {
 		log.Fatal("At least 2 consensus URLs are required")
 	}
 	message := []byte("Test forwarding message at " + time.Now().Format("15:04:05"))
@@ -95,7 +95,7 @@ func main() {
 			}
 
 			client.Close()
-		}(i, voterAppIDs[i], consensusURLs[i])
+		}(i, voterAppIDs[i], serviceURLs[i])
 	}
 
 	wg.Wait()

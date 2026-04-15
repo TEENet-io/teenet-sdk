@@ -36,9 +36,9 @@ import (
 
 func main() {
 	// Get configuration from environment
-	consensusURL := os.Getenv("CONSENSUS_URL")
-	if consensusURL == "" {
-		consensusURL = "http://localhost:8089" // Default for local development
+	serviceURL := os.Getenv("SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "http://localhost:8089" // Default for local development
 	}
 
 	appID := os.Getenv("APP_INSTANCE_ID")
@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Create SDK client
-	client := sdk.NewClient(consensusURL)
+	client := sdk.NewClient(serviceURL)
 	defer client.Close()
 
 	client.SetDefaultAppInstanceID(appID)
@@ -59,7 +59,7 @@ func main() {
 
 	fmt.Printf("TEENet API Key Example\n")
 	fmt.Printf("======================\n")
-	fmt.Printf("Consensus URL: %s\n", consensusURL)
+	fmt.Printf("Service URL: %s\n", serviceURL)
 	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Retrieve a bound API key (should succeed)

@@ -110,7 +110,7 @@ interface CacheRequest {
  * ```
  */
 export class Client {
-  private consensusURL: string;
+  private serviceURL: string;
   private defaultAppInstanceID: string = '';
   private requestTimeout: number;
   private pendingWaitTimeout: number;
@@ -126,11 +126,11 @@ export class Client {
    * App Lifecycle Manager have it injected automatically), or call
    * {@link setDefaultAppInstanceID} to set it explicitly.
    *
-   * @param consensusURL - Base URL of the consensus service
+   * @param serviceURL - Base URL of the TEENet service
    * @param options - Optional configuration
    */
-  constructor(consensusURL: string, options?: ClientOptions) {
-    this.consensusURL = consensusURL.replace(/\/$/, ''); // Remove trailing slash
+  constructor(serviceURL: string, options?: ClientOptions) {
+    this.serviceURL = serviceURL.replace(/\/$/, ''); // Remove trailing slash
     this.requestTimeout = options?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT;
     this.pendingWaitTimeout = Math.max(options?.pendingWaitTimeout ?? DEFAULT_PENDING_WAIT_TIMEOUT, 0);
     this.debug = Boolean(options?.debug);
@@ -141,7 +141,7 @@ export class Client {
    * Initialize client from environment variables.
    * Reads `APP_INSTANCE_ID` from `process.env` and sets it as the default.
    * Useful for containers deployed by the App Lifecycle Manager, which
-   * automatically injects `APP_INSTANCE_ID` and `CONSENSUS_URL`.
+   * automatically injects `APP_INSTANCE_ID` and `SERVICE_URL`.
    */
   init(): void {
     const appID = process.env.APP_INSTANCE_ID;
@@ -180,10 +180,10 @@ export class Client {
   }
 
   /**
-   * Get the consensus service URL
+   * Get the TEENet service URL
    */
-  getConsensusURL(): string {
-    return this.consensusURL;
+  getServiceURL(): string {
+    return this.serviceURL;
   }
 
   /**
@@ -973,7 +973,7 @@ export class Client {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
     try {
-      const response = await fetch(`${this.consensusURL}${path}`, {
+      const response = await fetch(`${this.serviceURL}${path}`, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: (method === 'POST' || method === 'PUT') ? JSON.stringify(body ?? {}) : undefined,
@@ -1053,14 +1053,14 @@ export class Client {
   }
 
   /**
-   * Make a GET request to the consensus service
+   * Make a GET request to the TEENet service
    */
   private async get(path: string): Promise<APIResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
 
     try {
-      const response = await fetch(`${this.consensusURL}${path}`, {
+      const response = await fetch(`${this.serviceURL}${path}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -1080,7 +1080,7 @@ export class Client {
     const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
 
     try {
-      const response = await fetch(`${this.consensusURL}${path}`, {
+      const response = await fetch(`${this.serviceURL}${path}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -1096,7 +1096,7 @@ export class Client {
   }
 
   /**
-   * Make a POST request to the consensus service
+   * Make a POST request to the TEENet service
    */
   private async post(
     path: string,
@@ -1106,7 +1106,7 @@ export class Client {
     const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
 
     try {
-      const response = await fetch(`${this.consensusURL}${path}`, {
+      const response = await fetch(`${this.serviceURL}${path}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1139,7 +1139,7 @@ export class Client {
     const timeout = setTimeout(() => controller.abort(), this.requestTimeout);
 
     try {
-      const response = await fetch(`${this.consensusURL}${path}`, {
+      const response = await fetch(`${this.serviceURL}${path}`, {
         method,
         headers: {
           'Content-Type': 'application/json',

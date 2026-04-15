@@ -226,7 +226,7 @@ type sessionState struct {
 }
 
 type server struct {
-	consensusURL   string
+	serviceURL   string
 	appInstanceID  string
 	frontendDir    string
 	bootstrapToken string
@@ -242,9 +242,9 @@ type server struct {
 var demoSessionPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{12,128}$`)
 
 func main() {
-	consensusURL := strings.TrimSpace(os.Getenv("CONSENSUS_URL"))
-	if consensusURL == "" {
-		consensusURL = "http://127.0.0.1:8089"
+	serviceURL := strings.TrimSpace(os.Getenv("SERVICE_URL"))
+	if serviceURL == "" {
+		serviceURL = "http://127.0.0.1:8089"
 	}
 	appInstanceID := strings.TrimSpace(os.Getenv("APP_INSTANCE_ID"))
 	host := strings.TrimSpace(os.Getenv("DEMO_HOST"))
@@ -262,12 +262,12 @@ func main() {
 	}
 
 	s := &server{
-		consensusURL:   consensusURL,
+		serviceURL:   serviceURL,
 		appInstanceID:  appInstanceID,
 		bootstrapToken: bootstrapToken,
 		baseURL:        baseURL,
 		frontendDir:    detectFrontendDir(),
-		sdkClient:      sdk.NewClient(consensusURL),
+		sdkClient:      sdk.NewClient(serviceURL),
 		store:          newMockStore(),
 		sessions:       make(map[string]*sessionState),
 	}
@@ -281,7 +281,7 @@ func main() {
 
 	addr := host + ":" + port
 	log.Printf("[finance-console] http://%s", addr)
-	log.Printf("[finance-console] CONSENSUS_URL=%s", consensusURL)
+	log.Printf("[finance-console] SERVICE_URL=%s", serviceURL)
 	if appInstanceID == "" {
 		log.Printf("[finance-console] APP_INSTANCE_ID=(missing — sign ops will fail)")
 	} else {

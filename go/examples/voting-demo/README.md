@@ -47,7 +47,7 @@ go mod tidy
 ```bash
 APP_INSTANCE_ID="f5a8f44238cd6112b9f02f7f63a12533" \
 PORT="8081" \
-CONSENSUS_URL="http://localhost:8089" \
+SERVICE_URL="http://localhost:8089" \
 go run .
 ```
 
@@ -55,7 +55,7 @@ go run .
 ```bash
 APP_INSTANCE_ID="3d8eabdab6bb5a4df0472e52afc46985" \
 PORT="8082" \
-CONSENSUS_URL="http://localhost:8089" \
+SERVICE_URL="http://localhost:8089" \
 go run .
 ```
 
@@ -63,7 +63,7 @@ go run .
 ```bash
 APP_INSTANCE_ID="6c09bbe17bc38a86b22d348f89f4e0b8" \
 PORT="8083" \
-CONSENSUS_URL="http://localhost:8089" \
+SERVICE_URL="http://localhost:8089" \
 go run .
 ```
 
@@ -88,7 +88,7 @@ go run .
 
 ### Required
 - `APP_INSTANCE_ID`: Unique identifier for this app instance
-- `CONSENSUS_URL`: URL of the consensus server
+- `SERVICE_URL`: URL of the consensus server
 
 ### Optional
 - `PORT`: HTTP server port (default: 8080)
@@ -114,7 +114,7 @@ Get current instance configuration
 ```json
 {
   "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533",
-  "consensus_url": "http://localhost:8089"
+  "service_url": "http://localhost:8089"
 }
 ```
 
@@ -276,7 +276,7 @@ voting-demo/
 ### Issue: "Connection refused" or timeout
 **Solution**:
 - Ensure consensus server is running
-- Check `CONSENSUS_URL` is correct
+- Check `SERVICE_URL` is correct
 - Verify network connectivity
 
 ### Issue: Vote submitted but no signature

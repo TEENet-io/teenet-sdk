@@ -75,12 +75,12 @@ function makeClient(baseURL, opts = {}) {
 
 test('constructor strips trailing slash from URL', () => {
   const c = new Client('http://example.com/');
-  assert.equal(c.getConsensusURL(), 'http://example.com');
+  assert.equal(c.getServiceURL(), 'http://example.com');
 });
 
 test('constructor with no trailing slash leaves URL unchanged', () => {
   const c = new Client('http://example.com');
-  assert.equal(c.getConsensusURL(), 'http://example.com');
+  assert.equal(c.getServiceURL(), 'http://example.com');
 });
 
 test('constructor defaults requestTimeout to 30000', () => {

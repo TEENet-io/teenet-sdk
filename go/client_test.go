@@ -21,8 +21,8 @@ func TestNewClient(t *testing.T) {
 	if client == nil {
 		t.Fatal("Expected non-nil client")
 	}
-	if client.GetConsensusURL() != "http://localhost:8080" {
-		t.Errorf("Expected consensusURL 'http://localhost:8080', got '%s'", client.GetConsensusURL())
+	if client.GetServiceURL() != "http://localhost:8080" {
+		t.Errorf("Expected serviceURL 'http://localhost:8080', got '%s'", client.GetServiceURL())
 	}
 	defer client.Close()
 }
@@ -484,7 +484,7 @@ func TestCheckInit_NilClient(t *testing.T) {
 	c.SetDefaultAppInstanceID("test")
 	c.InvalidateKeyCache()
 	_ = c.GetDefaultAppInstanceID()
-	_ = c.GetConsensusURL()
+	_ = c.GetServiceURL()
 	_ = c.GetRequestTimeout()
 	_ = c.GetPendingWaitTimeout()
 

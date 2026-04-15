@@ -18,18 +18,18 @@ import (
 // Sign generates a cryptographic signature for a message using TEENet consensus.
 //
 // This method automatically handles both direct signing and M-of-N threshold voting
-// scenarios based on how the APP_INSTANCE_ID is configured in the consensus service:
+// scenarios based on how the APP_INSTANCE_ID is configured in the TEENet service:
 //
 //   - Direct Signing: If the app is configured for single-key signing, the signature
-//     is returned immediately after the consensus service processes it.
+//     is returned immediately after the TEENet service processes it.
 //
 //   - Threshold Voting: If the app requires M-of-N approval, this method waits up to
 //     ClientOptions.PendingWaitTimeout (default 10s) for threshold completion by polling
-//     voting status from the consensus service.
+//     voting status from the TEENet service.
 //
 // The method performs these steps:
 //  1. Computes SHA256 hash of the message for tracking
-//  2. Submits the signing request to the consensus service
+//  2. Submits the signing request to the TEENet service
 //  3. For voting requests, polls status until signed/failed/timeout
 //  4. Returns final signature or error
 //
@@ -50,7 +50,7 @@ import (
 //
 // Error Conditions:
 //   - APP_INSTANCE_ID not set
-//   - Network errors communicating with consensus service
+//   - Network errors communicating with TEENet service
 //   - Insufficient votes received
 //
 // Example (Direct Signing):

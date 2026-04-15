@@ -21,7 +21,7 @@ The SDK provides two key generation functions:
 
 ## Prerequisites
 
-1. TEENet consensus service running (default: `http://localhost:8089`)
+1. TEENet TEENet service running (default: `http://localhost:8089`)
 2. Valid `APP_INSTANCE_ID` environment variable set
 
 ## Usage
@@ -31,7 +31,7 @@ The SDK provides two key generation functions:
 export APP_INSTANCE_ID="your-app-instance-id"
 
 # Optional: set consensus URL
-export CONSENSUS_URL="http://localhost:8089"
+export SERVICE_URL="http://localhost:8089"
 
 # Run the example
 go run main.go
@@ -41,7 +41,7 @@ go run main.go
 
 ```
 === TEENet Key Generation Example ===
-Consensus URL: http://localhost:8089
+Service URL: http://localhost:8089
 App Instance ID: abc123
 
 Generating Schnorr key (secp256k1)...

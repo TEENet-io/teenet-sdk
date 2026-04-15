@@ -37,9 +37,9 @@ func main() {
 		log.Fatal("PUBLIC_KEY_NAME environment variable is required")
 	}
 
-	consensusURL := os.Getenv("CONSENSUS_URL")
-	if consensusURL == "" {
-		consensusURL = "http://localhost:8089" // Default for local development
+	serviceURL := os.Getenv("SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "http://localhost:8089" // Default for local development
 	}
 	message := []byte("Voting test message at " + time.Now().Format("15:04:05"))
 
@@ -56,7 +56,7 @@ func main() {
 
 			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum, voterAppID[:8])
 
-			client := sdk.NewClient(consensusURL)
+			client := sdk.NewClient(serviceURL)
 			client.SetDefaultAppInstanceID(voterAppID) // Each voter uses their own app_id
 
 			result, err := client.Sign(context.Background(), message, publicKeyName)

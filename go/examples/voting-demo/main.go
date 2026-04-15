@@ -23,7 +23,7 @@ import (
 var (
 	sdkClient    *sdk.Client
 	appID        string
-	consensusURL string
+	serviceURL string
 )
 
 func getPrimaryKeyName(ctx context.Context) (string, error) {
@@ -65,9 +65,9 @@ func main() {
 		log.Fatal("❌ APP_INSTANCE_ID environment variable is required")
 	}
 
-	consensusURL = os.Getenv("CONSENSUS_URL")
-	if consensusURL == "" {
-		consensusURL = "http://localhost:8089" // Default
+	serviceURL = os.Getenv("SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "http://localhost:8089" // Default
 	}
 
 	port := os.Getenv("PORT")
@@ -76,12 +76,12 @@ func main() {
 	}
 
 	// Initialize SDK client for this app instance
-	sdkClient = sdk.NewClient(consensusURL)
+	sdkClient = sdk.NewClient(serviceURL)
 	sdkClient.SetDefaultAppInstanceID(appID)
 
 	log.Printf("🗳️  Voting Demo App Starting...")
 	log.Printf("📋 App ID: %s", appID)
-	log.Printf("🔗 Consensus URL: %s", consensusURL)
+	log.Printf("🔗 Service URL: %s", serviceURL)
 	log.Printf("🌐 Port: %s", port)
 
 	// Setup Gin router
@@ -136,7 +136,7 @@ func handleHealth(c *gin.Context) {
 func handleConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, ConfigResponse{
 		AppInstanceID: appID,
-		ConsensusURL:  consensusURL,
+		ServiceURL:  serviceURL,
 	})
 }
 

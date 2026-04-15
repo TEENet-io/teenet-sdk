@@ -1,6 +1,6 @@
 # TypeScript SDK Example
 
-This example exercises the TypeScript SDK against a running consensus service or mock server.
+This example exercises the TypeScript SDK against a running TEENet service or mock server.
 
 ## Run
 

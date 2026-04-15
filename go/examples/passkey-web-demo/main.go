@@ -30,7 +30,7 @@ type sessionState struct {
 }
 
 type server struct {
-	consensusURL   string
+	serviceURL   string
 	appInstanceID  string
 	frontendDir    string
 	bootstrapToken string
@@ -56,9 +56,9 @@ type voteStatusResponse struct {
 var demoSessionPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{12,128}$`)
 
 func main() {
-	consensusURL := strings.TrimSpace(os.Getenv("CONSENSUS_URL"))
-	if consensusURL == "" {
-		consensusURL = "http://127.0.0.1:8089"
+	serviceURL := strings.TrimSpace(os.Getenv("SERVICE_URL"))
+	if serviceURL == "" {
+		serviceURL = "http://127.0.0.1:8089"
 	}
 	appInstanceID := strings.TrimSpace(os.Getenv("APP_INSTANCE_ID"))
 	host := strings.TrimSpace(os.Getenv("DEMO_HOST"))
@@ -72,11 +72,11 @@ func main() {
 	bootstrapToken := strings.TrimSpace(os.Getenv("APPROVAL_TOKEN"))
 
 	s := &server{
-		consensusURL:   consensusURL,
+		serviceURL:   serviceURL,
 		appInstanceID:  appInstanceID,
 		bootstrapToken: bootstrapToken,
 		frontendDir:    detectFrontendDir(),
-		sdkClient:      sdk.NewClient(consensusURL),
+		sdkClient:      sdk.NewClient(serviceURL),
 		sessions:       make(map[string]*sessionState),
 	}
 	if appInstanceID != "" {
@@ -89,7 +89,7 @@ func main() {
 
 	addr := host + ":" + port
 	log.Printf("[go-passkey-web-demo] http://%s", addr)
-	log.Printf("[go-passkey-web-demo] CONSENSUS_URL=%s", consensusURL)
+	log.Printf("[go-passkey-web-demo] SERVICE_URL=%s", serviceURL)
 	if appInstanceID == "" {
 		log.Printf("[go-passkey-web-demo] APP_INSTANCE_ID=(missing)")
 	} else {
@@ -318,7 +318,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "tx_id is required"})
 				return
 			}
-			byTx, err := getRequestByTxFromConsensus(s.consensusURL, token, txID)
+			byTx, err := getRequestByTxFromConsensus(s.serviceURL, token, txID)
 			if err != nil {
 				writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 				return
@@ -391,7 +391,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "not logged in for this browser session"})
 			return
 		}
-		mine, err := getMyRequestsFromConsensus(s.consensusURL, token)
+		mine, err := getMyRequestsFromConsensus(s.serviceURL, token)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 			return
@@ -685,8 +685,8 @@ func randomSessionID() string {
 	return hex.EncodeToString(buf)
 }
 
-func getMyRequestsFromConsensus(consensusURL, token string) ([]map[string]interface{}, error) {
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(consensusURL, "/")+"/api/requests/mine", nil)
+func getMyRequestsFromConsensus(serviceURL, token string) ([]map[string]interface{}, error) {
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(serviceURL, "/")+"/api/requests/mine", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -726,8 +726,8 @@ func getMyRequestsFromConsensus(consensusURL, token string) ([]map[string]interf
 	return []map[string]interface{}{}, nil
 }
 
-func getRequestByTxFromConsensus(consensusURL, token, txID string) (map[string]interface{}, error) {
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(consensusURL, "/")+"/api/signature/by-tx/"+url.PathEscape(strings.TrimSpace(txID)), nil)
+func getRequestByTxFromConsensus(serviceURL, token, txID string) (map[string]interface{}, error) {
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(serviceURL, "/")+"/api/signature/by-tx/"+url.PathEscape(strings.TrimSpace(txID)), nil)
 	if err != nil {
 		return nil, err
 	}

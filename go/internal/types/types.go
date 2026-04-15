@@ -18,7 +18,7 @@ var ErrApprovalPending = errors.New("approval pending: human approval required")
 //
 // These options allow customization of timeout behaviors.
 type ClientOptions struct {
-	// RequestTimeout specifies the timeout for HTTP requests to the consensus service.
+	// RequestTimeout specifies the timeout for HTTP requests to the TEENet service.
 	// Default is 30 seconds if not specified.
 	RequestTimeout time.Duration
 

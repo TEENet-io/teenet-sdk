@@ -134,7 +134,7 @@ Notes:
 #### Constructor
 
 ```typescript
-new Client(consensusURL: string, options?: ClientOptions)
+new Client(serviceURL: string, options?: ClientOptions)
 ```
 
 Options:

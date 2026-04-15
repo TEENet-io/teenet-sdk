@@ -11,12 +11,12 @@ import { randomUUID } from 'node:crypto';
 
 const host = process.env.DEMO_HOST || '127.0.0.1';
 const port = Number(process.env.DEMO_PORT || '18090');
-const consensusURL = process.env.CONSENSUS_URL || 'http://127.0.0.1:8089';
+const serviceURL = process.env.SERVICE_URL || 'http://127.0.0.1:8089';
 const appInstanceIDFromEnv = (process.env.APP_INSTANCE_ID || '').trim();
 const sessionCookieName = 'demo_sid';
 
 // Reuse one SDK instance and serialize operations to avoid approval token cross-talk.
-const sharedSDK = new Client(consensusURL);
+const sharedSDK = new Client(serviceURL);
 let sdkOpQueue: Promise<void> = Promise.resolve();
 
 interface SessionState {
@@ -128,7 +128,7 @@ async function withSDK<T>(fn: (sdk: Client) => Promise<T>): Promise<T> {
 }
 
 async function getMyRequestsFromConsensus(approvalToken: string): Promise<Record<string, unknown>> {
-  const response = await fetch(`${consensusURL}/api/requests/mine`, {
+  const response = await fetch(`${serviceURL}/api/requests/mine`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ async function getMyRequestsFromConsensus(approvalToken: string): Promise<Record
 }
 
 async function getRequestByTxFromConsensus(approvalToken: string, txID: string): Promise<Record<string, unknown>> {
-  const response = await fetch(`${consensusURL}/api/signature/by-tx/${encodeURIComponent(txID)}`, {
+  const response = await fetch(`${serviceURL}/api/signature/by-tx/${encodeURIComponent(txID)}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -510,7 +510,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   console.log(`[passkey-web-demo] http://${host}:${port}`);
-  console.log(`[passkey-web-demo] CONSENSUS_URL=${consensusURL}`);
+  console.log(`[passkey-web-demo] SERVICE_URL=${serviceURL}`);
   console.log(`[passkey-web-demo] APP_INSTANCE_ID=${appInstanceIDFromEnv || '(missing)'}`);
 });
 

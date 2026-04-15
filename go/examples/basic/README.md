@@ -9,7 +9,7 @@ This directory contains basic command-line examples demonstrating core features 
 Demonstrates basic signing and verification operations.
 
 **Features:**
-- Connect to consensus service
+- Connect to TEENet service
 - Retrieve public key information
 - Sign a message
 - Verify the signature
@@ -18,7 +18,7 @@ Demonstrates basic signing and verification operations.
 ```bash
 cd simple
 export APP_INSTANCE_ID="your-app-instance-id"
-export CONSENSUS_URL="http://localhost:8089"  # optional
+export SERVICE_URL="http://localhost:8089"  # optional
 go run main.go
 ```
 
@@ -71,13 +71,13 @@ go build
 ### Simple Example
 
 - `APP_INSTANCE_ID` (required): Your TEENet application instance ID
-- `CONSENSUS_URL` (optional): Consensus service URL (default: http://localhost:8089)
+- `SERVICE_URL` (optional): TEENet service URL (default: http://localhost:8089)
 
 ### Voting Examples
 
 Configuration is hardcoded in the source files. Edit `main.go` to customize:
 - Voter app instance IDs
-- Consensus URLs
+- Service URLs
 - Message content
 
 ## Common Operations

@@ -4,7 +4,7 @@
 
 // Package network provides HTTP communication for TEENet SDK.
 //
-// This internal package handles HTTP requests to the consensus service.
+// This internal package handles HTTP requests to the TEENet service.
 package network
 
 import (

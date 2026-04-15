@@ -19,7 +19,7 @@
 //
 // Basic Usage:
 //
-//	client := sdk.NewClient("http://consensus-url:8089")
+//	client := sdk.NewClient("http://service-url:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 //
@@ -75,7 +75,7 @@ func (c *Client) checkInit() error {
 // SetDefaultAppInstanceID() to set it explicitly.
 //
 // Parameters:
-//   - consensusURL: Base URL of the consensus service (e.g., "http://localhost:8089")
+//   - serviceURL: Base URL of the TEENet service (e.g., "http://localhost:8089")
 //
 // Returns:
 //   - A new Client instance
@@ -91,9 +91,9 @@ func (c *Client) checkInit() error {
 //	client := sdk.NewClient("http://localhost:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
-func NewClient(consensusURL string) *Client {
+func NewClient(serviceURL string) *Client {
 	return &Client{
-		impl: client.NewClient(consensusURL),
+		impl: client.NewClient(serviceURL),
 	}
 }
 
@@ -102,7 +102,7 @@ func NewClient(consensusURL string) *Client {
 // Use this when you need to customize timeout values or other client behavior.
 //
 // Parameters:
-//   - consensusURL: Base URL of the consensus service
+//   - serviceURL: Base URL of the TEENet service
 //   - opts: Optional configuration (nil for defaults)
 //
 // Returns:
@@ -115,9 +115,9 @@ func NewClient(consensusURL string) *Client {
 //	    PendingWaitTimeout: 10 * time.Second,
 //	}
 //	client := sdk.NewClientWithOptions("http://localhost:8089", opts)
-func NewClientWithOptions(consensusURL string, opts *ClientOptions) *Client {
+func NewClientWithOptions(serviceURL string, opts *ClientOptions) *Client {
 	return &Client{
-		impl: client.NewClientWithOptions(consensusURL, opts),
+		impl: client.NewClientWithOptions(serviceURL, opts),
 	}
 }
 
@@ -144,7 +144,7 @@ func (c *Client) Init() error {
 
 // SetDefaultAppInstanceID sets the APP_INSTANCE_ID for signing operations.
 //
-// The APP_INSTANCE_ID identifies your application instance to the consensus service
+// The APP_INSTANCE_ID identifies your application instance to the TEENet service
 // and determines which key material is used for signing.
 //
 // When deployed via the App Lifecycle Manager, APP_INSTANCE_ID is automatically
@@ -365,7 +365,7 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
 }
 
 // InvalidateKeyCache clears the in-memory public key cache, forcing the next
-// GetPublicKeys call to fetch fresh data from the consensus service.
+// GetPublicKeys call to fetch fresh data from the TEENet service.
 // Use this after key rotation to ensure stale cached keys are not used.
 func (c *Client) InvalidateKeyCache() {
 	if c == nil || c.impl == nil {
@@ -542,13 +542,13 @@ func (c *Client) DeleteAPIKey(ctx context.Context, keyName string) (*AdminResult
 	return c.impl.DeleteAPIKey(ctx, keyName)
 }
 
-// GetConsensusURL returns the consensus service URL.
+// GetServiceURL returns the TEENet service URL.
 // This method is primarily for testing purposes.
-func (c *Client) GetConsensusURL() string {
+func (c *Client) GetServiceURL() string {
 	if c == nil || c.impl == nil {
 		return ""
 	}
-	return c.impl.GetConsensusURL()
+	return c.impl.GetServiceURL()
 }
 
 // GetRequestTimeout returns the request timeout duration.
@@ -638,9 +638,9 @@ func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*GenerateK
 	return c.impl.GenerateECDSAKey(ctx, curve)
 }
 
-// GetAPIKey retrieves an API key value by name from the consensus service.
+// GetAPIKey retrieves an API key value by name from the TEENet service.
 //
-// This method queries the consensus service to retrieve an API key that was previously
+// This method queries the TEENet service to retrieve an API key that was previously
 // stored in the TEE (Trusted Execution Environment). The API key must have been created
 // with an API key value (not just a secret) for this operation to succeed.
 //

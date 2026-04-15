@@ -12,7 +12,7 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/util"
 )
 
-// GetStatus retrieves voting status for a specific hash from the consensus service.
+// GetStatus retrieves voting status for a specific hash from the TEENet service.
 func (c *Client) GetStatus(ctx context.Context, hash string) (*types.VoteStatus, error) {
 	if hash == "" {
 		return nil, fmt.Errorf("hash is required")

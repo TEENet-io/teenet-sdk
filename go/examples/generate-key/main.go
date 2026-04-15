@@ -28,9 +28,9 @@ import (
 
 func main() {
 	// Get consensus URL from environment or use default
-	consensusURL := os.Getenv("CONSENSUS_URL")
-	if consensusURL == "" {
-		consensusURL = "http://localhost:8089" // Default for local development
+	serviceURL := os.Getenv("SERVICE_URL")
+	if serviceURL == "" {
+		serviceURL = "http://localhost:8089" // Default for local development
 	}
 
 	// Get app ID from environment
@@ -45,7 +45,7 @@ func main() {
 		RequestTimeout:     120 * time.Second, // 2 minutes for key generation
 		PendingWaitTimeout: 15 * time.Second,  // wait for voting completion in sign flow
 	}
-	client := sdk.NewClientWithOptions(consensusURL, opts)
+	client := sdk.NewClientWithOptions(serviceURL, opts)
 	defer client.Close()
 
 	client.SetDefaultAppInstanceID(appID)
@@ -56,7 +56,7 @@ func main() {
 	}
 
 	fmt.Println("=== TEENet Key Generation and Signing Example ===")
-	fmt.Printf("Consensus URL: %s\n", consensusURL)
+	fmt.Printf("Service URL: %s\n", serviceURL)
 	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Generate a Schnorr key with ed25519 curve
