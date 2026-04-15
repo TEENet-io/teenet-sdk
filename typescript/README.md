@@ -35,7 +35,7 @@ if (result.success && result.signature.length > 0) {
 }
 
 // Generate a new key
-const keyResult = await client.generateECDSAKey(Curve.SECP256K1);
+const keyResult = await client.generateKey(Protocol.ECDSA, Curve.SECP256K1);
 console.log('Key ID:', keyResult.publicKey.id);
 
 // Sign with generated key
@@ -163,8 +163,7 @@ Options:
 | `passkeyLoginWithCredential(getCredential)` | Login options + WebAuthn + verify in one SDK call |
 | `verify(message, signature, publicKeyName)` | Verify a signature with bound key name |
 | `getPublicKeys()` | Get all bound public keys for default App Instance ID |
-| `generateECDSAKey(curve)` | Generate ECDSA key |
-| `generateSchnorrKey(curve)` | Generate Schnorr key |
+| `generateKey(protocol, curve)` | Generate a key for any valid (protocol, curve) combination |
 | `getAPIKey(name)` | Get API key by name |
 | `signWithAPISecret(name, message)` | Sign with API secret |
 | `close()` | Close the client |
@@ -173,14 +172,39 @@ Options:
 
 ```typescript
 // Protocols
-Protocol.ECDSA    // 'ecdsa'
-Protocol.Schnorr  // 'schnorr'
+Protocol.ECDSA          // 'ecdsa'
+Protocol.Schnorr        // 'schnorr' — generic Schnorr (escape hatch)
+Protocol.EdDSA          // 'eddsa' — alias; only valid with Curve.ED25519
+Protocol.SchnorrBIP340  // 'schnorr-bip340' — alias; only valid with Curve.SECP256K1
 
 // Curves
 Curve.ED25519     // 'ed25519'
 Curve.SECP256K1   // 'secp256k1'
 Curve.SECP256R1   // 'secp256r1'
 ```
+
+### Key Generation Combinations
+
+Pick the row that matches your target chain:
+
+| Target | protocol | curve |
+|---|---|---|
+| Bitcoin Taproot (P2TR / BIP-340) | `Protocol.SchnorrBIP340` | `Curve.SECP256K1` |
+| Bitcoin Legacy / SegWit v0 | `Protocol.ECDSA` | `Curve.SECP256K1` |
+| Ethereum / EVM chains | `Protocol.ECDSA` | `Curve.SECP256K1` |
+| Solana / Ed25519 ecosystem | `Protocol.EdDSA` | `Curve.ED25519` |
+| WebAuthn / NIST P-256 | `Protocol.ECDSA` | `Curve.SECP256R1` |
+| Generic Schnorr escape hatch | `Protocol.Schnorr` | any supported curve |
+
+```typescript
+const eddsaKey   = await client.generateKey(Protocol.EdDSA,         Curve.ED25519);
+const taprootKey = await client.generateKey(Protocol.SchnorrBIP340, Curve.SECP256K1);
+const ethKey     = await client.generateKey(Protocol.ECDSA,   Curve.SECP256K1);
+```
+
+`Protocol.EdDSA` and `Protocol.SchnorrBIP340` are semantic aliases that route
+to the same FROST/Schnorr backend path but restrict the curve. Misuse (e.g.
+`Protocol.EdDSA + Curve.SECP256K1`) is caught before any network round-trip.
 
 ### Standalone Verification
 

@@ -36,6 +36,9 @@ type (
 	PasskeyUsersResult   = types.PasskeyUsersResult
 	AuditRecord          = types.AuditRecord
 	AuditRecordsResult   = types.AuditRecordsResult
+	DeploymentLogEntry   = types.DeploymentLogEntry
+	DeploymentLogsQuery  = types.DeploymentLogsQuery
+	DeploymentLogsResult = types.DeploymentLogsResult
 	PolicyLevel          = types.PolicyLevel
 	PolicyRequest        = types.PolicyRequest
 	Policy               = types.Policy
@@ -56,6 +59,13 @@ type PasskeyCredentialProvider = types.PasskeyCredentialProvider
 const (
 	ProtocolECDSA   = crypto.ProtocolECDSA
 	ProtocolSchnorr = crypto.ProtocolSchnorr
+	// ProtocolEdDSA is a semantic alias for Schnorr+Ed25519. Use it with
+	// CurveED25519 in GenerateKey when you want RFC 8032 EdDSA naming.
+	ProtocolEdDSA = crypto.ProtocolEdDSA
+	// ProtocolSchnorrBIP340 is a semantic alias for Schnorr+secp256k1 that
+	// matches BIP-340 (Bitcoin Taproot). Use it with CurveSECP256K1 in
+	// GenerateKey when generating keys for Bitcoin Taproot (P2TR) outputs.
+	ProtocolSchnorrBIP340 = crypto.ProtocolSchnorrBIP340
 )
 
 // Curve constants

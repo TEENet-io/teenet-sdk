@@ -456,9 +456,9 @@ test('getStatus() surfaces error_message from entry', async () => {
   }
 });
 
-// ─── generateSchnorrKey() / generateECDSAKey() ────────────────────────────────
+// ─── generateKey() unified entry point ────────────────────────────────────────
 
-test('generateSchnorrKey() sends correct protocol to server', async () => {
+test('generateKey(Schnorr, ed25519) sends correct protocol to server', async () => {
   let capturedBody = null;
   const { server, baseURL } = await startServer(async (req, res) => {
     capturedBody = await readBody(req);
@@ -471,20 +471,18 @@ test('generateSchnorrKey() sends correct protocol to server', async () => {
   const c = makeClient(baseURL);
   c.setDefaultAppInstanceID('app-gen');
   try {
-    const result = await c.generateSchnorrKey('ed25519');
+    const result = await c.generateKey('schnorr', 'ed25519');
     assert.equal(result.success, true);
     assert.equal(capturedBody.protocol, 'schnorr');
     assert.equal(capturedBody.curve, 'ed25519');
     assert.equal(capturedBody.app_instance_id, 'app-gen');
-    assert.equal(result.publicKey.protocol, 'schnorr');
-    assert.equal(result.publicKey.curve, 'ed25519');
   } finally {
     c.close();
     server.close();
   }
 });
 
-test('generateECDSAKey() sends correct protocol to server', async () => {
+test('generateKey(ECDSA, secp256k1) sends correct protocol to server', async () => {
   let capturedBody = null;
   const { server, baseURL } = await startServer(async (req, res) => {
     capturedBody = await readBody(req);
@@ -497,7 +495,7 @@ test('generateECDSAKey() sends correct protocol to server', async () => {
   const c = makeClient(baseURL);
   c.setDefaultAppInstanceID('app-ecdsa');
   try {
-    const result = await c.generateECDSAKey('secp256k1');
+    const result = await c.generateKey('ecdsa', 'secp256k1');
     assert.equal(result.success, true);
     assert.equal(capturedBody.protocol, 'ecdsa');
     assert.equal(capturedBody.curve, 'secp256k1');
@@ -508,7 +506,7 @@ test('generateECDSAKey() sends correct protocol to server', async () => {
   }
 });
 
-test('generateSchnorrKey() maps all public key fields', async () => {
+test('generateKey() maps all public key fields', async () => {
   const { server, baseURL } = await startServer(async (_req, res) => {
     json(res, {
       success: true,
@@ -530,7 +528,7 @@ test('generateSchnorrKey() maps all public key fields', async () => {
   const c = makeClient(baseURL);
   c.setDefaultAppInstanceID('app-gen2');
   try {
-    const result = await c.generateSchnorrKey('secp256k1');
+    const result = await c.generateKey('schnorr', 'secp256k1');
     const pk = result.publicKey;
     assert.equal(pk.id, 7);
     assert.equal(pk.name, 'frost-key');
@@ -546,14 +544,14 @@ test('generateSchnorrKey() maps all public key fields', async () => {
   }
 });
 
-test('generateECDSAKey() returns failure when server returns success:false', async () => {
+test('generateKey() returns failure when server returns success:false', async () => {
   const { server, baseURL } = await startServer(async (_req, res) => {
     json(res, { success: false, message: 'DKG failed' });
   });
   const c = makeClient(baseURL);
   c.setDefaultAppInstanceID('app-fail');
   try {
-    const result = await c.generateECDSAKey('secp256r1');
+    const result = await c.generateKey('ecdsa', 'secp256r1');
     assert.equal(result.success, false);
     assert.equal(result.message, 'DKG failed');
   } finally {
@@ -562,11 +560,86 @@ test('generateECDSAKey() returns failure when server returns success:false', asy
   }
 });
 
-test('generateECDSAKey() throws when no App ID is set', async () => {
+test('generateKey(ECDSA) throws when no App ID is set', async () => {
   const c = makeClient('http://127.0.0.1:1');
   await assert.rejects(
-    () => c.generateECDSAKey('secp256k1'),
+    () => c.generateKey('ecdsa', 'secp256k1'),
     /App ID not set/
+  );
+});
+
+test('generateKey(EdDSA, ed25519) routes to schnorr backend path', async () => {
+  let capturedBody = null;
+  const { server, baseURL } = await startServer(async (req, res) => {
+    capturedBody = await readBody(req);
+    json(res, {
+      success: true,
+      message: 'ok',
+      public_key: apiKey({ protocol: 'schnorr', curve: 'ed25519' }),
+    });
+  });
+  const c = makeClient(baseURL);
+  c.setDefaultAppInstanceID('app-eddsa');
+  try {
+    const result = await c.generateKey('eddsa', 'ed25519');
+    assert.equal(result.success, true);
+    // EdDSA is a semantic alias — backend must still receive "schnorr".
+    assert.equal(capturedBody.protocol, 'schnorr');
+    assert.equal(capturedBody.curve, 'ed25519');
+  } finally {
+    c.close();
+    server.close();
+  }
+});
+
+test('generateKey(EdDSA, secp256k1) rejects before any network call', async () => {
+  const c = makeClient('http://127.0.0.1:1');
+  c.setDefaultAppInstanceID('app-x');
+  await assert.rejects(
+    () => c.generateKey('eddsa', 'secp256k1'),
+    /EdDSA.*only.*ed25519/
+  );
+});
+
+test('generateKey(SchnorrBIP340, secp256k1) routes to schnorr backend path', async () => {
+  let capturedBody = null;
+  const { server, baseURL } = await startServer(async (req, res) => {
+    capturedBody = await readBody(req);
+    json(res, {
+      success: true,
+      message: 'ok',
+      public_key: apiKey({ protocol: 'schnorr', curve: 'secp256k1' }),
+    });
+  });
+  const c = makeClient(baseURL);
+  c.setDefaultAppInstanceID('app-taproot');
+  try {
+    const result = await c.generateKey('schnorr-bip340', 'secp256k1');
+    assert.equal(result.success, true);
+    // SchnorrBIP340 is a semantic alias — backend still receives "schnorr".
+    assert.equal(capturedBody.protocol, 'schnorr');
+    assert.equal(capturedBody.curve, 'secp256k1');
+  } finally {
+    c.close();
+    server.close();
+  }
+});
+
+test('generateKey(SchnorrBIP340, ed25519) rejects before any network call', async () => {
+  const c = makeClient('http://127.0.0.1:1');
+  c.setDefaultAppInstanceID('app-x');
+  await assert.rejects(
+    () => c.generateKey('schnorr-bip340', 'ed25519'),
+    /SchnorrBIP340.*only.*secp256k1/
+  );
+});
+
+test('generateKey() rejects unsupported protocol', async () => {
+  const c = makeClient('http://127.0.0.1:1');
+  c.setDefaultAppInstanceID('app-x');
+  await assert.rejects(
+    () => c.generateKey('rsa', 'secp256k1'),
+    /invalid protocol/
   );
 });
 

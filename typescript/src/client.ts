@@ -15,6 +15,7 @@ import {
   APISignResult,
   BoundPublicKeyInfo,
   Protocol,
+  Curve,
   PublicKeyInfo,
   ErrorCode,
   ErrorCodeType,
@@ -562,29 +563,77 @@ export class Client {
   }
 
   /**
-   * Generate a new Schnorr key
-   * @param curve - The elliptic curve to use
-   * @returns The generated key information
+   * Generate a key for a given (protocol, curve) combination.
+   *
+   * This is the sole key-generation entry point. Pick the row that matches
+   * your target chain or use case:
+   *
+   *   Protocol.EdDSA         + Curve.ED25519   → EdDSA (Ed25519) — Solana, SSH
+   *   Protocol.SchnorrBIP340 + Curve.SECP256K1 → BIP-340 Schnorr — Bitcoin Taproot
+   *   Protocol.ECDSA         + Curve.SECP256K1 → ECDSA/secp256k1 — Bitcoin legacy, Ethereum
+   *   Protocol.ECDSA         + Curve.SECP256R1 → ECDSA/P-256 — WebAuthn, TLS
+   *   Protocol.Schnorr       + any curve       → generic Schnorr escape hatch
+   *
+   * Protocol.EdDSA only accepts Curve.ED25519. Protocol.SchnorrBIP340 only
+   * accepts Curve.SECP256K1. Both route to the same Schnorr backend path.
+   *
+   * @example
+   * // Bitcoin Taproot
+   * await client.generateKey(Protocol.SchnorrBIP340, Curve.SECP256K1);
+   * // Solana / Ed25519
+   * await client.generateKey(Protocol.EdDSA, Curve.ED25519);
    */
-  async generateSchnorrKey(curve: string): Promise<GenerateKeyResult> {
-    return this.generateKey(Protocol.Schnorr, curve);
+  async generateKey(protocol: string, curve: string): Promise<GenerateKeyResult> {
+    // Resolve protocol to the backend identifier. EdDSA and SchnorrBIP340
+    // are semantic aliases for Schnorr restricted to a specific curve — the
+    // backend path is the same in both cases.
+    let backendProtocol: string;
+    switch (protocol) {
+      case Protocol.EdDSA:
+        if (curve !== Curve.ED25519) {
+          throw new Error(
+            `invalid curve '${curve}' for EdDSA protocol, only ${Curve.ED25519} is supported`
+          );
+        }
+        backendProtocol = Protocol.Schnorr;
+        break;
+      case Protocol.SchnorrBIP340:
+        if (curve !== Curve.SECP256K1) {
+          throw new Error(
+            `invalid curve '${curve}' for SchnorrBIP340 protocol, only ${Curve.SECP256K1} is supported`
+          );
+        }
+        backendProtocol = Protocol.Schnorr;
+        break;
+      case Protocol.Schnorr:
+        if (curve !== Curve.ED25519 && curve !== Curve.SECP256K1 && curve !== Curve.SECP256R1) {
+          throw new Error(
+            `invalid curve '${curve}' for Schnorr protocol, supported: ${Curve.ED25519}, ${Curve.SECP256K1}, ${Curve.SECP256R1}`
+          );
+        }
+        backendProtocol = Protocol.Schnorr;
+        break;
+      case Protocol.ECDSA:
+        if (curve !== Curve.SECP256K1 && curve !== Curve.SECP256R1) {
+          throw new Error(
+            `invalid curve '${curve}' for ECDSA protocol, supported: ${Curve.SECP256K1}, ${Curve.SECP256R1}`
+          );
+        }
+        backendProtocol = Protocol.ECDSA;
+        break;
+      default:
+        throw new Error(
+          `invalid protocol '${protocol}', supported: ${Protocol.EdDSA}, ${Protocol.SchnorrBIP340}, ${Protocol.Schnorr}, ${Protocol.ECDSA}`
+        );
+    }
+    return this.postGenerateKey(backendProtocol, curve);
   }
 
   /**
-   * Generate a new ECDSA key
-   * @param curve - The elliptic curve to use
-   * @returns The generated key information
+   * Low-level POST to /api/generate-key. Used internally by the protocol-
+   * specific wrappers and by generateKey().
    */
-  async generateECDSAKey(curve: string): Promise<GenerateKeyResult> {
-    return this.generateKey(Protocol.ECDSA, curve);
-  }
-
-  /**
-   * Generate a new cryptographic key
-   * @param protocol - The signature protocol
-   * @param curve - The elliptic curve
-   */
-  private async generateKey(protocol: string, curve: string): Promise<GenerateKeyResult> {
+  private async postGenerateKey(protocol: string, curve: string): Promise<GenerateKeyResult> {
     if (!this.defaultAppInstanceID) {
       throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
     }

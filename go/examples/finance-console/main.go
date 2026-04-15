@@ -1545,12 +1545,11 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		var res *sdk.GenerateKeyResult
 		callErr := withClient("", func(client *sdk.Client, _ string) error {
 			client.SetDefaultAppInstanceID(s.appInstanceID)
-			var err error
-			if protocol == "ecdsa" {
-				res, err = client.GenerateECDSAKey(r.Context(), curve)
-			} else {
-				res, err = client.GenerateSchnorrKey(r.Context(), curve)
+			if protocol == "" {
+				protocol = "schnorr"
 			}
+			var err error
+			res, err = client.GenerateKey(r.Context(), protocol, curve)
 			return err
 		})
 		if callErr != nil {

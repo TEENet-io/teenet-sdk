@@ -231,27 +231,20 @@ func TestClientOptions_NilOptions(t *testing.T) {
 	}
 }
 
-// TestGenerateSchnorrKey_NoAppID tests GenerateSchnorrKey without APP_INSTANCE_ID
-func TestGenerateSchnorrKey_NoAppID(t *testing.T) {
+// TestGenerateKey_NoAppID tests GenerateKey without APP_INSTANCE_ID
+func TestGenerateKey_NoAppID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	_, err := client.GenerateSchnorrKey(ctx, CurveSECP256K1)
+	_, err := client.GenerateKey(ctx, ProtocolSchnorr, CurveSECP256K1)
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App ID set (Schnorr)")
 	}
-}
 
-// TestGenerateECDSAKey_NoAppID tests GenerateECDSAKey without APP_INSTANCE_ID
-func TestGenerateECDSAKey_NoAppID(t *testing.T) {
-	ctx := context.Background()
-	client := NewClient("http://localhost:8080")
-	defer client.Close()
-
-	_, err := client.GenerateECDSAKey(ctx, CurveSECP256K1)
+	_, err = client.GenerateKey(ctx, ProtocolECDSA, CurveSECP256K1)
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App ID set (ECDSA)")
 	}
 }
 
@@ -460,14 +453,9 @@ func TestCheckInit_NilClient(t *testing.T) {
 		t.Error("GetStatus on nil client should return error")
 	}
 
-	_, err = c.GenerateSchnorrKey(context.Background(), "ed25519")
+	_, err = c.GenerateKey(context.Background(), ProtocolEdDSA, CurveED25519)
 	if err == nil {
-		t.Error("GenerateSchnorrKey on nil client should return error")
-	}
-
-	_, err = c.GenerateECDSAKey(context.Background(), "secp256k1")
-	if err == nil {
-		t.Error("GenerateECDSAKey on nil client should return error")
+		t.Error("GenerateKey on nil client should return error")
 	}
 
 	_, err = c.GetAPIKey(context.Background(), "key")

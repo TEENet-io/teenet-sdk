@@ -200,11 +200,7 @@ func testKeyGeneration(serverURL string) error {
 		var result *sdk.GenerateKeyResult
 		var err error
 
-		if kc.protocol == "ecdsa" {
-			result, err = client.GenerateECDSAKey(context.Background(), kc.curve)
-		} else {
-			result, err = client.GenerateSchnorrKey(context.Background(), kc.curve)
-		}
+		result, err = client.GenerateKey(context.Background(), kc.protocol, kc.curve)
 
 		if err != nil {
 			return fmt.Errorf("failed to generate %s key: %v", kc.name, err)

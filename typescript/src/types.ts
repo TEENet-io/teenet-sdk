@@ -8,6 +8,18 @@
 export const Protocol = {
   ECDSA: 'ecdsa',
   Schnorr: 'schnorr',
+  /**
+   * Semantic alias for Schnorr+Ed25519. Use this with Curve.ED25519 in
+   * generateKey() when you want RFC 8032 EdDSA naming. Rejected with any
+   * other curve.
+   */
+  EdDSA: 'eddsa',
+  /**
+   * Semantic alias for Schnorr+secp256k1 matching BIP-340 (Bitcoin Taproot).
+   * Use this with Curve.SECP256K1 in generateKey() when generating keys for
+   * Bitcoin Taproot (P2TR) outputs. Rejected with any other curve.
+   */
+  SchnorrBIP340: 'schnorr-bip340',
 } as const;
 
 export type ProtocolType = (typeof Protocol)[keyof typeof Protocol];

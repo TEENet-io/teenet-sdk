@@ -188,6 +188,67 @@ func TestClientListAuditRecords_Success(t *testing.T) {
 	}
 }
 
+// ─── GetDeploymentLogs ────────────────────────────────────────────────────────
+
+func TestClientGetDeploymentLogs_Success(t *testing.T) {
+	ctx := context.Background()
+	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/admin/deployment-logs" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("level") != "error" {
+			t.Fatalf("expected level=error, got %s", q.Get("level"))
+		}
+		if q.Get("keyword") != "panic" {
+			t.Fatalf("expected keyword=panic, got %s", q.Get("keyword"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"logs":[{"time":42,"content":{"msg":"x"}}],"log_count":1,"start_time":1,"end_time":100,"level":"error","keyword":"panic"}`))
+	})
+	defer close()
+
+	res, err := c.GetDeploymentLogs(ctx, types.DeploymentLogsQuery{
+		Level:   "error",
+		Keyword: "panic",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got error: %s", res.Error)
+	}
+	if res.LogCount != 1 || len(res.Logs) != 1 {
+		t.Fatalf("expected 1 log, got count=%d len=%d", res.LogCount, len(res.Logs))
+	}
+	if res.Logs[0].Time != 42 || res.Logs[0].Content["msg"] != "x" {
+		t.Fatalf("unexpected log entry: %+v", res.Logs[0])
+	}
+	if res.Level != "error" || res.Keyword != "panic" {
+		t.Fatalf("unexpected echoed filters: %+v", res)
+	}
+}
+
+func TestClientGetDeploymentLogs_UpstreamError(t *testing.T) {
+	ctx := context.Background()
+	c, close := newAdminClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"success":false,"error":"sls timeout"}`))
+	})
+	defer close()
+
+	res, err := c.GetDeploymentLogs(ctx, types.DeploymentLogsQuery{})
+	if err != nil {
+		t.Fatalf("expected nil error for non-2xx (matching sibling list methods), got: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected success=false")
+	}
+	if res.Error != "sls timeout" {
+		t.Fatalf("expected error to be propagated from body, got: %q", res.Error)
+	}
+}
+
 // ─── UpsertPermissionPolicy ───────────────────────────────────────────────────
 
 func TestClientUpsertPermissionPolicy_Success(t *testing.T) {

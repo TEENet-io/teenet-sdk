@@ -25,6 +25,17 @@ import (
 const (
 	ProtocolECDSA   = "ecdsa"
 	ProtocolSchnorr = "schnorr"
+	// ProtocolEdDSA is a semantic alias for Schnorr restricted to Ed25519.
+	// It exists so developers familiar with EdDSA (RFC 8032) can discover the
+	// right API without knowing FROST/Schnorr. GenerateKey accepts it and
+	// routes to the Schnorr backend path; only CurveED25519 is valid with it.
+	ProtocolEdDSA = "eddsa"
+	// ProtocolSchnorrBIP340 is a semantic alias for Schnorr restricted to
+	// secp256k1, matching the BIP-340 spec used by Bitcoin Taproot (P2TR).
+	// Developers aiming at Bitcoin Taproot should use this; GenerateKey
+	// routes it to the same Schnorr backend path, and only CurveSECP256K1
+	// is valid with it.
+	ProtocolSchnorrBIP340 = "schnorr-bip340"
 )
 
 // Curve constants

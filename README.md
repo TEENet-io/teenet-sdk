@@ -104,7 +104,7 @@ The mock listens on `:8089` and ships with ready-to-use app instances for every 
 | Category | Methods |
 |----------|---------|
 | **Signing** | `Sign`, `Verify`, `GetStatus` |
-| **Key management** | `GenerateECDSAKey`, `GenerateSchnorrKey`, `GetPublicKeys` |
+| **Key management** | `GenerateKey`, `GetPublicKeys` |
 | **API keys** | `GetAPIKey`, `SignWithAPISecret` |
 | **Passkey approval** | `PasskeyLoginWithCredential`, `ApprovalRequestInit`, `ApprovalRequestConfirm`, `ApprovalAction` |
 | **Admin** | `InvitePasskeyUser`, `UpsertPermissionPolicy`, `CreateAPIKey`, … |
@@ -115,10 +115,27 @@ Both SDKs expose the same surface — Go uses `PascalCase`, TypeScript uses `cam
 
 | Protocol | Curve | Use Case |
 |----------|-------|----------|
-| Schnorr (FROST) | ED25519 | EdDSA |
+| Schnorr (FROST) | ED25519 | EdDSA (also accessible via `ProtocolEdDSA`) |
 | Schnorr (FROST) | SECP256K1 | BIP-340 / Bitcoin Taproot |
 | ECDSA (GG20) | SECP256K1 | Bitcoin, Ethereum |
 | ECDSA (GG20) | SECP256R1 | NIST P-256, WebAuthn |
+
+### Picking a combo by target chain
+
+Use `GenerateKey(protocol, curve)` with the row that matches your chain:
+
+| Target | protocol | curve |
+|---|---|---|
+| Bitcoin Taproot (P2TR / BIP-340) | `ProtocolSchnorrBIP340` | `CurveSECP256K1` |
+| Bitcoin Legacy / SegWit v0 | `ProtocolECDSA` | `CurveSECP256K1` |
+| Ethereum / EVM chains | `ProtocolECDSA` | `CurveSECP256K1` |
+| Solana / Ed25519 ecosystem | `ProtocolEdDSA` | `CurveED25519` |
+| WebAuthn / NIST P-256 | `ProtocolECDSA` | `CurveSECP256R1` |
+| Generic Schnorr escape hatch | `ProtocolSchnorr` | any supported curve |
+
+`ProtocolEdDSA` and `ProtocolSchnorrBIP340` are semantic aliases that route to
+the same FROST/Schnorr backend path but restrict the curve, making intent
+obvious at the call site (and catching misuse before any network round-trip).
 
 ## Examples
 

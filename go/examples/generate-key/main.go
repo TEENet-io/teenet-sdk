@@ -59,9 +59,9 @@ func main() {
 	fmt.Printf("Service URL: %s\n", serviceURL)
 	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
-	// Example 1: Generate a Schnorr key with ed25519 curve
-	fmt.Println("\n📝 Generating Schnorr key (ed25519)...")
-	schnorrResult, err := client.GenerateSchnorrKey(context.Background(), sdk.CurveED25519)
+	// Example 1: Generate an EdDSA key (Ed25519) — Solana / SSH
+	fmt.Println("\n📝 Generating EdDSA key (ed25519)...")
+	schnorrResult, err := client.GenerateKey(context.Background(), sdk.ProtocolEdDSA, sdk.CurveED25519)
 	if err != nil {
 		log.Fatal("Failed to generate ed25519 key:", err)
 	}
@@ -70,12 +70,12 @@ func main() {
 		log.Fatal("ed25519 key generation failed:", schnorrResult.Message)
 	}
 
-	fmt.Println("✅ Schnorr key generated successfully!")
+	fmt.Println("✅ EdDSA key generated successfully!")
 	printKeyInfo(schnorrResult.PublicKey)
 
-	// Example 2: Generate an ECDSA key with secp256k1 curve
+	// Example 2: Generate an ECDSA key with secp256k1 curve (Ethereum / BTC legacy)
 	fmt.Println("\n📝 Generating ECDSA key (secp256k1)...")
-	ecdsaResult, err := client.GenerateECDSAKey(context.Background(), sdk.CurveSECP256K1)
+	ecdsaResult, err := client.GenerateKey(context.Background(), sdk.ProtocolECDSA, sdk.CurveSECP256K1)
 	if err != nil {
 		log.Fatal("Failed to generate ECDSA key:", err)
 	}

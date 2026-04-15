@@ -183,22 +183,42 @@ keys, err := client.GetPublicKeys(ctx)
 
 ### Key Generation
 
-```go
-// Generate ECDSA key
-result, err := client.GenerateECDSAKey(ctx, "secp256k1")  // or "secp256r1"
+`GenerateKey(ctx, protocol, curve)` is the sole key-generation entry point.
+Pick the row from the table below that matches your target chain:
 
-// Generate Schnorr key
-result, err := client.GenerateSchnorrKey(ctx, "ed25519")  // or "secp256k1", "secp256r1"
+| Target | protocol | curve |
+|---|---|---|
+| Bitcoin Taproot (P2TR / BIP-340) | `sdk.ProtocolSchnorrBIP340` | `sdk.CurveSECP256K1` |
+| Bitcoin Legacy / SegWit v0 | `sdk.ProtocolECDSA` | `sdk.CurveSECP256K1` |
+| Ethereum / EVM chains | `sdk.ProtocolECDSA` | `sdk.CurveSECP256K1` |
+| Solana / Ed25519 ecosystem | `sdk.ProtocolEdDSA` | `sdk.CurveED25519` |
+| WebAuthn / NIST P-256 | `sdk.ProtocolECDSA` | `sdk.CurveSECP256R1` |
+| Generic Schnorr escape hatch | `sdk.ProtocolSchnorr` | any supported curve |
+
+```go
+// Bitcoin Taproot
+result, err := client.GenerateKey(ctx, sdk.ProtocolSchnorrBIP340, sdk.CurveSECP256K1)
+
+// Solana / Ed25519
+result, err := client.GenerateKey(ctx, sdk.ProtocolEdDSA, sdk.CurveED25519)
+
+// Ethereum
+result, err := client.GenerateKey(ctx, sdk.ProtocolECDSA, sdk.CurveSECP256K1)
 
 // Use generated key
 if result.Success {
     fmt.Printf("Key ID: %d\n", result.PublicKey.ID)
     fmt.Printf("Public Key: %s\n", result.PublicKey.KeyData)
 
-    // Sign with generated key
     signResult, _ := client.Sign(ctx, message, result.PublicKey.Name)
 }
 ```
+
+> `ProtocolEdDSA` and `ProtocolSchnorrBIP340` are **semantic aliases** for
+> Schnorr restricted to a specific curve — they route to the same FROST/Schnorr
+> backend path but make intent obvious at the call site. `ProtocolEdDSA` only
+> accepts `CurveED25519`; `ProtocolSchnorrBIP340` only accepts `CurveSECP256K1`.
+> Misuse is caught before the network call.
 
 ### API Key Management
 
@@ -230,8 +250,10 @@ if result.Success {
 
 ```go
 // Protocols
-sdk.ProtocolECDSA   = "ecdsa"
-sdk.ProtocolSchnorr = "schnorr"
+sdk.ProtocolECDSA         = "ecdsa"
+sdk.ProtocolSchnorr       = "schnorr"        // generic Schnorr (escape hatch)
+sdk.ProtocolEdDSA         = "eddsa"          // alias; only valid with CurveED25519
+sdk.ProtocolSchnorrBIP340 = "schnorr-bip340" // alias; only valid with CurveSECP256K1
 
 // Curves
 sdk.CurveED25519   = "ed25519"

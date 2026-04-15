@@ -149,12 +149,7 @@ async function testKeyGeneration(serverURL: string): Promise<void> {
     ];
 
     for (const kc of keyCases) {
-      let result;
-      if (kc.protocol === Protocol.ECDSA) {
-        result = await client.generateECDSAKey(kc.curve);
-      } else {
-        result = await client.generateSchnorrKey(kc.curve);
-      }
+      const result = await client.generateKey(kc.protocol, kc.curve);
 
       if (!result.success) {
         throw new Error(`generate ${kc.name} key returned failure: ${result.message}`);

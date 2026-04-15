@@ -483,6 +483,26 @@ func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*AuditR
 	return c.impl.ListAuditRecords(ctx, page, limit)
 }
 
+// GetDeploymentLogs fetches container logs for the calling application from UMS.
+//
+// All filters in query are optional. The server defaults the time window to the
+// last hour and caps it at 24 hours; Limit defaults to 200 and is capped at 500.
+// The query is automatically scoped to this client's app_instance_id.
+//
+// Example:
+//
+//	res, err := client.GetDeploymentLogs(ctx, sdk.DeploymentLogsQuery{
+//	    Level:   "error",
+//	    Keyword: "panic",
+//	    Limit:   100,
+//	})
+func (c *Client) GetDeploymentLogs(ctx context.Context, query DeploymentLogsQuery) (*DeploymentLogsResult, error) {
+	if err := c.checkInit(); err != nil {
+		return nil, err
+	}
+	return c.impl.GetDeploymentLogs(ctx, query)
+}
+
 // UpsertPermissionPolicy creates or replaces the permission policy for a public key.
 //
 // Example:
@@ -569,73 +589,41 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 	return c.impl.GetPendingWaitTimeout()
 }
 
-// GenerateSchnorrKey generates a new Schnorr signature key for the application.
+// GenerateKey generates a key for a given (protocol, curve) combination.
 //
-// This method generates a key using the Schnorr signature protocol, which supports
-// multiple elliptic curves. The key is generated via TEE consensus and stored in
-// the user management system, associated with the current application.
+// This is the sole key-generation entry point. Pick the row that matches
+// your target chain or use case:
 //
-// Supported curves:
-//   - "ed25519": Edwards curve (recommended for EdDSA-style Schnorr)
-//   - "secp256k1": Bitcoin/Ethereum curve
-//   - "secp256r1": NIST P-256 curve
+//	ProtocolEdDSA         + CurveED25519   → EdDSA (Ed25519) — Solana, SSH
+//	ProtocolSchnorrBIP340 + CurveSECP256K1 → BIP-340 Schnorr — Bitcoin Taproot
+//	ProtocolECDSA         + CurveSECP256K1 → ECDSA/secp256k1 — Bitcoin legacy, Ethereum
+//	ProtocolECDSA         + CurveSECP256R1 → ECDSA/P-256 — WebAuthn, TLS
+//	ProtocolSchnorr       + any curve      → generic Schnorr escape hatch
 //
-// Parameters:
-//   - ctx: Context for the request
-//   - curve: Elliptic curve to use (see supported curves above)
-//
-// Returns:
-//   - GenerateKeyResult: Contains the generated public key information
-//   - error: Non-nil if key generation fails
-//
-// Example:
-//
-//	result, err := client.GenerateSchnorrKey(ctx, "secp256k1")
-//	if err != nil || !result.Success {
-//	    log.Fatal(err)
-//	}
-//	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
-//	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
-func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*GenerateKeyResult, error) {
-	if err := c.checkInit(); err != nil {
-		return nil, err
-	}
-	return c.impl.GenerateSchnorrKey(ctx, curve)
-}
-
-// GenerateECDSAKey generates a new ECDSA signature key for the application.
-//
-// This method generates a key using the ECDSA (Elliptic Curve Digital Signature Algorithm)
-// protocol. The key is generated via TEE consensus and stored in the user management system,
-// associated with the current application.
-//
-// Supported curves:
-//   - "secp256k1": Bitcoin/Ethereum curve (recommended for blockchain applications)
-//   - "secp256r1": NIST P-256 curve (recommended for general use)
-//
-// Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey for ed25519)
+// ProtocolEdDSA only accepts CurveED25519. ProtocolSchnorrBIP340 only
+// accepts CurveSECP256K1. Both route to the same Schnorr backend path.
 //
 // Parameters:
 //   - ctx: Context for the request
-//   - curve: Elliptic curve to use (see supported curves above)
+//   - protocol: One of ProtocolEdDSA, ProtocolSchnorr, ProtocolECDSA
+//   - curve: One of CurveED25519, CurveSECP256K1, CurveSECP256R1
 //
 // Returns:
 //   - GenerateKeyResult: Contains the generated public key information
-//   - error: Non-nil if key generation fails
+//   - error: Non-nil on invalid combination or backend failure
 //
 // Example:
 //
-//	result, err := client.GenerateECDSAKey(ctx, "secp256k1")
-//	if err != nil || !result.Success {
-//	    log.Fatal(err)
-//	}
-//	fmt.Printf("Generated key ID: %d\n", result.PublicKey.ID)
-//	fmt.Printf("Public key: %s\n", result.PublicKey.KeyData)
-func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*GenerateKeyResult, error) {
+//	// Bitcoin Taproot
+//	result, err := client.GenerateKey(ctx, sdk.ProtocolSchnorrBIP340, sdk.CurveSECP256K1)
+//
+//	// Ed25519 / Solana
+//	result, err := client.GenerateKey(ctx, sdk.ProtocolEdDSA, sdk.CurveED25519)
+func (c *Client) GenerateKey(ctx context.Context, protocol, curve string) (*GenerateKeyResult, error) {
 	if err := c.checkInit(); err != nil {
 		return nil, err
 	}
-	return c.impl.GenerateECDSAKey(ctx, curve)
+	return c.impl.GenerateKey(ctx, protocol, curve)
 }
 
 // GetAPIKey retrieves an API key value by name from the TEENet service.

@@ -151,6 +151,29 @@ func (c *Client) ListAuditRecords(ctx context.Context, page, limit int) (*types.
 	return result, nil
 }
 
+// GetDeploymentLogs fetches container logs for the calling application via the admin bridge.
+// The server scopes the query to the caller's app_instance_id and enforces a 24h time-window cap.
+func (c *Client) GetDeploymentLogs(ctx context.Context, query types.DeploymentLogsQuery) (*types.DeploymentLogsResult, error) {
+	appID, err := c.getAppInstanceID()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.AdminGetDeploymentLogs(ctx, appID, query.StartTime, query.EndTime, query.Level, query.Keyword, query.Limit)
+	if err != nil {
+		return &types.DeploymentLogsResult{Success: false, Error: err.Error()}, err
+	}
+	result, err := decodeAdminData[types.DeploymentLogsResult](resp.Data)
+	if err != nil {
+		return &types.DeploymentLogsResult{Success: false, Error: err.Error()}, err
+	}
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
+	result.Success = ok
+	if !ok && result.Error == "" {
+		result.Error = toAdminError(resp.Data, resp.StatusCode)
+	}
+	return result, nil
+}
+
 // UpsertPermissionPolicy creates or replaces a permission policy for a key via the admin bridge.
 func (c *Client) UpsertPermissionPolicy(ctx context.Context, req types.PolicyRequest) (*types.AdminResult, error) {
 	appID, err := c.getAppInstanceID()

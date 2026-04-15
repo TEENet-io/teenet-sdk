@@ -71,8 +71,16 @@ test('Protocol.Schnorr is "schnorr"', () => {
   assert.equal(Protocol.Schnorr, 'schnorr');
 });
 
-test('Protocol has exactly 2 entries', () => {
-  assert.equal(Object.keys(Protocol).length, 2);
+test('Protocol.EdDSA is "eddsa"', () => {
+  assert.equal(Protocol.EdDSA, 'eddsa');
+});
+
+test('Protocol.SchnorrBIP340 is "schnorr-bip340"', () => {
+  assert.equal(Protocol.SchnorrBIP340, 'schnorr-bip340');
+});
+
+test('Protocol has exactly 4 entries', () => {
+  assert.equal(Object.keys(Protocol).length, 4);
 });
 
 // ─── Curve ────────────────────────────────────────────────────────────────────

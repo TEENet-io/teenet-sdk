@@ -180,6 +180,72 @@ func TestAdminListAuditRecords_QueryParams(t *testing.T) {
 	}
 }
 
+// ─── AdminGetDeploymentLogs ───────────────────────────────────────────────────
+
+func TestAdminGetDeploymentLogs_QueryParams(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/admin/deployment-logs" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("app_instance_id") != "app-9" {
+			t.Fatalf("expected app_instance_id=app-9, got %s", q.Get("app_instance_id"))
+		}
+		if q.Get("start_time") != "100" {
+			t.Fatalf("expected start_time=100, got %s", q.Get("start_time"))
+		}
+		if q.Get("end_time") != "200" {
+			t.Fatalf("expected end_time=200, got %s", q.Get("end_time"))
+		}
+		if q.Get("level") != "error" {
+			t.Fatalf("expected level=error, got %s", q.Get("level"))
+		}
+		if q.Get("keyword") != "panic" {
+			t.Fatalf("expected keyword=panic, got %s", q.Get("keyword"))
+		}
+		if q.Get("limit") != "50" {
+			t.Fatalf("expected limit=50, got %s", q.Get("limit"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"logs":[{"time":150,"content":{"msg":"boom"}}],"log_count":1}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	resp, err := client.AdminGetDeploymentLogs(context.Background(), "app-9", 100, 200, "error", "panic", 50)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestAdminGetDeploymentLogs_OmitsZeroFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("app_instance_id") != "app-10" {
+			t.Fatalf("missing app_instance_id")
+		}
+		for _, k := range []string{"start_time", "end_time", "level", "keyword", "limit"} {
+			if q.Has(k) {
+				t.Fatalf("expected %s to be omitted, got %q", k, q.Get(k))
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"logs":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	if _, err := client.AdminGetDeploymentLogs(context.Background(), "app-10", 0, 0, "", "", 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // ─── AdminUpsertPolicy ────────────────────────────────────────────────────────
 
 func TestAdminUpsertPolicy_MethodAndBody(t *testing.T) {

@@ -297,6 +297,37 @@ type AuditRecordsResult struct {
 	Limit   int           `json:"limit,omitempty"`
 }
 
+// DeploymentLogEntry is a single log line returned by GetDeploymentLogs.
+// Time is unix seconds; Content is the raw key/value map of the log record
+// as stored in the upstream log service (e.g. SLS).
+type DeploymentLogEntry struct {
+	Time    int64             `json:"time"`
+	Content map[string]string `json:"content,omitempty"`
+}
+
+// DeploymentLogsQuery describes the optional filters accepted by GetDeploymentLogs.
+// All fields are optional. Time is in unix seconds. The server clamps the time
+// window: defaults to the last hour, capped at 24 hours.
+type DeploymentLogsQuery struct {
+	StartTime int64  // unix seconds; 0 means "now - 1h"
+	EndTime   int64  // unix seconds; 0 means "now"
+	Level     string // "info" | "warning" | "error" (passes through to the log service)
+	Keyword   string // free-text search across log fields
+	Limit     int    // max number of entries; 0 means default (200), capped at 500
+}
+
+// DeploymentLogsResult is returned by GetDeploymentLogs.
+type DeploymentLogsResult struct {
+	Success   bool                 `json:"success"`
+	Error     string               `json:"error,omitempty"`
+	Logs      []DeploymentLogEntry `json:"logs,omitempty"`
+	LogCount  int                  `json:"log_count,omitempty"`
+	StartTime int64                `json:"start_time,omitempty"`
+	EndTime   int64                `json:"end_time,omitempty"`
+	Level     string               `json:"level,omitempty"`
+	Keyword   string               `json:"keyword,omitempty"`
+}
+
 // PolicyLevel describes one approval level in a permission policy.
 type PolicyLevel struct {
 	LevelIndex int    `json:"level_index"`

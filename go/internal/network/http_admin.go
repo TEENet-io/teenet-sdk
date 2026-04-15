@@ -74,6 +74,30 @@ func (c *HTTPClient) AdminListAuditRecords(ctx context.Context, appInstanceID st
 	return c.doAdminRequest(ctx, http.MethodGet, "/api/admin/audit-records?"+q.Encode(), nil)
 }
 
+// AdminGetDeploymentLogs calls GET /api/admin/deployment-logs.
+// All filter parameters are optional. The server clamps the time window
+// (default last 1h, max 24h) and caps limit at 500.
+func (c *HTTPClient) AdminGetDeploymentLogs(ctx context.Context, appInstanceID string, startTime, endTime int64, level, keyword string, limit int) (*ApprovalBridgeResponse, error) {
+	q := url.Values{}
+	q.Set("app_instance_id", appInstanceID)
+	if startTime > 0 {
+		q.Set("start_time", strconv.FormatInt(startTime, 10))
+	}
+	if endTime > 0 {
+		q.Set("end_time", strconv.FormatInt(endTime, 10))
+	}
+	if level != "" {
+		q.Set("level", level)
+	}
+	if keyword != "" {
+		q.Set("keyword", keyword)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	return c.doAdminRequest(ctx, http.MethodGet, "/api/admin/deployment-logs?"+q.Encode(), nil)
+}
+
 // AdminUpsertPolicy calls PUT /api/admin/policy.
 func (c *HTTPClient) AdminUpsertPolicy(ctx context.Context, appInstanceID string, payload interface{}) (*ApprovalBridgeResponse, error) {
 	encoded, err := marshalWithAppID(appInstanceID, payload)

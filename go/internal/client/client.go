@@ -330,33 +330,63 @@ func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*type
 	return &types.GenerateKeyResult{Success: true, Message: resp.Message, PublicKey: pubKey}, nil
 }
 
-// GenerateSchnorrKey generates a new Schnorr signature key for the application.
+// GenerateKey generates a key for a given (protocol, curve) combination.
 //
-// Supported curves: "ed25519", "secp256k1", "secp256r1"
-func (c *Client) GenerateSchnorrKey(ctx context.Context, curve string) (*types.GenerateKeyResult, error) {
-	validCurves := map[string]bool{
-		crypto.CurveED25519: true, crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
-	}
-	if !validCurves[curve] {
-		return nil, fmt.Errorf("invalid curve '%s' for Schnorr protocol, supported: %s, %s, %s",
-			curve, crypto.CurveED25519, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
-	}
-	return c.generateKey(ctx, curve, crypto.ProtocolSchnorr)
-}
-
-// GenerateECDSAKey generates a new ECDSA signature key for the application.
+// This is the sole key-generation entry point. Pick the row that matches
+// your target chain or use case:
 //
-// Supported curves: "secp256k1", "secp256r1"
-// Note: ed25519 is NOT supported for ECDSA (use GenerateSchnorrKey).
-func (c *Client) GenerateECDSAKey(ctx context.Context, curve string) (*types.GenerateKeyResult, error) {
-	validCurves := map[string]bool{
-		crypto.CurveSECP256K1: true, crypto.CurveSECP256R1: true,
+//	ProtocolEdDSA         + CurveED25519   → EdDSA (Ed25519) — Solana, SSH
+//	ProtocolSchnorrBIP340 + CurveSECP256K1 → BIP-340 Schnorr — Bitcoin Taproot
+//	ProtocolECDSA         + CurveSECP256K1 → ECDSA/secp256k1 — Bitcoin legacy, Ethereum
+//	ProtocolECDSA         + CurveSECP256R1 → ECDSA/P-256 — WebAuthn, TLS
+//	ProtocolSchnorr       + any curve      → generic Schnorr escape hatch
+//
+// ProtocolEdDSA only accepts CurveED25519. ProtocolSchnorrBIP340 only
+// accepts CurveSECP256K1. ProtocolECDSA rejects CurveED25519.
+//
+// Example:
+//
+//	result, err := client.GenerateKey(ctx, sdk.ProtocolEdDSA, sdk.CurveED25519)
+func (c *Client) GenerateKey(ctx context.Context, protocol, curve string) (*types.GenerateKeyResult, error) {
+	// Resolve protocol to the backend identifier. EdDSA and SchnorrBIP340
+	// are semantic aliases for Schnorr restricted to a specific curve —
+	// the backend path is the same in both cases.
+	var backendProtocol string
+	switch protocol {
+	case crypto.ProtocolEdDSA:
+		if curve != crypto.CurveED25519 {
+			return nil, fmt.Errorf("invalid curve '%s' for EdDSA protocol, only %s is supported",
+				curve, crypto.CurveED25519)
+		}
+		backendProtocol = crypto.ProtocolSchnorr
+	case crypto.ProtocolSchnorrBIP340:
+		if curve != crypto.CurveSECP256K1 {
+			return nil, fmt.Errorf("invalid curve '%s' for SchnorrBIP340 protocol, only %s is supported",
+				curve, crypto.CurveSECP256K1)
+		}
+		backendProtocol = crypto.ProtocolSchnorr
+	case crypto.ProtocolSchnorr:
+		switch curve {
+		case crypto.CurveED25519, crypto.CurveSECP256K1, crypto.CurveSECP256R1:
+		default:
+			return nil, fmt.Errorf("invalid curve '%s' for Schnorr protocol, supported: %s, %s, %s",
+				curve, crypto.CurveED25519, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
+		}
+		backendProtocol = crypto.ProtocolSchnorr
+	case crypto.ProtocolECDSA:
+		switch curve {
+		case crypto.CurveSECP256K1, crypto.CurveSECP256R1:
+		default:
+			return nil, fmt.Errorf("invalid curve '%s' for ECDSA protocol, supported: %s, %s",
+				curve, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
+		}
+		backendProtocol = crypto.ProtocolECDSA
+	default:
+		return nil, fmt.Errorf("invalid protocol '%s', supported: %s, %s, %s, %s",
+			protocol, crypto.ProtocolEdDSA, crypto.ProtocolSchnorrBIP340,
+			crypto.ProtocolSchnorr, crypto.ProtocolECDSA)
 	}
-	if !validCurves[curve] {
-		return nil, fmt.Errorf("invalid curve '%s' for ECDSA protocol, supported: %s, %s",
-			curve, crypto.CurveSECP256K1, crypto.CurveSECP256R1)
-	}
-	return c.generateKey(ctx, curve, crypto.ProtocolECDSA)
+	return c.generateKey(ctx, curve, backendProtocol)
 }
 
 // GetAPIKey retrieves an API key value by name from the TEENet service.
