@@ -153,33 +153,31 @@ func TestSignWithoutAppID(t *testing.T) {
 	}
 }
 
-// TestInit tests client initialization
-func TestInit(t *testing.T) {
-	t.Setenv("APP_INSTANCE_ID", "init-test-id")
+// TestNewClient_AutoEnv tests that NewClient auto-reads SERVICE_URL and APP_INSTANCE_ID
+func TestNewClient_AutoEnv(t *testing.T) {
+	t.Setenv("SERVICE_URL", "http://auto-env:8089")
+	t.Setenv("APP_INSTANCE_ID", "auto-env-id")
 
-	client := NewClient("http://localhost:8080")
+	client := NewClient()
 	defer client.Close()
 
-	err := client.Init()
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
+	if client.GetServiceURL() != "http://auto-env:8089" {
+		t.Errorf("Expected 'http://auto-env:8089', got '%s'", client.GetServiceURL())
 	}
-	if client.GetDefaultAppInstanceID() != "init-test-id" {
-		t.Errorf("Expected 'init-test-id', got '%s'", client.GetDefaultAppInstanceID())
+	if client.GetDefaultAppInstanceID() != "auto-env-id" {
+		t.Errorf("Expected 'auto-env-id', got '%s'", client.GetDefaultAppInstanceID())
 	}
 }
 
-// TestInit_NoEnvVar tests Init when env var is not set
-func TestInit_NoEnvVar(t *testing.T) {
-	os.Unsetenv("APP_INSTANCE_ID")
+// TestNewClient_ExplicitOverridesEnv tests that explicit serviceURL overrides env
+func TestNewClient_ExplicitOverridesEnv(t *testing.T) {
+	t.Setenv("SERVICE_URL", "http://from-env:8089")
 
-	client := NewClient("http://localhost:8080")
+	client := NewClient("http://explicit:8089")
 	defer client.Close()
 
-	// Init should not fail even without env var
-	err := client.Init()
-	if err != nil {
-		t.Errorf("Init should not fail: %v", err)
+	if client.GetServiceURL() != "http://explicit:8089" {
+		t.Errorf("Expected 'http://explicit:8089', got '%s'", client.GetServiceURL())
 	}
 }
 
@@ -461,11 +459,6 @@ func TestCheckInit_NilClient(t *testing.T) {
 	_, err = c.GetAPIKey(context.Background(), "key")
 	if err == nil {
 		t.Error("GetAPIKey on nil client should return error")
-	}
-
-	err = c.Init()
-	if err == nil {
-		t.Error("Init on nil client should return error")
 	}
 
 	// Void/getter methods must not panic on nil receiver.

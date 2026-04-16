@@ -261,8 +261,9 @@ func main() {
 		baseURL = "http://" + host + ":" + port
 	}
 
+	// SDK reads APP_INSTANCE_ID from environment automatically.
 	s := &server{
-		serviceURL:   serviceURL,
+		serviceURL:     serviceURL,
 		appInstanceID:  appInstanceID,
 		bootstrapToken: bootstrapToken,
 		baseURL:        baseURL,
@@ -270,9 +271,6 @@ func main() {
 		sdkClient:      sdk.NewClient(serviceURL),
 		store:          newMockStore(),
 		sessions:       make(map[string]*sessionState),
-	}
-	if appInstanceID != "" {
-		s.sdkClient.SetDefaultAppInstanceID(appInstanceID)
 	}
 	defer s.sdkClient.Close()
 

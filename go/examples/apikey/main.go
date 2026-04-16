@@ -29,37 +29,23 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
-	// Get configuration from environment
-	serviceURL := os.Getenv("SERVICE_URL")
-	if serviceURL == "" {
-		serviceURL = "http://localhost:8089" // Default for local development
-	}
-
-	appID := os.Getenv("APP_INSTANCE_ID")
-	if appID == "" {
-		log.Fatal("APP_INSTANCE_ID environment variable is required")
-	}
-
-	// Create SDK client
-	client := sdk.NewClient(serviceURL)
+	// Create SDK client — reads SERVICE_URL and APP_INSTANCE_ID from environment.
+	// The App Lifecycle Manager injects both automatically in deployed containers.
+	client := sdk.NewClient()
 	defer client.Close()
 
-	client.SetDefaultAppInstanceID(appID)
-
-	// Initialize from environment (reads APP_INSTANCE_ID)
-	if err := client.Init(); err != nil {
-		log.Fatalf("Failed to initialize client: %v", err)
+	if client.GetDefaultAppInstanceID() == "" {
+		log.Fatal("APP_INSTANCE_ID environment variable is required")
 	}
 
 	fmt.Printf("TEENet API Key Example\n")
 	fmt.Printf("======================\n")
-	fmt.Printf("Service URL: %s\n", serviceURL)
+	fmt.Printf("Service URL: %s\n", client.GetServiceURL())
 	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Retrieve a bound API key (should succeed)

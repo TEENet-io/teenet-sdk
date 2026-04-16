@@ -95,19 +95,15 @@ interface CacheRequest {
  *
  * Provides cryptographic signing services via TEE signing nodes.
  *
- * @example
+ * @example Deployed container (SERVICE_URL and APP_INSTANCE_ID are in env):
+ * ```typescript
+ * const client = new Client();
+ * ```
+ *
+ * @example Local development:
  * ```typescript
  * const client = new Client('http://localhost:8089');
  * client.setDefaultAppInstanceID('your-app-id');
- *
- * // Sign a message
- * const result = await client.sign(Buffer.from('message'), 'my-key');
- * if (result.success) {
- *   console.log('Signature:', result.signature.toString('hex'));
- * }
- *
- * // Verify a signature
- * const valid = await client.verify(message, result.signature, 'my-key');
  * ```
  */
 export class Client {
@@ -122,34 +118,25 @@ export class Client {
   /**
    * Create a new TEENet SDK client.
    *
-   * The client is created in an uninitialized state. Call {@link init} to
-   * load `APP_INSTANCE_ID` from `process.env` (containers deployed by the
-   * App Lifecycle Manager have it injected automatically), or call
-   * {@link setDefaultAppInstanceID} to set it explicitly.
+   * If `serviceURL` is omitted, reads from `process.env.SERVICE_URL`.
+   * `APP_INSTANCE_ID` is also read from `process.env` automatically.
+   * Containers deployed by the App Lifecycle Manager have both injected.
    *
-   * @param serviceURL - Base URL of the TEENet service
+   * @param serviceURL - Base URL of the TEENet service (omit to use SERVICE_URL env var)
    * @param options - Optional configuration
    */
-  constructor(serviceURL: string, options?: ClientOptions) {
-    this.serviceURL = serviceURL.replace(/\/$/, ''); // Remove trailing slash
+  constructor(serviceURL?: string, options?: ClientOptions) {
+    const url = serviceURL || process.env.SERVICE_URL || '';
+    this.serviceURL = url.replace(/\/$/, ''); // Remove trailing slash
     this.requestTimeout = options?.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT;
     this.pendingWaitTimeout = Math.max(options?.pendingWaitTimeout ?? DEFAULT_PENDING_WAIT_TIMEOUT, 0);
     this.debug = Boolean(options?.debug);
     this.keyCacheTTL = options?.keyCacheTTL ?? 60000; // Default 60s, -1 to disable
-  }
 
-  /**
-   * Initialize client from environment variables.
-   * Reads `APP_INSTANCE_ID` from `process.env` and sets it as the default.
-   * Useful for containers deployed by the App Lifecycle Manager, which
-   * automatically injects `APP_INSTANCE_ID` and `SERVICE_URL`.
-   */
-  init(): void {
+    // Auto-load APP_INSTANCE_ID from environment if available
     const appID = process.env.APP_INSTANCE_ID;
     if (appID) {
       this.defaultAppInstanceID = appID;
-    } else {
-      console.warn('APP_INSTANCE_ID environment variable not set');
     }
   }
 

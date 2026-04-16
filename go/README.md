@@ -24,9 +24,8 @@ import (
 func main() {
     ctx := context.Background()
 
-    // Create client
-    client := sdk.NewClient("http://localhost:8089")
-    client.SetDefaultAppInstanceID("your-app-instance-id")
+    // Create client — reads SERVICE_URL and APP_INSTANCE_ID from environment
+    client := sdk.NewClient()
     defer client.Close()
 
     // Sign a message
@@ -63,16 +62,19 @@ func main() {
 ### Client Creation
 
 ```go
-// Default settings (30s request timeout)
+// Default settings — reads SERVICE_URL and APP_INSTANCE_ID from environment
+client := sdk.NewClient()
+
+// Explicit URL (e.g., for local development)
 client := sdk.NewClient("http://localhost:8089")
 
-// Custom options
+// Custom options (empty string reads SERVICE_URL from env)
 opts := &sdk.ClientOptions{
     RequestTimeout:     45 * time.Second,
     PendingWaitTimeout: 10 * time.Second, // Max wait in Sign() for voting completion
     Debug:              true, // Enable verbose sign/polling trace logs
 }
-client := sdk.NewClientWithOptions("http://localhost:8089", opts)
+client := sdk.NewClientWithOptions("", opts)
 ```
 
 Polling interval/backoff is managed internally by SDK.
@@ -80,14 +82,8 @@ Polling interval/backoff is managed internally by SDK.
 ### Configuration
 
 ```go
-// Set APP_INSTANCE_ID manually
+// Set APP_INSTANCE_ID manually (overrides env)
 client.SetDefaultAppInstanceID("your-app-instance-id")
-
-// Load from environment variable (APP_INSTANCE_ID)
-err := client.SetDefaultAppInstanceIDFromEnv()
-
-// Initialize from environment (logs warning if not set)
-client.Init()
 ```
 
 ### Signing

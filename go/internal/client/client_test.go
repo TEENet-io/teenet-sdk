@@ -118,31 +118,29 @@ func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
 	}
 }
 
-func TestInit(t *testing.T) {
-	client := NewClient("http://localhost:8080")
+func TestNewClient_AutoEnv(t *testing.T) {
+	t.Setenv("SERVICE_URL", "http://auto-env:8089")
+	t.Setenv("APP_INSTANCE_ID", "auto-env-id")
+
+	client := NewClient()
 	defer client.Close()
 
-	t.Setenv("APP_INSTANCE_ID", "init-app-id")
-
-	err := client.Init()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
+	if client.GetServiceURL() != "http://auto-env:8089" {
+		t.Errorf("Expected 'http://auto-env:8089', got '%s'", client.GetServiceURL())
 	}
-	if client.GetDefaultAppInstanceID() != "init-app-id" {
-		t.Errorf("Expected 'init-app-id', got '%s'", client.GetDefaultAppInstanceID())
+	if client.GetDefaultAppInstanceID() != "auto-env-id" {
+		t.Errorf("Expected 'auto-env-id', got '%s'", client.GetDefaultAppInstanceID())
 	}
 }
 
-func TestInit_NoEnvVar(t *testing.T) {
-	client := NewClient("http://localhost:8080")
+func TestNewClient_ExplicitOverridesEnv(t *testing.T) {
+	t.Setenv("SERVICE_URL", "http://from-env:8089")
+
+	client := NewClient("http://explicit:8089")
 	defer client.Close()
 
-	os.Unsetenv("APP_INSTANCE_ID")
-
-	// Init should not return error even if env var not set
-	err := client.Init()
-	if err != nil {
-		t.Errorf("Init should not return error: %v", err)
+	if client.GetServiceURL() != "http://explicit:8089" {
+		t.Errorf("Expected 'http://explicit:8089', got '%s'", client.GetServiceURL())
 	}
 }
 

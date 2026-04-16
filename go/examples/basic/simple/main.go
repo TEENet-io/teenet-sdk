@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	sdk "github.com/TEENet-io/teenet-sdk/go"
@@ -27,27 +26,18 @@ import (
 )
 
 func main() {
-	// Get configuration from environment or use placeholder values
-	serviceURL := os.Getenv("SERVICE_URL")
-	if serviceURL == "" {
-		serviceURL = "http://localhost:8089" // Default for local development
-	}
+	// Create SDK client — reads SERVICE_URL and APP_INSTANCE_ID from environment.
+	client := sdk.NewClient()
+	defer client.Close()
 
-	appID := os.Getenv("APP_INSTANCE_ID")
-	if appID == "" {
+	if client.GetDefaultAppInstanceID() == "" {
 		log.Fatal("APP_INSTANCE_ID environment variable is required")
 	}
 
 	fmt.Println("TEENet SDK Simple Example")
 	fmt.Println("=========================")
-	fmt.Printf("Service URL: %s\n", serviceURL)
-	fmt.Printf("App ID: %s\n\n", appID)
-
-	// Create SDK client
-	client := sdk.NewClient(serviceURL)
-	defer client.Close()
-
-	client.SetDefaultAppInstanceID(appID)
+	fmt.Printf("Service URL: %s\n", client.GetServiceURL())
+	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Get public key information
 	fmt.Println("1. Get Public Keys")

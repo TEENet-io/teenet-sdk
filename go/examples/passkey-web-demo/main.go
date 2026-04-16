@@ -60,7 +60,6 @@ func main() {
 	if serviceURL == "" {
 		serviceURL = "http://127.0.0.1:8089"
 	}
-	appInstanceID := strings.TrimSpace(os.Getenv("APP_INSTANCE_ID"))
 	host := strings.TrimSpace(os.Getenv("DEMO_HOST"))
 	if host == "" {
 		host = "127.0.0.1"
@@ -71,16 +70,14 @@ func main() {
 	}
 	bootstrapToken := strings.TrimSpace(os.Getenv("APPROVAL_TOKEN"))
 
+	// SDK reads APP_INSTANCE_ID from environment automatically.
 	s := &server{
-		serviceURL:   serviceURL,
-		appInstanceID:  appInstanceID,
+		serviceURL:     serviceURL,
+		appInstanceID:  strings.TrimSpace(os.Getenv("APP_INSTANCE_ID")),
 		bootstrapToken: bootstrapToken,
 		frontendDir:    detectFrontendDir(),
 		sdkClient:      sdk.NewClient(serviceURL),
 		sessions:       make(map[string]*sessionState),
-	}
-	if appInstanceID != "" {
-		s.sdkClient.SetDefaultAppInstanceID(appInstanceID)
 	}
 	defer s.sdkClient.Close()
 

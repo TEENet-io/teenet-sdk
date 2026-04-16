@@ -126,20 +126,21 @@ test('setDefaultAppInstanceIDFromEnv throws when env var is missing', () => {
   );
 });
 
-test('init() reads APP_INSTANCE_ID silently', () => {
-  process.env.APP_INSTANCE_ID = 'init-instance';
-  const c = new Client('http://x');
-  c.init();
-  assert.equal(c.getDefaultAppInstanceID(), 'init-instance');
+test('constructor auto-reads SERVICE_URL and APP_INSTANCE_ID from env', () => {
+  process.env.SERVICE_URL = 'http://auto-env:8089';
+  process.env.APP_INSTANCE_ID = 'auto-env-id';
+  const c = new Client();
+  assert.equal(c.getServiceURL(), 'http://auto-env:8089');
+  assert.equal(c.getDefaultAppInstanceID(), 'auto-env-id');
+  delete process.env.SERVICE_URL;
   delete process.env.APP_INSTANCE_ID;
 });
 
-test('init() does not throw when APP_INSTANCE_ID is absent', () => {
-  delete process.env.APP_INSTANCE_ID;
-  const c = new Client('http://x');
-  assert.doesNotThrow(() => c.init());
-  // ID stays empty
-  assert.equal(c.getDefaultAppInstanceID(), '');
+test('explicit serviceURL overrides env', () => {
+  process.env.SERVICE_URL = 'http://from-env:8089';
+  const c = new Client('http://explicit:8089');
+  assert.equal(c.getServiceURL(), 'http://explicit:8089');
+  delete process.env.SERVICE_URL;
 });
 
 test('close() is a no-op and does not throw', () => {

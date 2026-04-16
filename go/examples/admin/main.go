@@ -20,22 +20,18 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	sdk "github.com/TEENet-io/teenet-sdk/go"
 )
 
 func main() {
-	serviceURL := os.Getenv("SERVICE_URL")
-	if serviceURL == "" {
-		serviceURL = "http://localhost:8089"
-	}
-
-	client := sdk.NewClient(serviceURL)
-	if err := client.SetDefaultAppInstanceIDFromEnv(); err != nil {
-		log.Fatalf("APP_INSTANCE_ID not set: %v", err)
-	}
+	// Reads SERVICE_URL and APP_INSTANCE_ID from environment automatically.
+	client := sdk.NewClient()
 	defer client.Close()
+
+	if client.GetDefaultAppInstanceID() == "" {
+		log.Fatal("APP_INSTANCE_ID environment variable is required")
+	}
 
 	fmt.Printf("Using App ID: %s\n\n", client.GetDefaultAppInstanceID())
 

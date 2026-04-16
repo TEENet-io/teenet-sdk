@@ -52,14 +52,13 @@ import (
 )
 
 ctx := context.Background()
-client := sdk.NewClient("http://localhost:8089")
+// Reads SERVICE_URL and APP_INSTANCE_ID from environment automatically.
+// Containers deployed by the App Lifecycle Manager have both injected.
+client := sdk.NewClient()
 defer client.Close()
 
-// Load APP_INSTANCE_ID from the environment. Containers deployed by the
-// App Lifecycle Manager have this variable injected automatically.
-client.Init()
-
-// For local development, set it explicitly instead:
+// For local development, pass the URL explicitly:
+// client := sdk.NewClient("http://localhost:8089")
 // client.SetDefaultAppInstanceID("my-app-instance")
 
 // Sign — voting, if configured, is handled internally.
@@ -81,8 +80,8 @@ npm install @teenet/sdk
 ```ts
 import { Client } from '@teenet/sdk';
 
-const client = new Client('http://localhost:8089');
-client.init(); // loads APP_INSTANCE_ID from process.env (auto-injected when deployed)
+// Reads SERVICE_URL and APP_INSTANCE_ID from process.env automatically.
+const client = new Client();
 
 const result = await client.sign(Buffer.from('hello, teenet'), 'my-key');
 const valid  = await client.verify(Buffer.from('hello, teenet'), result.signature, 'my-key');

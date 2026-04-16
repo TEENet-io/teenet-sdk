@@ -17,9 +17,14 @@
 //   - Signature verification with automatic format detection
 //   - Automatic polling for threshold voting completion
 //
-// Basic Usage:
+// Basic Usage (deployed container — SERVICE_URL and APP_INSTANCE_ID are in env):
 //
-//	client := sdk.NewClient("http://service-url:8089")
+//	client := sdk.NewClient()
+//	defer client.Close()
+//
+// Basic Usage (local dev):
+//
+//	client := sdk.NewClient("http://localhost:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
 //
@@ -38,6 +43,7 @@ package sdk
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
 
 	"github.com/TEENet-io/teenet-sdk/go/internal/client"
@@ -69,21 +75,15 @@ func (c *Client) checkInit() error {
 //   - Request timeout: 30 seconds
 //   - Pending wait timeout: 10 seconds
 //
-// The client is created in an uninitialized state. Call Init() to load
-// APP_INSTANCE_ID from the environment (containers deployed by the App
-// Lifecycle Manager have it injected automatically), or call
-// SetDefaultAppInstanceID() to set it explicitly.
+// If serviceURL is omitted, the SERVICE_URL environment variable is used
+// (automatically injected by the App Lifecycle Manager in deployed containers).
 //
-// Parameters:
-//   - serviceURL: Base URL of the TEENet service (e.g., "http://localhost:8089")
+// Both SERVICE_URL and APP_INSTANCE_ID are read from environment variables
+// automatically. Use SetDefaultAppInstanceID() to override.
 //
-// Returns:
-//   - A new Client instance
+// Example (deployed container — SERVICE_URL and APP_INSTANCE_ID are in env):
 //
-// Example (deployed — APP_INSTANCE_ID is in env):
-//
-//	client := sdk.NewClient("http://localhost:8089")
-//	client.Init()
+//	client := sdk.NewClient()
 //	defer client.Close()
 //
 // Example (local dev):
@@ -91,18 +91,25 @@ func (c *Client) checkInit() error {
 //	client := sdk.NewClient("http://localhost:8089")
 //	client.SetDefaultAppInstanceID("your-app-instance-id")
 //	defer client.Close()
-func NewClient(serviceURL string) *Client {
+func NewClient(serviceURL ...string) *Client {
+	url := ""
+	if len(serviceURL) > 0 && serviceURL[0] != "" {
+		url = serviceURL[0]
+	} else {
+		url = os.Getenv("SERVICE_URL")
+	}
 	return &Client{
-		impl: client.NewClient(serviceURL),
+		impl: client.NewClient(url),
 	}
 }
 
 // NewClientWithOptions creates a new SDK client with custom configuration options.
 //
 // Use this when you need to customize timeout values or other client behavior.
+// If serviceURL is empty, the SERVICE_URL environment variable is used.
 //
 // Parameters:
-//   - serviceURL: Base URL of the TEENet service
+//   - serviceURL: Base URL of the TEENet service (empty string to use SERVICE_URL env var)
 //   - opts: Optional configuration (nil for defaults)
 //
 // Returns:
@@ -116,30 +123,12 @@ func NewClient(serviceURL string) *Client {
 //	}
 //	client := sdk.NewClientWithOptions("http://localhost:8089", opts)
 func NewClientWithOptions(serviceURL string, opts *ClientOptions) *Client {
+	if serviceURL == "" {
+		serviceURL = os.Getenv("SERVICE_URL")
+	}
 	return &Client{
 		impl: client.NewClientWithOptions(serviceURL, opts),
 	}
-}
-
-// Init initializes the client by attempting to load configuration from the environment.
-//
-// This method tries to read the APP_INSTANCE_ID environment variable and set it as the
-// default instance ID. If the environment variable is not set, a warning is logged
-// but no error is returned.
-//
-// Returns:
-//   - Always returns nil (errors are logged as warnings)
-//
-// Example:
-//
-//	client := sdk.NewClient("http://localhost:8089")
-//	client.Init() // Reads APP_INSTANCE_ID from environment
-//	defer client.Close()
-func (c *Client) Init() error {
-	if err := c.checkInit(); err != nil {
-		return err
-	}
-	return c.impl.Init()
 }
 
 // SetDefaultAppInstanceID sets the APP_INSTANCE_ID for signing operations.
@@ -148,7 +137,7 @@ func (c *Client) Init() error {
 // and determines which key material is used for signing.
 //
 // When deployed via the App Lifecycle Manager, APP_INSTANCE_ID is automatically
-// injected as an environment variable — use Init() instead.
+// injected as an environment variable and read during client construction.
 //
 // Parameters:
 //   - appInstanceID: Your TEENet APP_INSTANCE_ID

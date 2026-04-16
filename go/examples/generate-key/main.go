@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"crypto/sha256"
@@ -27,36 +26,22 @@ import (
 )
 
 func main() {
-	// Get service URL from environment or use default
-	serviceURL := os.Getenv("SERVICE_URL")
-	if serviceURL == "" {
-		serviceURL = "http://localhost:8089" // Default for local development
-	}
-
-	// Get app ID from environment
-	appID := os.Getenv("APP_INSTANCE_ID")
-	if appID == "" {
-		log.Fatal("APP_INSTANCE_ID environment variable is required")
-	}
-
-	// Create SDK client with extended timeout for key generation
-	// ECDSA key generation requires multi-party DKG which can take 1-2 minutes
+	// Create SDK client with extended timeout for key generation.
+	// ECDSA key generation requires multi-party DKG which can take 1-2 minutes.
+	// SERVICE_URL and APP_INSTANCE_ID are read from environment automatically.
 	opts := &sdk.ClientOptions{
 		RequestTimeout:     120 * time.Second, // 2 minutes for key generation
 		PendingWaitTimeout: 15 * time.Second,  // wait for voting completion in sign flow
 	}
-	client := sdk.NewClientWithOptions(serviceURL, opts)
+	client := sdk.NewClientWithOptions("", opts)
 	defer client.Close()
 
-	client.SetDefaultAppInstanceID(appID)
-
-	// Initialize client (loads APP_INSTANCE_ID from environment)
-	if err := client.Init(); err != nil {
-		log.Fatal("Failed to initialize client:", err)
+	if client.GetDefaultAppInstanceID() == "" {
+		log.Fatal("APP_INSTANCE_ID environment variable is required")
 	}
 
 	fmt.Println("=== TEENet Key Generation and Signing Example ===")
-	fmt.Printf("Service URL: %s\n", serviceURL)
+	fmt.Printf("Service URL: %s\n", client.GetServiceURL())
 	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Generate an EdDSA key (Ed25519) — Solana / SSH

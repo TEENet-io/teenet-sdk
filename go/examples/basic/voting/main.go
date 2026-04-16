@@ -37,9 +37,10 @@ func main() {
 		log.Fatal("PUBLIC_KEY_NAME environment variable is required")
 	}
 
+	// SERVICE_URL defaults via SDK if set in env; explicit fallback for local dev.
 	serviceURL := os.Getenv("SERVICE_URL")
 	if serviceURL == "" {
-		serviceURL = "http://localhost:8089" // Default for local development
+		serviceURL = "http://localhost:8089"
 	}
 	message := []byte("Voting test message at " + time.Now().Format("15:04:05"))
 

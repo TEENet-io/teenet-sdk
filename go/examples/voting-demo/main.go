@@ -59,25 +59,20 @@ func main() {
 		}
 	}
 
-	// Load configuration from environment variables
-	appID = os.Getenv("APP_INSTANCE_ID")
+	// Initialize SDK client — reads SERVICE_URL and APP_INSTANCE_ID from environment.
+	sdkClient = sdk.NewClient()
+
+	appID = sdkClient.GetDefaultAppInstanceID()
 	if appID == "" {
 		log.Fatal("❌ APP_INSTANCE_ID environment variable is required")
 	}
 
-	serviceURL = os.Getenv("SERVICE_URL")
-	if serviceURL == "" {
-		serviceURL = "http://localhost:8089" // Default
-	}
+	serviceURL = sdkClient.GetServiceURL()
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080" // Default
 	}
-
-	// Initialize SDK client for this app instance
-	sdkClient = sdk.NewClient(serviceURL)
-	sdkClient.SetDefaultAppInstanceID(appID)
 
 	log.Printf("🗳️  Voting Demo App Starting...")
 	log.Printf("📋 App ID: %s", appID)
