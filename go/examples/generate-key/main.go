@@ -27,7 +27,7 @@ import (
 )
 
 func main() {
-	// Get consensus URL from environment or use default
+	// Get service URL from environment or use default
 	serviceURL := os.Getenv("SERVICE_URL")
 	if serviceURL == "" {
 		serviceURL = "http://localhost:8089" // Default for local development

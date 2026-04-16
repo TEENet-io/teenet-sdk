@@ -6,7 +6,7 @@
 // Tests the mock server functionality
 //
 // Usage:
-//   1. Start mock server: cd mock-server && ./start.sh
+//   1. Start mock server: cd mock-server && make run
 //   2. Run tests: cd examples/mock-test && go run main.go
 
 package main
@@ -49,11 +49,10 @@ func main() {
 		protocol string
 		curve    string
 	}{
-		{"ED25519 Schnorr", "test-schnorr-ed25519", "schnorr", "ed25519"},
-		{"SECP256K1 ECDSA", "test-ecdsa-secp256k1", "ecdsa", "secp256k1"},
-		{"SECP256K1 Schnorr", "test-schnorr-secp256k1", "schnorr", "secp256k1"},
-		{"SECP256R1 ECDSA", "test-ecdsa-secp256r1", "ecdsa", "secp256r1"},
-		{"Ethereum Wallet", "ethereum-wallet-app", "ecdsa", "secp256k1"},
+		{"ED25519 Schnorr", "mock-app-id-01", "schnorr", "ed25519"},
+		{"SECP256K1 ECDSA", "mock-app-id-03", "ecdsa", "secp256k1"},
+		{"SECP256K1 Schnorr", "mock-app-id-02", "schnorr", "secp256k1"},
+		{"SECP256R1 ECDSA", "mock-app-id-04", "ecdsa", "secp256r1"},
 	}
 
 	passed := 0
@@ -253,7 +252,7 @@ func testKeyGeneration(serverURL string) error {
 
 func testAPIKey(serverURL string) error {
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppInstanceID("test-ecdsa-secp256k1")
+	client.SetDefaultAppInstanceID("mock-app-id-03")
 	defer client.Close()
 
 	// Get API Key
@@ -272,7 +271,7 @@ func testAPIKey(serverURL string) error {
 
 func testAPISecretSign(serverURL string) error {
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppInstanceID("test-ecdsa-secp256k1")
+	client.SetDefaultAppInstanceID("mock-app-id-03")
 	defer client.Close()
 
 	// Sign with API Secret
@@ -289,8 +288,8 @@ func testAPISecretSign(serverURL string) error {
 	fmt.Printf("   Signature: %s... (%d bytes)\n", result.Signature[:16], len(result.Signature)/2)
 
 	// Verify HMAC signature
-	// Mock server uses secret "secret_test-ecdsa-secp256k1_abcdef"
-	secret := []byte("secret_test-ecdsa-secp256k1_abcdef")
+	// Mock server uses secret "secret_mock-app-id-03_abcdef"
+	secret := []byte("secret_mock-app-id-03_abcdef")
 	signatureBytes, err := hex.DecodeString(result.Signature)
 	if err != nil {
 		return fmt.Errorf("failed to decode signature: %v", err)

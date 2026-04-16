@@ -1,7 +1,7 @@
 {
   "name": "@teenet/sdk",
   "version": "1.0.0",
-  "description": "TEENet SDK for TypeScript/JavaScript - Cryptographic signing services via TEE consensus",
+  "description": "TEENet SDK for TypeScript/JavaScript - Cryptographic signing services via TEE signing services",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

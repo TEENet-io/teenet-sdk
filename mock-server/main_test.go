@@ -250,7 +250,7 @@ func TestGetPublicKeys_KnownApp(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/publickeys/test-ecdsa-secp256k1", "")
+	result := getJSON(t, ts.URL+"/api/publickeys/mock-app-id-03", "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
@@ -272,7 +272,7 @@ func TestGetPublicKeys_KnownApp(t *testing.T) {
 	}
 	keyData, _ := key0["key_data"].(string)
 	if keyData == "" || strings.HasPrefix(keyData, "0x") {
-		t.Errorf("expected plain-hex key_data (no 0x prefix, matching app-comm-consensus), got %q", keyData)
+		t.Errorf("expected plain-hex key_data (no 0x prefix, matching signing service), got %q", keyData)
 	}
 }
 
@@ -307,12 +307,10 @@ func TestGetPublicKeys_AllDefaultApps(t *testing.T) {
 		protocol string
 		curve    string
 	}{
-		{"test-schnorr-ed25519", "schnorr", "ed25519"},
-		{"test-schnorr-secp256k1", "schnorr", "secp256k1"},
-		{"test-ecdsa-secp256k1", "ecdsa", "secp256k1"},
-		{"test-ecdsa-secp256r1", "ecdsa", "secp256r1"},
-		{"ethereum-wallet-app", "ecdsa", "secp256k1"},
-		{"secure-messaging-app", "schnorr", "ed25519"},
+		{"mock-app-id-01", "schnorr", "ed25519"},
+		{"mock-app-id-02", "schnorr", "secp256k1"},
+		{"mock-app-id-03", "ecdsa", "secp256k1"},
+		{"mock-app-id-04", "ecdsa", "secp256r1"},
 	}
 	for _, app := range apps {
 		result := getJSON(t, ts.URL+"/api/publickeys/"+app.id, "")
@@ -336,7 +334,7 @@ func TestDirectSigning_ECDSA_SECP256K1(t *testing.T) {
 	defer ts.Close()
 
 	message := []byte("hello teenet signing test")
-	result := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256k1", message)
+	result := submitDirectRequest(t, ts.URL, "mock-app-id-03", message)
 
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
@@ -365,7 +363,7 @@ func TestDirectSigning_Schnorr_ED25519(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := submitDirectRequest(t, ts.URL, "test-schnorr-ed25519", []byte("test message ed25519"))
+	result := submitDirectRequest(t, ts.URL, "mock-app-id-01", []byte("test message ed25519"))
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
@@ -383,7 +381,7 @@ func TestDirectSigning_Schnorr_SECP256K1(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := submitDirectRequest(t, ts.URL, "test-schnorr-secp256k1", []byte("test schnorr secp256k1"))
+	result := submitDirectRequest(t, ts.URL, "mock-app-id-02", []byte("test schnorr secp256k1"))
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
@@ -401,7 +399,7 @@ func TestDirectSigning_ECDSA_SECP256R1(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256r1", []byte("test ecdsa p256"))
+	result := submitDirectRequest(t, ts.URL, "mock-app-id-04", []byte("test ecdsa p256"))
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
@@ -469,7 +467,7 @@ func TestVotingMode_Threshold2of3(t *testing.T) {
 
 	// First vote (voter1) — should be pending, count=1/2.
 	r1 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "mock-app-id-05",
 		"message":         message,
 	}, "")
 	if statusCode(r1) != 200 {
@@ -505,7 +503,7 @@ func TestVotingMode_Threshold2of3(t *testing.T) {
 	// Second vote from a different voter in the same voting group —
 	// must reach threshold 2/2 and return a signed signature.
 	r2 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3-voter2",
+		"app_instance_id": "mock-app-id-06",
 		"message":         message,
 	}, "")
 	if statusCode(r2) != 200 {
@@ -546,7 +544,7 @@ func TestVotingMode_CacheEntry(t *testing.T) {
 	defer ts.Close()
 
 	message := []byte("cache verification test message")
-	r := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256k1", message)
+	r := submitDirectRequest(t, ts.URL, "mock-app-id-03", message)
 	if statusCode(r) != 200 {
 		t.Fatalf("expected 200, got %d", statusCode(r))
 	}
@@ -558,7 +556,7 @@ func TestVotingMode_CacheEntry(t *testing.T) {
 	// Direct signing does not cache; voting does
 	// Use voting app to populate cache
 	vr := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "mock-app-id-05",
 		"message":         []byte("cache test voting message"),
 	}, "")
 	vHash, _ := vr["hash"].(string)
@@ -655,7 +653,7 @@ func TestVotingMode_CrossGroupRejected(t *testing.T) {
 
 	// Group A (built-in 2-of-3): first legitimate vote.
 	r1 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "mock-app-id-05",
 		"message":         message,
 	}, "")
 	if statusCode(r1) != 200 || r1["status"] != "pending" {
@@ -699,7 +697,7 @@ func TestVotingMode_CrossGroupRejected(t *testing.T) {
 
 	// Legitimate group A voter2 should still be able to complete the vote.
 	r3 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3-voter2",
+		"app_instance_id": "mock-app-id-06",
 		"message":         message,
 	}, "")
 	if statusCode(r3) != 200 || r3["status"] != "signed" {
@@ -750,7 +748,7 @@ func TestVotingMode_CrossGroupRejected_Symmetric(t *testing.T) {
 
 	// Group A (built-in) now tries to push it — must be rejected.
 	r2 := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "mock-app-id-05",
 		"message":         message,
 	}, "")
 	if statusCode(r2) != 403 {
@@ -861,7 +859,7 @@ func TestApprovalMode_Submit(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"message":         []byte("approval test message"),
 	}, "")
 	if statusCode(result) != 200 {
@@ -889,7 +887,7 @@ func TestApprovalMode_CacheEntryPendingApproval(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"message":         []byte("approval cache check message"),
 	}, "")
 	hash, _ := result["hash"].(string)
@@ -926,7 +924,7 @@ func TestGetCache_WithAndWithout0xPrefix(t *testing.T) {
 
 	// Create a cache entry via voting
 	vr := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "mock-app-id-05",
 		"message":         []byte("prefix normalisation test"),
 	}, "")
 	hash, _ := vr["hash"].(string)
@@ -952,7 +950,7 @@ func TestDeleteCache(t *testing.T) {
 
 	// Create entry
 	vr := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-voting-2of3",
+		"app_instance_id": "mock-app-id-05",
 		"message":         []byte("delete cache test message"),
 	}, "")
 	hash, _ := vr["hash"].(string)
@@ -999,7 +997,7 @@ func TestCacheStatus(t *testing.T) {
 	// Create a few entries
 	for i := 0; i < 3; i++ {
 		postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-			"app_instance_id": "test-voting-2of3",
+			"app_instance_id": "mock-app-id-05",
 			"message":         []byte(fmt.Sprintf("cache status test %d", i)),
 		}, "")
 	}
@@ -1021,7 +1019,7 @@ func TestGetConfig_VotingApp(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/config/test-voting-2of3", "")
+	result := getJSON(t, ts.URL+"/api/config/mock-app-id-05", "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d", statusCode(result))
 	}
@@ -1041,7 +1039,7 @@ func TestGetConfig_DirectSigningApp(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/config/test-ecdsa-secp256k1", "")
+	result := getJSON(t, ts.URL+"/api/config/mock-app-id-03", "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d", statusCode(result))
 	}
@@ -1054,7 +1052,7 @@ func TestGetConfig_ApprovalApp(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/config/test-approval-required", "")
+	result := getJSON(t, ts.URL+"/api/config/mock-app-id-08", "")
 	if result["passkey_policy_enabled"] != true {
 		t.Errorf("expected passkey_policy_enabled=true, got %v", result["passkey_policy_enabled"])
 	}
@@ -1078,7 +1076,7 @@ func TestGenerateKey_ECDSA_SECP256K1(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"curve":           "secp256k1",
 		"protocol":        "ecdsa",
 	}, "")
@@ -1119,7 +1117,7 @@ func TestGenerateKey_Schnorr_ED25519(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": "test-schnorr-ed25519",
+		"app_instance_id": "mock-app-id-01",
 		"curve":           "ed25519",
 		"protocol":        "schnorr",
 	}, "")
@@ -1143,7 +1141,7 @@ func TestGenerateKey_ECDSA_SECP256R1(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256r1",
+		"app_instance_id": "mock-app-id-04",
 		"curve":           "secp256r1",
 		"protocol":        "ecdsa",
 	}, "")
@@ -1195,7 +1193,7 @@ func TestGenerateKey_UnsupportedProtocol(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"curve":           "secp256k1",
 		"protocol":        "invalid-protocol",
 	}, "")
@@ -1209,7 +1207,7 @@ func TestGenerateKey_UnsupportedCurve(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"curve":           "invalid-curve",
 		"protocol":        "ecdsa",
 	}, "")
@@ -1222,7 +1220,7 @@ func TestGetAPIKey_KnownKey(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/apikey/test-api-key?app_instance_id=test-ecdsa-secp256k1", "")
+	result := getJSON(t, ts.URL+"/api/apikey/test-api-key?app_instance_id=mock-app-id-03", "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
@@ -1233,7 +1231,7 @@ func TestGetAPIKey_KnownKey(t *testing.T) {
 	if apiKey == "" {
 		t.Errorf("expected api_key in response")
 	}
-	if !strings.Contains(apiKey, "test-ecdsa-secp256k1") {
+	if !strings.Contains(apiKey, "mock-app-id-03") {
 		t.Errorf("expected api_key to contain app id, got %q", apiKey)
 	}
 }
@@ -1260,7 +1258,7 @@ func TestGetAPIKey_SecretOnlyKey(t *testing.T) {
 	defer ts.Close()
 
 	// test-api-secret has HasKey=false, HasSecret=true
-	result := getJSON(t, ts.URL+"/api/apikey/test-api-secret?app_instance_id=test-ecdsa-secp256k1", "")
+	result := getJSON(t, ts.URL+"/api/apikey/test-api-secret?app_instance_id=mock-app-id-03", "")
 	// Should return 400 because HasKey=false
 	if statusCode(result) != 400 {
 		t.Errorf("expected 400 for secret-only key, got %d: %v", statusCode(result), result)
@@ -1283,7 +1281,7 @@ func TestSignWithAPISecret(t *testing.T) {
 
 	// Default payloads are hex-encoded (matches both SDKs).
 	result := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"message":         hex.EncodeToString([]byte("hello world")),
 	}, "")
 	if statusCode(result) != 200 {
@@ -1303,7 +1301,7 @@ func TestSignWithAPISecret(t *testing.T) {
 
 	// encoding="raw" is also accepted for direct curl callers.
 	rawResult := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"message":         "hello world",
 		"encoding":        "raw",
 	}, "")
@@ -1321,11 +1319,11 @@ func TestSignWithAPISecret_DifferentMessages_DifferentSignatures(t *testing.T) {
 	defer ts.Close()
 
 	r1 := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"message":         hex.EncodeToString([]byte("message1")),
 	}, "")
 	r2 := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"message":         hex.EncodeToString([]byte("message2")),
 	}, "")
 	sig1, _ := r1["signature"].(string)
@@ -1342,7 +1340,7 @@ func TestSignWithAPISecret_InvalidHex(t *testing.T) {
 	// A bare string that is not valid hex and no encoding flag should
 	// fail with 400, not silently fall back to raw bytes.
 	result := postJSON(t, ts.URL+"/api/apikey/test-api-secret/sign", map[string]interface{}{
-		"app_instance_id": "test-ecdsa-secp256k1",
+		"app_instance_id": "mock-app-id-03",
 		"message":         "hello world", // "h" is not a valid hex character
 	}, "")
 	if statusCode(result) != 400 {
@@ -1443,7 +1441,7 @@ func TestApprovalFlow_Complete(t *testing.T) {
 
 	// Step 2: submit approval request to create a cache entry + approval task
 	submitResult := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"message":         []byte("approval flow complete test"),
 	}, "")
 	if submitResult["status"] != "pending_approval" {
@@ -1455,7 +1453,7 @@ func TestApprovalFlow_Complete(t *testing.T) {
 
 	// Step 3: init an approval request (authenticated)
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"hash":            hash,
 		"payload":         map[string]interface{}{"action": "transfer", "amount": "100"},
 	}, token)
@@ -1536,7 +1534,7 @@ func TestApprovalFlow_Reject(t *testing.T) {
 
 	// Create task
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"hash":            "0xdeadbeef",
 	}, token)
 	initData, _ := initResult["data"].(map[string]interface{})
@@ -1573,7 +1571,7 @@ func TestApprovalAction_InvalidAction(t *testing.T) {
 
 	// Create a task first
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, token)
 	initData, _ := initResult["data"].(map[string]interface{})
 	requestID, _ := initData["request_id"].(float64)
@@ -1598,7 +1596,7 @@ func TestApprovalPending(t *testing.T) {
 
 	// Submit to approval app to create pending task
 	postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"message":         []byte("pending approval test"),
 	}, "")
 
@@ -1623,17 +1621,17 @@ func TestApprovalPending_FilterByAppInstanceID(t *testing.T) {
 	// Create pending tasks for approval app
 	for i := 0; i < 2; i++ {
 		postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-			"app_instance_id": "test-approval-required",
+			"app_instance_id": "mock-app-id-08",
 			"message":         []byte(fmt.Sprintf("filter test %d", i)),
 		}, "")
 	}
 
 	// Filter by app_instance_id
-	result := getJSON(t, ts.URL+"/api/approvals/pending?app_instance_id=test-approval-required", "")
+	result := getJSON(t, ts.URL+"/api/approvals/pending?app_instance_id=mock-app-id-08", "")
 	data, _ := result["data"].(map[string]interface{})
 	total, _ := data["total"].(float64)
 	if total < 2 {
-		t.Errorf("expected >= 2 tasks for test-approval-required, got %v", total)
+		t.Errorf("expected >= 2 tasks for mock-app-id-08, got %v", total)
 	}
 
 	// Filter by non-existent app — should return 0
@@ -1653,7 +1651,7 @@ func TestMyRequests(t *testing.T) {
 
 	// Create a task as this user
 	postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"hash":            "0xmyrequests-hash",
 	}, token)
 
@@ -1696,7 +1694,7 @@ func TestAuthRequired_ApprovalRequestInitNoToken(t *testing.T) {
 	defer ts.Close()
 
 	result := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	if statusCode(result) != 401 {
 		t.Errorf("approvals/request/init without token: expected 401, got %d", statusCode(result))
@@ -1723,7 +1721,7 @@ func TestCancelRequest_BySession(t *testing.T) {
 
 	// Create a task
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, token)
 	initData, _ := initResult["data"].(map[string]interface{})
 	requestID, _ := initData["request_id"].(float64)
@@ -1758,7 +1756,7 @@ func TestCancelRequest_ByTaskID(t *testing.T) {
 
 	// Create and confirm a task to get task_id
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, token)
 	initData, _ := initResult["data"].(map[string]interface{})
 	requestID, _ := initData["request_id"].(float64)
@@ -1782,7 +1780,7 @@ func TestSignatureByTx(t *testing.T) {
 
 	// Create a pending approval task via submit-request
 	submitResult := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"message":         []byte("signature by tx test"),
 	}, "")
 	txID, _ := submitResult["tx_id"].(string)
@@ -1818,7 +1816,7 @@ func TestAdminInvitePasskey(t *testing.T) {
 
 	result := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
 		"display_name":    "Test User",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
@@ -1841,7 +1839,7 @@ func TestAdminListPasskeyUsers(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	result := getJSON(t, ts.URL+"/api/admin/passkey/users?app_instance_id=test-approval-required", "")
+	result := getJSON(t, ts.URL+"/api/admin/passkey/users?app_instance_id=mock-app-id-08", "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
@@ -1881,7 +1879,7 @@ func TestAdminDeletePasskeyUser(t *testing.T) {
 	regResult := postJSON(t, ts.URL+"/api/passkey/register/verify", map[string]interface{}{
 		"invite_token":    "mock-invite",
 		"display_name":    "To Be Deleted",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"credential":      map[string]interface{}{"id": "mock"},
 	}, "")
 	newUserID, _ := regResult["passkey_user_id"].(float64)
@@ -1927,7 +1925,7 @@ func TestAdminAuditRecords(t *testing.T) {
 
 	// Generate an audit record by submitting to approval app
 	postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		"message":         []byte("audit record test"),
 	}, "")
 
@@ -2143,7 +2141,7 @@ func TestPasskeyRegistrationOptions(t *testing.T) {
 
 	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
 		"display_name":    "Mock Invite User",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	inviteToken, _ := invite["invite_token"].(string)
 	if inviteToken == "" {
@@ -2176,7 +2174,7 @@ func TestPasskeyRegistrationOptions_WithTokenQuery(t *testing.T) {
 
 	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
 		"display_name":    "Mock Token User",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	inviteToken, _ := invite["invite_token"].(string)
 	if inviteToken == "" {
@@ -2199,7 +2197,7 @@ func TestPasskeyRegistrationOptions_UsesInviteDisplayName(t *testing.T) {
 
 	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
 		"display_name":    "Charlie Test",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	inviteToken, _ := invite["invite_token"].(string)
 	if inviteToken == "" {
@@ -2239,7 +2237,7 @@ func TestPasskeyRegistrationVerify(t *testing.T) {
 		"invite_token":    "mock-invite",
 		"credential":      map[string]interface{}{"id": "new-credential"},
 		"display_name":    "New Test User",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
@@ -2261,7 +2259,7 @@ func TestPasskeyRegistrationVerify_DefaultDisplayName(t *testing.T) {
 	result := postJSON(t, ts.URL+"/api/passkey/register/verify", map[string]interface{}{
 		"invite_token":    "mock-invite",
 		"credential":      map[string]interface{}{},
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 		// No display_name — should default to "User <id>"
 	}, "")
 	if statusCode(result) != 200 {
@@ -2279,7 +2277,7 @@ func TestPasskeyRegistrationVerify_UsesInviteDisplayNameAndLoginMatchesCredentia
 
 	invite := postJSON(t, ts.URL+"/api/admin/passkey/invite", map[string]interface{}{
 		"display_name":    "Dana Test",
-		"app_instance_id": "test-approval-required",
+		"app_instance_id": "mock-app-id-08",
 	}, "")
 	inviteToken, _ := invite["invite_token"].(string)
 	if inviteToken == "" {
@@ -2347,8 +2345,8 @@ func TestSigningConsistency_SameMessageSameKey(t *testing.T) {
 	message := []byte("consistency test message 12345678")
 
 	// secp256k1 ECDSA uses btcecdsa.Sign which is deterministic (RFC 6979)
-	r1 := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256k1", message)
-	r2 := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256k1", message)
+	r1 := submitDirectRequest(t, ts.URL, "mock-app-id-03", message)
+	r2 := submitDirectRequest(t, ts.URL, "mock-app-id-03", message)
 
 	sig1, _ := r1["signature"].(string)
 	sig2, _ := r2["signature"].(string)
@@ -2451,7 +2449,7 @@ func TestConcurrentSignRequests(t *testing.T) {
 
 	for i := 0; i < numRequests; i++ {
 		go func(i int) {
-			result := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256k1",
+			result := submitDirectRequest(t, ts.URL, "mock-app-id-03",
 				[]byte(fmt.Sprintf("concurrent test message %d", i)))
 			results <- result
 		}(i)

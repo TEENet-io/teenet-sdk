@@ -6,7 +6,7 @@
 // Tests the mock server functionality
 //
 // Usage:
-//   1. Start mock server: cd mock-server && ./start.sh
+//   1. Start mock server: cd mock-server && make run
 //   2. Run tests: cd examples/typescript-test && npm install && npm test
 
 import { Client, Curve, Protocol, verifyHMACSHA256 } from '@teenet/sdk';
@@ -30,11 +30,10 @@ async function main() {
   console.log();
 
   const testCases: TestCase[] = [
-    { name: 'ED25519 Schnorr', appID: 'test-schnorr-ed25519', protocol: 'schnorr', curve: 'ed25519' },
-    { name: 'SECP256K1 ECDSA', appID: 'test-ecdsa-secp256k1', protocol: 'ecdsa', curve: 'secp256k1' },
-    { name: 'SECP256K1 Schnorr', appID: 'test-schnorr-secp256k1', protocol: 'schnorr', curve: 'secp256k1' },
-    { name: 'SECP256R1 ECDSA', appID: 'test-ecdsa-secp256r1', protocol: 'ecdsa', curve: 'secp256r1' },
-    { name: 'Ethereum Wallet', appID: 'ethereum-wallet-app', protocol: 'ecdsa', curve: 'secp256k1' },
+    { name: 'ED25519 Schnorr', appID: 'mock-app-id-01', protocol: 'schnorr', curve: 'ed25519' },
+    { name: 'SECP256K1 ECDSA', appID: 'mock-app-id-03', protocol: 'ecdsa', curve: 'secp256k1' },
+    { name: 'SECP256K1 Schnorr', appID: 'mock-app-id-02', protocol: 'schnorr', curve: 'secp256k1' },
+    { name: 'SECP256R1 ECDSA', appID: 'mock-app-id-04', protocol: 'ecdsa', curve: 'secp256r1' },
   ];
 
   let passed = 0;
@@ -179,7 +178,7 @@ async function testKeyGeneration(serverURL: string): Promise<void> {
 
 async function testAPIKey(serverURL: string): Promise<void> {
   const client = new Client(serverURL);
-  client.setDefaultAppID('test-ecdsa-secp256k1');
+  client.setDefaultAppID('mock-app-id-03');
 
   try {
     const result = await client.getAPIKey('test-api-key');
@@ -195,7 +194,7 @@ async function testAPIKey(serverURL: string): Promise<void> {
 
 async function testAPISecretSign(serverURL: string): Promise<void> {
   const client = new Client(serverURL);
-  client.setDefaultAppID('test-ecdsa-secp256k1');
+  client.setDefaultAppID('mock-app-id-03');
 
   try {
     const message = Buffer.from('Message to sign with API secret');
@@ -209,8 +208,8 @@ async function testAPISecretSign(serverURL: string): Promise<void> {
     console.log(`   Signature: ${result.signature.slice(0, 16)}... (${result.signature.length / 2} bytes)`);
 
     // Verify HMAC signature locally
-    // Mock server uses secret "secret_test-ecdsa-secp256k1_abcdef"
-    const secret = Buffer.from('secret_test-ecdsa-secp256k1_abcdef');
+    // Mock server uses secret "secret_mock-app-id-03_abcdef"
+    const secret = Buffer.from('secret_mock-app-id-03_abcdef');
     const signatureBytes = Buffer.from(result.signature, 'hex');
 
     const valid = verifyHMACSHA256(message, secret, signatureBytes);

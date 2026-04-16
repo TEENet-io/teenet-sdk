@@ -1,6 +1,6 @@
-# Voting Demo - App-Comm-Consensus SDK
+# Voting Demo - TEENet SDK
 
-A simple web application demonstrating Mode 1 passive voting with the app-comm-consensus SDK.
+A simple web application demonstrating Mode 1 passive voting with the TEENet SDK.
 
 ## Overview
 
@@ -18,7 +18,7 @@ This application showcases how multiple independent app instances can participat
 Instance 1 (voter1_app_instance_id:8081)
     ↓ Vote submitted (1/2)
     ↓
-Consensus Server (collects votes)
+Signing Service (collects votes)
     ↑
 Instance 2 (voter2_app_instance_id:8082)
     ↑ Vote submitted (2/2 - threshold met!)
@@ -31,13 +31,13 @@ Both instances can query/fetch the final signature
 ### Prerequisites
 
 - Go 1.21 or higher
-- Running app-comm-consensus server
-- Multiple APP_INSTANCE_IDs for testing (configured on consensus server)
+- Running TEENet signing service
+- Multiple APP_INSTANCE_IDs for testing (configured on signing service)
 
 ### Installation
 
 ```bash
-cd app-comm-consensus/sdk/example/voting-demo
+cd teenet-sdk/go/examples/voting-demo
 go mod tidy
 ```
 
@@ -88,7 +88,7 @@ go run .
 
 ### Required
 - `APP_INSTANCE_ID`: Unique identifier for this app instance
-- `SERVICE_URL`: URL of the consensus server
+- `SERVICE_URL`: URL of the signing service
 
 ### Optional
 - `PORT`: HTTP server port (default: 8080)
@@ -275,7 +275,7 @@ voting-demo/
 
 ### Issue: "Connection refused" or timeout
 **Solution**:
-- Ensure consensus server is running
+- Ensure signing service is running
 - Check `SERVICE_URL` is correct
 - Verify network connectivity
 
@@ -283,7 +283,7 @@ voting-demo/
 **Solution**:
 - Check voting threshold (need enough votes)
 - Ensure all voters use the **same message**
-- Check consensus server logs
+- Check signing service logs
 
 ### Issue: Different messages on different instances
 **Solution**:
@@ -311,14 +311,14 @@ voting-demo/
 - Check server logs for backend errors
 - Use `/api/health` to verify server status
 
-## Integration with App-Comm-Consensus
+## Integration with TEENet Signing Service
 
-This demo uses the app-comm-consensus SDK's `Sign()` method, which:
-1. Submits vote request to consensus server
+This demo uses the TEENet SDK's `Sign()` method, which:
+1. Submits vote request to the signing service
 2. Polls voting status while pending
 3. Returns signature when threshold met (or timeout/failed)
 
-The consensus server:
+The signing service:
 - Collects votes from multiple app instances
 - Tracks voting progress
 - Triggers signing when threshold reached
@@ -331,5 +331,5 @@ Copyright (c) 2025-2026 TEENet Technology (Hong Kong) Limited.
 
 For issues or questions:
 - Check the SDK documentation
-- Review consensus server logs
+- Review signing service logs
 - Ensure all instances use compatible APP_INSTANCE_IDs

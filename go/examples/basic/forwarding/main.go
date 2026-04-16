@@ -42,7 +42,7 @@ func main() {
 		log.Fatal("PUBLIC_KEY_NAME environment variable is required")
 	}
 
-	// Get consensus URLs from environment
+	// Get service URLs from environment
 	// Example: export SERVICE_URLS="http://localhost:8089,http://localhost:8090"
 	serviceURLsEnv := os.Getenv("SERVICE_URLS")
 	if serviceURLsEnv == "" {
@@ -51,7 +51,7 @@ func main() {
 
 	serviceURLs := strings.Split(serviceURLsEnv, ",")
 	if len(serviceURLs) < 2 {
-		log.Fatal("At least 2 consensus URLs are required")
+		log.Fatal("At least 2 service URLs are required")
 	}
 	message := []byte("Test forwarding message at " + time.Now().Format("15:04:05"))
 

@@ -93,7 +93,7 @@ interface CacheRequest {
 /**
  * TEENet SDK Client
  *
- * Provides cryptographic signing services via TEE consensus nodes.
+ * Provides cryptographic signing services via TEE signing nodes.
  *
  * @example
  * ```typescript
@@ -202,7 +202,7 @@ export class Client {
   }
 
   /**
-   * Sign a message using TEENet consensus
+   * Sign a message using TEENet signing service
    * @param message - The message to sign
    * @param publicKeyName - Bound public key name to use for signing
    * @returns SignResult containing the signature or pending status

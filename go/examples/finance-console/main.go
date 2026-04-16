@@ -985,7 +985,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "no pending price update found for this hash"})
 			return
 		}
-		// Query consensus cache for signature status.
+		// Query service cache for signature status.
 		var status *sdk.VoteStatus
 		err := withClient("", func(client *sdk.Client, _ string) error {
 			var e error

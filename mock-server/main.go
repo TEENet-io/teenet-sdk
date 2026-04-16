@@ -3,9 +3,9 @@
 // See LICENSE file in the project root for full license text.
 
 // -----------------------------------------------------------------------------
-// Mock Consensus Server for TEENet SDK Testing
+// Mock Server for TEENet SDK Testing
 //
-// This mock server simulates the app-comm-consensus service to enable
+// This mock server simulates the signing service to enable
 // offline testing of the TEENet SDK without connecting to actual TEE nodes.
 // It implements real cryptographic signing for all supported algorithms.
 // -----------------------------------------------------------------------------
@@ -224,7 +224,7 @@ type PolicyLevel struct {
 	MemberIDs  []uint `json:"member_ids"`
 }
 
-// MockServer implements a mock consensus server
+// MockServer implements a mock signing service server
 type MockServer struct {
 	// Default cryptographic keys (for pre-configured apps)
 	ed25519Key   ed25519.PrivateKey
@@ -413,9 +413,8 @@ func (s *MockServer) appExists(appID string) bool {
 func (s *MockServer) initDefaultAppKeys() {
 	// Generate public keys from our private keys
 	ed25519PubKey := s.ed25519Key.Public().(ed25519.PublicKey)
-	secp256k1PubKeyCompressed := s.secp256k1Key.PubKey().SerializeCompressed()
-	secp256k1PubKeyUncompressed := s.secp256k1Key.PubKey().SerializeUncompressed()[1:] // Remove 0x04 prefix
-	secp256r1PubKeyCompressed := elliptic.MarshalCompressed(s.secp256r1Key.Curve, s.secp256r1Key.X, s.secp256r1Key.Y)
+	secp256k1PubKey := s.secp256k1Key.PubKey().SerializeCompressed()
+	secp256r1PubKey := elliptic.MarshalCompressed(s.secp256r1Key.Curve, s.secp256r1Key.X, s.secp256r1Key.Y)
 
 	// Default app configurations
 	apps := []struct {
@@ -426,12 +425,10 @@ func (s *MockServer) initDefaultAppKeys() {
 		curveNum    uint32
 		pubKey      []byte
 	}{
-		{"test-schnorr-ed25519", "schnorr", ProtocolSchnorr, "ed25519", CurveED25519, ed25519PubKey},
-		{"test-schnorr-secp256k1", "schnorr", ProtocolSchnorr, "secp256k1", CurveSECP256K1, secp256k1PubKeyCompressed},
-		{"test-ecdsa-secp256k1", "ecdsa", ProtocolECDSA, "secp256k1", CurveSECP256K1, secp256k1PubKeyUncompressed},
-		{"test-ecdsa-secp256r1", "ecdsa", ProtocolECDSA, "secp256r1", CurveSECP256R1, secp256r1PubKeyCompressed},
-		{"ethereum-wallet-app", "ecdsa", ProtocolECDSA, "secp256k1", CurveSECP256K1, secp256k1PubKeyUncompressed},
-		{"secure-messaging-app", "schnorr", ProtocolSchnorr, "ed25519", CurveED25519, ed25519PubKey},
+		{"mock-app-id-01", "schnorr", ProtocolSchnorr, "ed25519", CurveED25519, ed25519PubKey},
+		{"mock-app-id-02", "schnorr", ProtocolSchnorr, "secp256k1", CurveSECP256K1, secp256k1PubKey},
+		{"mock-app-id-03", "ecdsa", ProtocolECDSA, "secp256k1", CurveSECP256K1, secp256k1PubKey},
+		{"mock-app-id-04", "ecdsa", ProtocolECDSA, "secp256r1", CurveSECP256R1, secp256r1PubKey},
 	}
 
 	for _, app := range apps {
@@ -449,7 +446,7 @@ func (s *MockServer) initDefaultAppKeys() {
 // initSampleAPIKeys initializes sample API keys for testing
 func (s *MockServer) initSampleAPIKeys() {
 	// Create sample API keys for test apps
-	testApps := []string{"test-schnorr-ed25519", "test-ecdsa-secp256k1", "ethereum-wallet-app"}
+	testApps := []string{"mock-app-id-01", "mock-app-id-03"}
 
 	for _, appID := range testApps {
 		s.apiKeys[appID] = map[string]*APIKeyInfo{
@@ -480,16 +477,15 @@ func (s *MockServer) initSampleAPIKeys() {
 func (s *MockServer) initVotingConfigs() {
 	// Multi-party voting app: requires 2-of-3 votes
 	// Uses the default secp256k1 ECDSA key
-	secp256k1PubKey := s.secp256k1Key.PubKey()
-	rawPubBytes := secp256k1PubKey.SerializeUncompressed()[1:] // 64 bytes, no 0x04 prefix
+	rawPubBytes := s.secp256k1Key.PubKey().SerializeCompressed()
 
 	// Multi-party voting group: three voter apps share the same public
 	// key so that a 2-of-3 threshold can actually be reached by
 	// submitting the same message from different app_instance_ids.
 	votingTargets := []string{
-		"test-voting-2of3",
-		"test-voting-2of3-voter2",
-		"test-voting-2of3-voter3",
+		"mock-app-id-05",
+		"mock-app-id-06",
+		"mock-app-id-07",
 	}
 	for _, voterID := range votingTargets {
 		s.votingConfigs[voterID] = &VotingConfig{
@@ -510,14 +506,14 @@ func (s *MockServer) initVotingConfigs() {
 	}
 
 	// Approval-required app: needs passkey approval before signing
-	s.votingConfigs["test-approval-required"] = &VotingConfig{
+	s.votingConfigs["mock-app-id-08"] = &VotingConfig{
 		EnableVoting:         false,
 		RequiredVotes:        1,
-		TargetAppInstanceIDs: []string{"test-approval-required"},
+		TargetAppInstanceIDs: []string{"mock-app-id-08"},
 		HasPasskeyPolicy:     true,
 		PasskeyPolicyEnabled: true,
 	}
-	s.setAppKey("test-approval-required", &AppKeyInfo{
+	s.setAppKey("mock-app-id-08", &AppKeyInfo{
 		PublicKey:    hex.EncodeToString(rawPubBytes),
 		PublicKeyRaw: rawPubBytes,
 		Protocol:     "ecdsa",
@@ -528,12 +524,10 @@ func (s *MockServer) initVotingConfigs() {
 
 	// All other default test apps: direct signing (no voting)
 	directApps := []string{
-		"test-schnorr-ed25519",
-		"test-schnorr-secp256k1",
-		"test-ecdsa-secp256k1",
-		"test-ecdsa-secp256r1",
-		"ethereum-wallet-app",
-		"secure-messaging-app",
+		"mock-app-id-01",
+		"mock-app-id-02",
+		"mock-app-id-03",
+		"mock-app-id-04",
 	}
 	for _, appID := range directApps {
 		s.votingConfigs[appID] = &VotingConfig{
@@ -552,13 +546,13 @@ func (s *MockServer) initSamplePasskeyUsers() {
 	s.passkeyUsers[1] = &MockPasskeyUser{
 		ID:            1,
 		DisplayName:   "Alice (test)",
-		AppInstanceID: "test-approval-required",
+		AppInstanceID: "mock-app-id-08",
 		CreatedAt:     now,
 	}
 	s.passkeyUsers[2] = &MockPasskeyUser{
 		ID:            2,
 		DisplayName:   "Bob (test)",
-		AppInstanceID: "test-approval-required",
+		AppInstanceID: "mock-app-id-08",
 		CreatedAt:     now,
 	}
 	startID := uint32(time.Now().Unix())
@@ -738,7 +732,7 @@ func (s *MockServer) Start() error {
 		api.POST("/passkey/register/verify", s.handlePasskeyRegisterVerify)
 	}
 
-	log.Printf("Mock Consensus Server starting on port %s", s.port)
+	log.Printf("Mock Server starting on port %s", s.port)
 	log.Printf("Available test App IDs:")
 	for appID, keys := range s.appKeys {
 		for _, keyInfo := range keys {
@@ -757,7 +751,7 @@ func (s *MockServer) Start() error {
 func (s *MockServer) handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "healthy",
-		"service": "TEENet Mock Consensus Server",
+		"service": "TEENet Mock Server",
 	})
 }
 
@@ -775,7 +769,7 @@ func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 
 	if !s.appExists(appInstanceID) {
 		// Auto-create a new app with default ECDSA secp256k1 key
-		secp256k1PubKey := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
+		secp256k1PubKey := s.secp256k1Key.PubKey().SerializeCompressed()
 		s.setAppKey(appInstanceID, &AppKeyInfo{
 			PublicKey:    hex.EncodeToString(secp256k1PubKey),
 			PublicKeyRaw: secp256k1PubKey,
@@ -802,7 +796,7 @@ func (s *MockServer) handleGetPublicKeys(c *gin.Context) {
 	s.appKeysMutex.RUnlock()
 
 	// Shape each entry to match proto PublicKeyConfig fields returned by
-	// the real app-comm-consensus: id, name, key_data (plain hex, no 0x),
+	// the real signing service: id, name, key_data (plain hex, no 0x),
 	// curve, protocol, application_id.
 	keys := []gin.H{}
 	if defaultInfo, ok := appKeyMap[defaultPub]; ok {
@@ -952,7 +946,7 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 	// --- Voting path ---
 	if hasCfg && votingCfg.EnableVoting {
 		// Whitelist check: the voter must declare itself as a member of
-		// its own voting group. This mirrors what real app-comm-consensus
+		// its own voting group. This mirrors what the real signing service
 		// enforces and prevents a misconfigured app from casting votes
 		// toward a group it does not belong to.
 		if !slices.Contains(votingCfg.TargetAppInstanceIDs, req.AppInstanceID) {
@@ -3079,7 +3073,7 @@ func main() {
 	server := NewMockServer(port)
 
 	log.Println("=" + strings.Repeat("=", 60))
-	log.Println("  TEENet SDK Mock Consensus Server")
+	log.Println("  TEENet SDK Mock Server")
 	log.Println("=" + strings.Repeat("=", 60))
 	log.Printf("  Port: %s", port)
 	log.Printf("  Time: %s", time.Now().Format(time.RFC3339))

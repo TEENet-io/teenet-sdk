@@ -25,7 +25,7 @@ Available in **Go** and **TypeScript**.
        +--------------+   Threshold signing across isolated nodes
 ```
 
-Your app calls `Sign()`, `Verify()`, `GenerateKey()`, and approval APIs. The platform handles everything else: key sharding, threshold consensus, Passkey flows, and audit logging. Private keys are never assembled in any single place — not even inside the TEE.
+Your app calls `Sign()`, `Verify()`, `GenerateKey()`, and approval APIs. The platform handles everything else: key sharding, threshold signing, Passkey flows, and audit logging. Private keys are never assembled in any single place — not even inside the TEE.
 
 ## Features
 

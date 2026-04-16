@@ -1,6 +1,6 @@
 # TEENet SDK for Go
 
-Go SDK for TEENet cryptographic signing services via TEE consensus nodes.
+Go SDK for TEENet cryptographic signing services via TEE signing nodes.
 
 ## Installation
 
@@ -53,7 +53,7 @@ func main() {
 
 - Multiple cryptographic curves: ED25519, SECP256K1, SECP256R1
 - Multiple signing protocols: ECDSA, Schnorr, EdDSA
-- Key generation via TEE consensus
+- Key generation via TEE signing service
 - API Key management
 - HMAC-SHA256 signing with API secrets
 - Automatic M-of-N threshold voting support
@@ -281,7 +281,7 @@ type SignResult struct {
 | Code | Meaning |
 |------|---------|
 | `SIGN_REQUEST_FAILED` | Submit request/network failure |
-| `SIGN_REQUEST_REJECTED` | Consensus rejected request |
+| `SIGN_REQUEST_REJECTED` | Service rejected request |
 | `SIGNATURE_DECODE_FAILED` | Signature decode failed |
 | `UNEXPECTED_STATUS` | Unexpected status value |
 | `MISSING_HASH` | Pending response missing hash |
@@ -340,7 +340,7 @@ Run with mock server:
 ```bash
 # Start mock server
 cd ../mock-server
-./start.sh
+make run
 
 # Run tests
 go test ./...

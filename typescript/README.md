@@ -74,7 +74,7 @@ if (result.success) {
 | Code | Meaning |
 |------|---------|
 | `SIGN_REQUEST_FAILED` | Submit request/network failure |
-| `SIGN_REQUEST_REJECTED` | Consensus rejected request |
+| `SIGN_REQUEST_REJECTED` | Service rejected request |
 | `SIGNATURE_DECODE_FAILED` | Signature decode failed |
 | `UNEXPECTED_STATUS` | Unexpected status value |
 | `MISSING_HASH` | Pending response missing hash |
@@ -149,7 +149,7 @@ Options:
 | `setDefaultAppInstanceID(appInstanceID)` | Set the default application instance ID |
 | `getDefaultAppInstanceID()` | Get the current default App Instance ID |
 | `sign(message, publicKeyName)` | Sign a message with bound key name |
-| `getStatus(hash)` | Get voting status from consensus cache |
+| `getStatus(hash)` | Get voting status from service cache |
 | `passkeyLoginOptions()` | Get passkey login options |
 | `passkeyLoginVerify(loginSessionId, credential)` | Verify passkey login and return approval token |
 | `approvalPending(approvalToken, filter?)` | Get pending approvals for current token identity, optionally filtered by app/key |

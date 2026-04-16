@@ -15,7 +15,7 @@ import (
 	"github.com/TEENet-io/teenet-sdk/go/internal/util"
 )
 
-// Sign generates a cryptographic signature for a message using TEENet consensus.
+// Sign generates a cryptographic signature for a message using the TEENet signing service.
 //
 // This method automatically handles both direct signing and M-of-N threshold voting
 // scenarios based on how the APP_INSTANCE_ID is configured in the TEENet service:

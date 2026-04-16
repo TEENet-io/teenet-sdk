@@ -26,9 +26,9 @@ func TestECDSASecp256k1_SignatureRoundTrip(t *testing.T) {
 	defer ts.Close()
 
 	// Fetch the public key for the app so we know exactly what to
-	// verify against. test-ecdsa-secp256k1 is registered with the
+	// verify against. mock-app-id-03 is registered with the
 	// server's default secp256k1 key.
-	pkResult := getJSON(t, ts.URL+"/api/publickeys/test-ecdsa-secp256k1", "")
+	pkResult := getJSON(t, ts.URL+"/api/publickeys/mock-app-id-03", "")
 	if statusCode(pkResult) != 200 {
 		t.Fatalf("publickeys fetch failed: %v", pkResult)
 	}
@@ -61,7 +61,7 @@ func TestECDSASecp256k1_SignatureRoundTrip(t *testing.T) {
 	// our plaintext first.
 	digest := sha256.Sum256([]byte("teenet signature verification test"))
 
-	result := submitDirectRequest(t, ts.URL, "test-ecdsa-secp256k1", digest[:])
+	result := submitDirectRequest(t, ts.URL, "mock-app-id-03", digest[:])
 	if statusCode(result) != 200 {
 		t.Fatalf("submit-request: %v", result)
 	}

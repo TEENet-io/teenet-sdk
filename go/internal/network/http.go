@@ -45,7 +45,7 @@ func NewHTTPClient(baseURL string, client *http.Client) *HTTPClient {
 // submitRequestPayload is the request body for submitting a signature request.
 // Note: Message is []byte which Go's json.Marshal encodes as base64.
 // This differs from SignWithAPISecret which sends hex-encoded strings.
-// Both encodings are expected by the consensus server.
+// Both encodings are expected by the signing service.
 type submitRequestPayload struct {
 	AppInstanceID string `json:"app_instance_id"`
 	Message       []byte `json:"message"`              // Raw message bytes (JSON auto-encodes to base64)
@@ -105,7 +105,7 @@ type publicKeysResponse struct {
 	Error      string              `json:"error,omitempty"`
 }
 
-// SubmitRequest submits a signature request to the consensus module.
+// SubmitRequest submits a signature request to the signing service.
 // publicKey must be provided as raw key bytes.
 func (c *HTTPClient) SubmitRequest(ctx context.Context, appID string, message []byte, publicKey []byte, passkeyToken string) (*submitRequestResponse, error) {
 	payload := submitRequestPayload{

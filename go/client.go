@@ -2,10 +2,10 @@
 // Licensed under the GNU General Public License v3.0.
 // See LICENSE file in the project root for full license text.
 
-// Package sdk provides a Go client for TEENet consensus signing services.
+// Package sdk provides a Go client for TEENet signing services.
 //
 // This SDK enables applications to request cryptographic signatures from TEENet's
-// Trusted Execution Environment (TEE) consensus nodes. It supports both direct
+// Trusted Execution Environment (TEE) signing nodes. It supports both direct
 // signing and M-of-N threshold voting scenarios, handling the complexity of
 // multi-party signing automatically.
 //
@@ -191,7 +191,7 @@ func (c *Client) GetDefaultAppInstanceID() string {
 	return c.impl.GetDefaultAppInstanceID()
 }
 
-// Sign generates a cryptographic signature for a message using TEENet consensus.
+// Sign generates a cryptographic signature for a message using the TEENet signing service.
 //
 // This method automatically handles both direct signing and M-of-N threshold voting
 // scenarios based on the APP_INSTANCE_ID configuration. For voting flows, it waits until

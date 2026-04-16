@@ -37,14 +37,14 @@ cd voting
 go run main.go
 ```
 
-**Note:** Edit `main.go` to configure your voter app instance IDs and consensus URL.
+**Note:** Edit `main.go` to configure your voter app instance IDs and service URL.
 
 ### 3. Forwarding Voting (`forwarding/`)
 
-Tests cross-consensus-node voting with forwarding.
+Tests cross-node voting with forwarding.
 
 **Features:**
-- Votes from different consensus nodes
+- Votes from different signing nodes
 - Request forwarding between nodes
 - Distributed threshold signing
 
@@ -54,7 +54,7 @@ cd forwarding
 go run main.go
 ```
 
-**Note:** Edit `main.go` to configure consensus URLs and voter app instance IDs.
+**Note:** Edit `main.go` to configure service URLs and voter app instance IDs.
 
 ## Building
 

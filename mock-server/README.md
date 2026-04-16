@@ -1,6 +1,6 @@
-# TEENet SDK Mock Consensus Server
+# TEENet SDK Mock Server
 
-A mock `app-comm-consensus` service for testing the TEENet SDK offline. Implements real cryptographic signing for all supported algorithms, plus voting, approval, and admin endpoint simulation.
+A mock signing service for testing the TEENet SDK offline. Implements real cryptographic signing for all supported algorithms, plus voting, approval, and admin endpoint simulation.
 
 ## Quick Start
 
@@ -75,22 +75,22 @@ Default: `127.0.0.1:8089`
 `POST /api/submit-request` supports three modes based on the app's voting configuration:
 
 ### Direct Signing (default)
-All test apps except `test-voting-2of3` and `test-approval-required`.
+All test apps except `mock-app-id-05..07` (voting) and `mock-app-id-08` (approval).
 
 ```bash
 curl -X POST localhost:8089/api/submit-request \
   -H "Content-Type: application/json" \
-  -d '{"app_instance_id":"test-ecdsa-secp256k1","message":"<base64>"}'
+  -d '{"app_instance_id":"mock-app-id-03","message":"<base64>"}'
 # → {"status":"signed", "signature":"<hex>", ...}
 ```
 
 ### Voting Mode
-App: `test-voting-2of3` (requires 2 votes from different app_instance_ids).
+App: `mock-app-id-05` (requires 2 votes from different app_instance_ids).
 
 ```bash
 # First vote → pending
 curl -X POST localhost:8089/api/submit-request \
-  -d '{"app_instance_id":"test-voting-2of3","message":"<base64>"}'
+  -d '{"app_instance_id":"mock-app-id-05","message":"<base64>"}'
 # → {"status":"pending", "needs_voting":true, "current_votes":1, "required_votes":2}
 
 # Poll status
@@ -101,12 +101,12 @@ curl localhost:8089/api/cache/<hash>
 ```
 
 ### Approval Mode
-App: `test-approval-required` (requires passkey approval).
+App: `mock-app-id-08` (requires passkey approval).
 
 ```bash
 # Submit → pending_approval
 curl -X POST localhost:8089/api/submit-request \
-  -d '{"app_instance_id":"test-approval-required","message":"<base64>"}'
+  -d '{"app_instance_id":"mock-app-id-08","message":"<base64>"}'
 # → {"status":"pending_approval", "tx_id":"mock-tx-1", "request_id":2}
 
 # Login, then approve via /api/approvals/:taskId/action
@@ -141,16 +141,14 @@ valid, _ := client.Verify(ctx, message, result.Signature, "my-key")
 
 | App Instance ID | Protocol | Curve | Mode |
 |----------------|----------|-------|------|
-| test-schnorr-ed25519 | schnorr | ed25519 | Direct |
-| test-schnorr-secp256k1 | schnorr | secp256k1 | Direct |
-| test-ecdsa-secp256k1 | ecdsa | secp256k1 | Direct |
-| test-ecdsa-secp256r1 | ecdsa | secp256r1 | Direct |
-| ethereum-wallet-app | ecdsa | secp256k1 | Direct |
-| secure-messaging-app | schnorr | ed25519 | Direct |
-| test-voting-2of3 | ecdsa | secp256k1 | Voting (2-of-N) |
-| test-approval-required | ecdsa | secp256k1 | Approval |
+| mock-app-id-01 | schnorr | ed25519 | Direct |
+| mock-app-id-02 | schnorr | secp256k1 | Direct |
+| mock-app-id-03 | ecdsa | secp256k1 | Direct |
+| mock-app-id-04 | ecdsa | secp256r1 | Direct |
+| mock-app-id-05..07 | ecdsa | secp256k1 | Voting (2-of-3) |
+| mock-app-id-08 | ecdsa | secp256k1 | Approval |
 
-Pre-configured passkey users: Alice (ID=1), Bob (ID=2) — bound to `test-approval-required`.
+Pre-configured passkey users: Alice (ID=1), Bob (ID=2) — bound to `mock-app-id-08`.
 
 ## Notes
 

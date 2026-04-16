@@ -4,24 +4,25 @@ This example demonstrates how to generate cryptographic keys using the TEENet SD
 
 ## Overview
 
-The SDK provides two key generation functions:
-- `GenerateSchnorrKey(ctx, curve)` - For Schnorr signature keys
-- `GenerateECDSAKey(ctx, curve)` - For ECDSA signature keys
+The SDK provides a single unified key generation function:
 
-## Supported Combinations
+```go
+result, err := client.GenerateKey(ctx, protocol, curve)
+```
 
-### Schnorr Protocol
-- `ed25519` - Edwards curve (recommended for EdDSA-style Schnorr)
-- `secp256k1` - Bitcoin/Ethereum curve
-- `secp256r1` - NIST P-256 curve
+Pick the protocol/curve combination that matches your target chain:
 
-### ECDSA Protocol
-- `secp256k1` - Bitcoin/Ethereum curve (recommended for blockchain)
-- `secp256r1` - NIST P-256 curve (recommended for general use)
+| Target | protocol | curve |
+|---|---|---|
+| Bitcoin Taproot (P2TR / BIP-340) | `sdk.ProtocolSchnorrBIP340` | `sdk.CurveSECP256K1` |
+| Bitcoin Legacy / Ethereum | `sdk.ProtocolECDSA` | `sdk.CurveSECP256K1` |
+| Solana / Ed25519 ecosystem | `sdk.ProtocolEdDSA` | `sdk.CurveED25519` |
+| WebAuthn / NIST P-256 | `sdk.ProtocolECDSA` | `sdk.CurveSECP256R1` |
+| Generic Schnorr | `sdk.ProtocolSchnorr` | any supported curve |
 
 ## Prerequisites
 
-1. TEENet TEENet service running (default: `http://localhost:8089`)
+1. TEENet service running (default: `http://localhost:8089`)
 2. Valid `APP_INSTANCE_ID` environment variable set
 
 ## Usage
@@ -30,7 +31,7 @@ The SDK provides two key generation functions:
 # Set your app instance ID
 export APP_INSTANCE_ID="your-app-instance-id"
 
-# Optional: set consensus URL
+# Optional: set service URL
 export SERVICE_URL="http://localhost:8089"
 
 # Run the example
@@ -40,37 +41,28 @@ go run main.go
 ## Example Output
 
 ```
-=== TEENet Key Generation Example ===
+=== TEENet Key Generation and Signing Example ===
 Service URL: http://localhost:8089
 App Instance ID: abc123
 
-Generating Schnorr key (secp256k1)...
-Schnorr key generated successfully!
+Generating EdDSA key (ed25519)...
+EdDSA key generated successfully!
   Key ID: 1
-  Name: my-schnorr-key
   Protocol: schnorr
-  Curve: secp256k1
-  Public Key: 0x1234567890abcdef...
-  Application ID: 42
-  Created by Instance: abc123
-  DKG Threshold: 2 of 5 participants
+  Curve: ed25519
 
 Generating ECDSA key (secp256k1)...
 ECDSA key generated successfully!
   Key ID: 2
-  Name: my-ecdsa-key
   Protocol: ecdsa
   Curve: secp256k1
-  Public Key: 0xfedcba0987654321...
-  Application ID: 42
-  Created by Instance: abc123
 
 All keys generated successfully!
 ```
 
 ## Key Features
 
-- **Automatic validation**: The SDK validates curve-protocol combinations
+- **Automatic validation**: The SDK validates protocol-curve combinations before the network call
 - **TEE security**: Keys are generated via Trusted Execution Environment
 - **Persistent storage**: Keys are stored in user management system
 - **Multi-curve support**: Choose the best curve for your use case
@@ -83,8 +75,8 @@ After generating keys, you can use them for signing:
 ```go
 ctx := context.Background()
 
-// Generate a key using constants (recommended)
-keyResult, err := client.GenerateSchnorrKey(ctx, sdk.CurveSECP256K1)
+// Generate a key
+keyResult, err := client.GenerateKey(ctx, sdk.ProtocolSchnorrBIP340, sdk.CurveSECP256K1)
 if err != nil {
     log.Fatal(err)
 }
@@ -103,8 +95,10 @@ The SDK provides constants for protocols and curves:
 
 ```go
 // Protocol constants
-sdk.ProtocolECDSA    // "ecdsa"
-sdk.ProtocolSchnorr  // "schnorr"
+sdk.ProtocolECDSA         // "ecdsa"
+sdk.ProtocolSchnorr       // "schnorr"        — generic Schnorr (escape hatch)
+sdk.ProtocolEdDSA         // "eddsa"          — alias; only valid with CurveED25519
+sdk.ProtocolSchnorrBIP340 // "schnorr-bip340" — alias; only valid with CurveSECP256K1
 
 // Curve constants
 sdk.CurveED25519     // "ed25519"
@@ -117,10 +111,9 @@ Using constants is recommended to avoid typos and get compile-time safety.
 ## Error Handling
 
 The SDK provides detailed error messages for common issues:
-- Invalid curve-protocol combinations
+- Invalid protocol-curve combinations (e.g. EdDSA + secp256k1)
 - Missing APP_INSTANCE_ID
 - Network connectivity problems
-- Invalid key names (must be <=50 characters)
 
 ## Related Examples
 

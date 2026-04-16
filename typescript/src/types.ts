@@ -113,7 +113,7 @@ export interface VotingInfo {
 }
 
 /**
- * Status of a voting request from consensus cache
+ * Status of a voting request from service cache
  */
 export interface VoteStatus {
   /** Whether entry was found */

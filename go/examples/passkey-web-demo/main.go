@@ -318,7 +318,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "tx_id is required"})
 				return
 			}
-			byTx, err := getRequestByTxFromConsensus(s.serviceURL, token, txID)
+			byTx, err := getRequestByTxFromService(s.serviceURL, token, txID)
 			if err != nil {
 				writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 				return
@@ -391,7 +391,7 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "not logged in for this browser session"})
 			return
 		}
-		mine, err := getMyRequestsFromConsensus(s.serviceURL, token)
+		mine, err := getMyRequestsFromService(s.serviceURL, token)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 			return
@@ -685,7 +685,7 @@ func randomSessionID() string {
 	return hex.EncodeToString(buf)
 }
 
-func getMyRequestsFromConsensus(serviceURL, token string) ([]map[string]interface{}, error) {
+func getMyRequestsFromService(serviceURL, token string) ([]map[string]interface{}, error) {
 	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(serviceURL, "/")+"/api/requests/mine", nil)
 	if err != nil {
 		return nil, err
@@ -726,7 +726,7 @@ func getMyRequestsFromConsensus(serviceURL, token string) ([]map[string]interfac
 	return []map[string]interface{}{}, nil
 }
 
-func getRequestByTxFromConsensus(serviceURL, token, txID string) (map[string]interface{}, error) {
+func getRequestByTxFromService(serviceURL, token, txID string) (map[string]interface{}, error) {
 	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(serviceURL, "/")+"/api/signature/by-tx/"+url.PathEscape(strings.TrimSpace(txID)), nil)
 	if err != nil {
 		return nil, err

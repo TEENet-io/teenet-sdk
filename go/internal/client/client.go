@@ -2,10 +2,10 @@
 // Licensed under the GNU General Public License v3.0.
 // See LICENSE file in the project root for full license text.
 
-// Package sdk provides a Go client for TEENet consensus signing services.
+// Package sdk provides a Go client for TEENet signing services.
 //
 // This SDK enables applications to request cryptographic signatures from TEENet's
-// Trusted Execution Environment (TEE) consensus nodes. It supports both direct
+// Trusted Execution Environment (TEE) signing nodes. It supports both direct
 // signing and M-of-N threshold voting scenarios, handling the complexity of
 // multi-party signing automatically.
 //
@@ -57,7 +57,7 @@ const (
 	defaultStatusPollInterval = 200 * time.Millisecond
 )
 
-// Client is the main interface for interacting with TEENet consensus signing services.
+// Client is the main interface for interacting with TEENet signing services.
 //
 // A Client instance manages HTTP connections to the TEENet service and handles
 // both direct signing and M-of-N threshold voting operations. It maintains configuration

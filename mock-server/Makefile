@@ -39,7 +39,7 @@ test:
 	curl -s http://localhost:8089/api/health | jq .
 	@echo ""
 	@echo "Testing public keys endpoint..."
-	curl -s http://localhost:8089/api/publickeys/test-ecdsa-secp256k1 | jq .
+	curl -s http://localhost:8089/api/publickeys/mock-app-id-03 | jq .
 
 # Run with a custom port: make run-port PORT=9000
 run-port: build

@@ -51,5 +51,5 @@ Open in browser:
 - This demo keeps approval token per browser session (`X-Demo-Session`/cookie).
 - `app_instance_id` is injected from backend env `APP_INSTANCE_ID`.
 - Initiator does not call approval init manually; the page submits `Sign` and backend auto-initiates approval.
-- Query My Requests and Query Signature both proxy through consensus APIs.
+- Query My Requests and Query Signature both proxy through signing service APIs.
 - WebAuthn runs in browser; SDK orchestrates API calls only.

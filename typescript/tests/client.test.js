@@ -441,7 +441,7 @@ test('getStatus() surfaces error_message from entry', async () => {
         hash: '0xerr',
         status: 'failed',
         required_votes: 2,
-        error_message: 'consensus rejected',
+        error_message: 'request rejected',
       },
     });
   });
@@ -449,7 +449,7 @@ test('getStatus() surfaces error_message from entry', async () => {
   try {
     const status = await c.getStatus('0xerr');
     assert.equal(status.status, 'failed');
-    assert.equal(status.errorMessage, 'consensus rejected');
+    assert.equal(status.errorMessage, 'request rejected');
   } finally {
     c.close();
     server.close();
