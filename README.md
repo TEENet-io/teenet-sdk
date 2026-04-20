@@ -110,6 +110,8 @@ The mock listens on `:8089` and ships with ready-to-use app instances for every 
 
 Both SDKs expose the same surface — Go uses `PascalCase`, TypeScript uses `camelCase`.
 
+> **Full API reference:** [**teenet-io.github.io/teenet-sdk**](https://teenet-io.github.io/teenet-sdk/) — unified Go + TypeScript reference with click-to-switch code tabs.
+
 ## Supported Algorithms
 
 | Protocol | Curve | Use Case |
@@ -160,8 +162,9 @@ teenet-sdk/
 
 ## Documentation
 
+- **SDK docs site (Go + TypeScript, click-to-switch tabs)** — [teenet-io.github.io/teenet-sdk](https://teenet-io.github.io/teenet-sdk/)
 - **Platform overview** — [teenet-io.github.io](https://teenet-io.github.io/)
-- **Go SDK** — [`go/`](go)
+- **Go SDK** — [`go/README.md`](go/README.md)
 - **TypeScript SDK** — [`typescript/README.md`](typescript/README.md)
 - **Mock server** — [`mock-server/README.md`](mock-server/README.md)
 
