@@ -238,8 +238,47 @@
       font-weight: 500;
     }
 
+    /* ── Language switch button ── */
+    .lang-switch {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      z-index: 100;
+      display: flex;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .lang-btn {
+      padding: 5px 14px;
+      border: none;
+      background: none;
+      color: #6b7280;
+      font-size: 13px;
+      font-family: var(--base-font-family);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.15s;
+      font-weight: 500;
+    }
+    .lang-btn:hover {
+      color: #374151;
+      background: #f9fafb;
+    }
+    .lang-btn.active {
+      background: #7c3aed;
+      color: #fff;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 768px) {
+      .lang-switch {
+        top: 8px;
+        right: 8px;
+      }
       .markdown-section {
         padding: 1em;
       }
@@ -247,8 +286,48 @@
   </style>
 </head>
 <body>
+  <!-- Language switch -->
+  <div class="lang-switch">
+    <button class="lang-btn" id="lang-en" onclick="switchLang('en')">EN</button>
+    <button class="lang-btn" id="lang-zh" onclick="switchLang('zh')">中文</button>
+  </div>
+
   <div id="app"></div>
   <script>
+    function currentLang() {
+      var hash = location.hash || '';
+      return hash.indexOf('zh/') !== -1 || hash.indexOf('/zh') !== -1 ? 'zh' : 'en';
+    }
+
+    // Map EN page paths to ZH equivalents and vice versa
+    var pageMap = {
+      '':                 'zh/',
+      'en/quick-start':   'zh/quick-start',
+      'en/api':           'zh/api',
+      'en/mock-server':   'zh/mock-server',
+      'en/examples':      'zh/examples',
+    };
+    var reverseMap = {};
+    for (var k in pageMap) { reverseMap[pageMap[k]] = k; }
+
+    function switchLang(lang) {
+      var hash = (location.hash || '#/').replace('#/', '').replace(/\.md$/, '');
+      var target;
+      if (lang === 'zh') {
+        target = pageMap[hash] !== undefined ? pageMap[hash] : 'zh/';
+      } else {
+        target = reverseMap[hash] !== undefined ? reverseMap[hash] : '';
+      }
+      location.hash = '#/' + target;
+      updateLangButtons();
+    }
+
+    function updateLangButtons() {
+      var lang = currentLang();
+      document.getElementById('lang-en').className = 'lang-btn' + (lang === 'en' ? ' active' : '');
+      document.getElementById('lang-zh').className = 'lang-btn' + (lang === 'zh' ? ' active' : '');
+    }
+
     window.$docsify = {
       name: 'TEENet SDK',
       repo: 'https://github.com/TEENet-io/teenet-sdk',
@@ -256,11 +335,12 @@
       subMaxLevel: 3,
       auto2top: true,
       search: {
-        placeholder: 'Search docs...',
-        noData: 'No results.',
+        placeholder: {'/zh/': '搜索文档...', '/': 'Search docs...'},
+        noData: {'/zh/': '没有结果', '/': 'No results.'},
         paths: 'auto',
       },
       alias: {
+        '/zh/.*/_sidebar.md': '/zh/_sidebar.md',
         '/_sidebar.md': '/_sidebar.md',
       },
       coverpage: false,
@@ -272,6 +352,11 @@
         tabComments: true,
         tabHeadings: true,
       },
+      plugins: [
+        function(hook) {
+          hook.doneEach(function() { updateLangButtons(); });
+        }
+      ],
     };
   </script>
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>

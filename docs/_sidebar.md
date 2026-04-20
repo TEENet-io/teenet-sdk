@@ -1,14 +1,14 @@
 - [Overview](README.md)
 
 - **Getting Started**
-  - [Quick Start](quick-start.md)
-  - [Mock Server](mock-server.md)
+  - [Quick Start](en/quick-start.md)
+  - [Mock Server](en/mock-server.md)
 
 - **API Reference**
-  - [Full Reference (Go + TS)](API.md)
+  - [Full Reference (Go + TS)](en/api.md)
 
 - **Examples**
-  - [Examples Index](examples.md)
+  - [Examples Index](en/examples.md)
 
 - **Links**
   - [GitHub](https://github.com/TEENet-io/teenet-sdk)

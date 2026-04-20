@@ -114,5 +114,5 @@ See [Mock Server](mock-server.md) for details.
 
 ## Next
 
-- [**API Reference**](API.md) — full method surface for Go and TypeScript
+- [**API Reference**](api.md) — full method surface for Go and TypeScript
 - [**Examples**](examples.md) — end-to-end samples (voting UI, passkey web demo, wallets, etc.)

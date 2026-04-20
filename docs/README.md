@@ -12,17 +12,42 @@ Available in **Go** and **TypeScript**.
 
 ## How It Works
 
+Your application runs as a managed container on TEENet **Application Nodes**. The SDK call is local — not a round-trip over the public internet. Before a signature is produced, TEENet enforces your policy (M-of-N voting, Passkey approval, spending limits). Signing itself happens on separate **Key Management Nodes**, where keys are sharded across hardware TEE and **never assembled in any single place** — not even inside the TEE.
+
 ```
-       Your Application
-              |
-              v   teenet-sdk  (HTTP)
-       +--------------+
-       |   TEENet     |
-       |   Platform   |   Hardware TEE (Intel TDX / AMD SEV)
-       +--------------+   Threshold signing across isolated nodes
++-- TEENet ----------------------------------------+
+|                                                  |
+|   +-- Application Nodes ---------------------+   |
+|   |                                          |   |
+|   |   +-- Docker container -------------+    |   |
+|   |   |   Your Application              |    |   |
+|   |   +-----+---------------------------+    |   |
+|   |         |                                |   |
+|   |         |  teenet-sdk  (HTTP, local)     |   |
+|   |         v                                |   |
+|   |   Policy & Approval                      |   |
+|   |   M-of-N voting, Passkey, spending       |   |
+|   |                                          |   |
+|   +--------+---------------------------------+   |
+|            |                                     |
+|            v                                     |
+|   +-- Key Management Nodes ------------------+   |
+|   |                                          |   |
+|   |   +-----+ +-----+ +-----+ +-----+        |   |
+|   |   |Node1| |Node2| |Node3| |Node4|  ...   |   |
+|   |   |shard| |shard| |shard| |shard|        |   |
+|   |   +-----+ +-----+ +-----+ +-----+        |   |
+|   |                                          |   |
+|   |   Threshold signing on hardware TEE      |   |
+|   |   Intel TDX / AMD SEV                    |   |
+|   |   Keys never assembled anywhere          |   |
+|   |                                          |   |
+|   +------------------------------------------+   |
+|                                                  |
++--------------------------------------------------+
 ```
 
-Your app calls `Sign()`, `Verify()`, `GenerateKey()`, and approval APIs. The platform handles everything else: key sharding, threshold signing, Passkey flows, and audit logging. Private keys are never assembled in any single place — not even inside the TEE.
+Your app calls `Sign()`, `Verify()`, `GenerateKey()`, and approval APIs. Everything else — policy enforcement, key sharding, signing, audit — happens behind the SDK.
 
 ---
 
@@ -40,10 +65,10 @@ Your app calls `Sign()`, `Verify()`, `GenerateKey()`, and approval APIs. The pla
 
 ## Jump in
 
-- [**Quick Start**](quick-start.md) — install the SDK and sign your first message
-- [**API Reference**](API.md) — full Go + TypeScript reference with click-to-switch code tabs
-- [**Mock Server**](mock-server.md) — real crypto, zero infra, for local dev
-- [**Examples**](examples.md) — end-to-end sample apps
+- [**Quick Start**](en/quick-start.md) — install the SDK and sign your first message
+- [**API Reference**](en/api.md) — full Go + TypeScript reference with click-to-switch code tabs
+- [**Mock Server**](en/mock-server.md) — real crypto, zero infra, for local dev
+- [**Examples**](en/examples.md) — end-to-end sample apps
 
 ---
 
@@ -65,3 +90,5 @@ The SDK is the client surface for [TEENet](https://teenet.io) — a platform pro
 Built on TEENet: [TEENet Wallet](https://github.com/TEENet-io/teenet-wallet) — a Passkey-protected, AI-agent-ready crypto wallet.
 
 [Platform docs](https://teenet-io.github.io/) · [SDK on GitHub](https://github.com/TEENet-io/teenet-sdk)
+
+**[中文文档 →](zh/)**
