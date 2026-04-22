@@ -9,6 +9,11 @@ export PASSKEY_RP_NAME ?= TEENet Mock
 export PASSKEY_REQUIRE_UV ?= true
 export PASSKEY_PLATFORM_ONLY ?= false
 
+# Bind on 0.0.0.0 by default so Docker containers and other VMs on the host
+# can reach the mock via their host-gateway. Override with MOCK_SERVER_BIND=127.0.0.1
+# if you want to restrict the mock to loopback-only.
+export MOCK_SERVER_BIND ?= 0.0.0.0
+
 # Build the mock server
 build:
 	go build -o mock-server .
@@ -62,6 +67,7 @@ help:
 	@echo ""
 	@echo "Environment variables (with defaults):"
 	@echo "  MOCK_SERVER_PORT      - Server port (default: 8089)"
+	@echo "  MOCK_SERVER_BIND      - Bind address (default: 0.0.0.0; set to 127.0.0.1 for loopback-only)"
 	@echo "  PASSKEY_RP_ID         - WebAuthn RP id (default: localhost)"
 	@echo "  PASSKEY_RP_ORIGIN     - WebAuthn RP origin (default: http://localhost:18080)"
 	@echo "  PASSKEY_RP_NAME       - WebAuthn RP display name (default: TEENet Mock)"
