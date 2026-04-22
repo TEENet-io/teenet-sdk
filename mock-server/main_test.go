@@ -787,9 +787,9 @@ func TestVotingMode_AppWithoutConfigFallsThroughToDirectSign(t *testing.T) {
 	defer ts.Close()
 
 	// Register a key but deliberately DO NOT set a votingConfig entry.
-	const appID = "no-config-app"
+	const appInstanceID = "no-config-app"
 	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
-	s.setAppKey(appID, &AppKeyInfo{
+	s.setAppKey(appInstanceID, &AppKeyInfo{
 		PublicKey:    hex.EncodeToString(rawPub),
 		PublicKeyRaw: rawPub,
 		Protocol:     "ecdsa",
@@ -799,7 +799,7 @@ func TestVotingMode_AppWithoutConfigFallsThroughToDirectSign(t *testing.T) {
 	})
 
 	r := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"message":         []byte("no-config direct sign"),
 	}, "")
 	if statusCode(r) != 200 {
@@ -821,19 +821,19 @@ func TestVotingMode_DirectSignAppBypassesWhitelist(t *testing.T) {
 	ts, s := setupTestServerWithInstance(t)
 	defer ts.Close()
 
-	const appID = "direct-sign-weird-config"
+	const appInstanceID = "direct-sign-weird-config"
 	rawPub := s.secp256k1Key.PubKey().SerializeUncompressed()[1:]
 	// Intentionally inconsistent: EnableVoting=false, and the group list
 	// does not contain the app itself. The whitelist check must not fire
 	// because the voting path is never entered for direct-signing apps.
 	s.votingConfigsMutex.Lock()
-	s.votingConfigs[appID] = &VotingConfig{
+	s.votingConfigs[appInstanceID] = &VotingConfig{
 		EnableVoting:         false,
 		RequiredVotes:        1,
 		TargetAppInstanceIDs: []string{"someone-else"},
 	}
 	s.votingConfigsMutex.Unlock()
-	s.setAppKey(appID, &AppKeyInfo{
+	s.setAppKey(appInstanceID, &AppKeyInfo{
 		PublicKey:    hex.EncodeToString(rawPub),
 		PublicKeyRaw: rawPub,
 		Protocol:     "ecdsa",
@@ -843,7 +843,7 @@ func TestVotingMode_DirectSignAppBypassesWhitelist(t *testing.T) {
 	})
 
 	r := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"message":         []byte("direct sign bypasses whitelist"),
 	}, "")
 	if statusCode(r) != 200 {
@@ -1157,12 +1157,12 @@ func TestGenerateKey_AppearsInPublicKeys(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	appID := "gen-key-visibility-test"
+	appInstanceID := "gen-key-visibility-test"
 	// Trigger auto-creation
-	getJSON(t, ts.URL+"/api/publickeys/"+appID, "")
+	getJSON(t, ts.URL+"/api/publickeys/"+appInstanceID, "")
 
 	genResult := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"curve":           "secp256k1",
 		"protocol":        "ecdsa",
 	}, "")
@@ -1173,7 +1173,7 @@ func TestGenerateKey_AppearsInPublicKeys(t *testing.T) {
 	generatedName, _ := pk["name"].(string)
 
 	// Now fetch public keys list
-	keysResult := getJSON(t, ts.URL+"/api/publickeys/"+appID, "")
+	keysResult := getJSON(t, ts.URL+"/api/publickeys/"+appInstanceID, "")
 	keys, _ := keysResult["public_keys"].([]interface{})
 	found := false
 	for _, k := range keys {
@@ -1460,13 +1460,9 @@ func TestApprovalFlow_Complete(t *testing.T) {
 	if statusCode(initResult) != 200 {
 		t.Fatalf("approval init failed: %d: %v", statusCode(initResult), initResult)
 	}
-	if initResult["success"] != true {
-		t.Fatalf("expected success=true in init")
-	}
-	initData, _ := initResult["data"].(map[string]interface{})
-	newRequestID, _ := initData["request_id"].(float64)
+	newRequestID, _ := initResult["request_id"].(float64)
 	newRequestIDStr := fmt.Sprintf("%.0f", newRequestID)
-	txID, _ := initData["tx_id"].(string)
+	txID, _ := initResult["tx_id"].(string)
 	if txID == "" {
 		t.Fatalf("expected tx_id in init response")
 	}
@@ -1476,9 +1472,6 @@ func TestApprovalFlow_Complete(t *testing.T) {
 	if statusCode(challengeResult) != 200 {
 		t.Fatalf("challenge failed: %d: %v", statusCode(challengeResult), challengeResult)
 	}
-	if challengeResult["success"] != true {
-		t.Errorf("expected success=true in challenge")
-	}
 
 	// Step 5: confirm the request
 	confirmResult := postJSON(t, ts.URL+"/api/approvals/request/"+newRequestIDStr+"/confirm", map[string]interface{}{
@@ -1487,11 +1480,7 @@ func TestApprovalFlow_Complete(t *testing.T) {
 	if statusCode(confirmResult) != 200 {
 		t.Fatalf("confirm failed: %d: %v", statusCode(confirmResult), confirmResult)
 	}
-	if confirmResult["success"] != true {
-		t.Fatalf("expected success=true in confirm")
-	}
-	confirmData, _ := confirmResult["data"].(map[string]interface{})
-	taskID, _ := confirmData["task_id"].(float64)
+	taskID, _ := confirmResult["task_id"].(float64)
 	taskIDStr := fmt.Sprintf("%.0f", taskID)
 	if taskIDStr == "0" {
 		t.Fatalf("expected valid task_id, got %v", taskID)
@@ -1502,9 +1491,6 @@ func TestApprovalFlow_Complete(t *testing.T) {
 	if statusCode(actionChallengeResult) != 200 {
 		t.Fatalf("action challenge failed: %d", statusCode(actionChallengeResult))
 	}
-	if actionChallengeResult["success"] != true {
-		t.Errorf("expected success=true in action challenge")
-	}
 
 	// Step 7: take action (APPROVE)
 	actionResult := postJSON(t, ts.URL+"/api/approvals/"+taskIDStr+"/action", map[string]interface{}{
@@ -1514,12 +1500,8 @@ func TestApprovalFlow_Complete(t *testing.T) {
 	if statusCode(actionResult) != 200 {
 		t.Fatalf("action failed: %d: %v", statusCode(actionResult), actionResult)
 	}
-	if actionResult["success"] != true {
-		t.Fatalf("expected success=true in action")
-	}
-	actionData, _ := actionResult["data"].(map[string]interface{})
-	if actionData["status"] != "APPROVED" {
-		t.Errorf("expected status=APPROVED, got %v", actionData["status"])
+	if actionResult["status"] != "APPROVED" {
+		t.Errorf("expected status=APPROVED, got %v", actionResult["status"])
 	}
 
 	// Use requestIDStr to avoid "declared and not used" lint error
@@ -1537,16 +1519,14 @@ func TestApprovalFlow_Reject(t *testing.T) {
 		"app_instance_id": "mock-app-id-08",
 		"hash":            "0xdeadbeef",
 	}, token)
-	initData, _ := initResult["data"].(map[string]interface{})
-	requestID, _ := initData["request_id"].(float64)
+	requestID, _ := initResult["request_id"].(float64)
 	requestIDStr := fmt.Sprintf("%.0f", requestID)
 
 	// Confirm
 	confirmResult := postJSON(t, ts.URL+"/api/approvals/request/"+requestIDStr+"/confirm", map[string]interface{}{
 		"credential": map[string]interface{}{},
 	}, "")
-	confirmData, _ := confirmResult["data"].(map[string]interface{})
-	taskID, _ := confirmData["task_id"].(float64)
+	taskID, _ := confirmResult["task_id"].(float64)
 	taskIDStr := fmt.Sprintf("%.0f", taskID)
 
 	// Reject action
@@ -1554,12 +1534,11 @@ func TestApprovalFlow_Reject(t *testing.T) {
 		"action":     "REJECT",
 		"credential": map[string]interface{}{},
 	}, token)
-	if actionResult["success"] != true {
-		t.Fatalf("expected success=true for REJECT action: %v", actionResult)
+	if statusCode(actionResult) != 200 {
+		t.Fatalf("REJECT action failed: %d: %v", statusCode(actionResult), actionResult)
 	}
-	actionData, _ := actionResult["data"].(map[string]interface{})
-	if actionData["status"] != "REJECTED" {
-		t.Errorf("expected status=REJECTED, got %v", actionData["status"])
+	if actionResult["status"] != "REJECTED" {
+		t.Errorf("expected status=REJECTED, got %v", actionResult["status"])
 	}
 }
 
@@ -1573,13 +1552,11 @@ func TestApprovalAction_InvalidAction(t *testing.T) {
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
 		"app_instance_id": "mock-app-id-08",
 	}, token)
-	initData, _ := initResult["data"].(map[string]interface{})
-	requestID, _ := initData["request_id"].(float64)
+	requestID, _ := initResult["request_id"].(float64)
 	requestIDStr := fmt.Sprintf("%.0f", requestID)
 
 	confirmResult := postJSON(t, ts.URL+"/api/approvals/request/"+requestIDStr+"/confirm", map[string]interface{}{}, "")
-	confirmData, _ := confirmResult["data"].(map[string]interface{})
-	taskID, _ := confirmData["task_id"].(float64)
+	taskID, _ := confirmResult["task_id"].(float64)
 	taskIDStr := fmt.Sprintf("%.0f", taskID)
 
 	result := postJSON(t, ts.URL+"/api/approvals/"+taskIDStr+"/action", map[string]interface{}{
@@ -1604,11 +1581,7 @@ func TestApprovalPending(t *testing.T) {
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d", statusCode(result))
 	}
-	if result["success"] != true {
-		t.Errorf("expected success=true")
-	}
-	data, _ := result["data"].(map[string]interface{})
-	total, _ := data["total"].(float64)
+	total, _ := result["total"].(float64)
 	if total < 1 {
 		t.Errorf("expected at least 1 pending task, got %v", total)
 	}
@@ -1628,16 +1601,14 @@ func TestApprovalPending_FilterByAppInstanceID(t *testing.T) {
 
 	// Filter by app_instance_id
 	result := getJSON(t, ts.URL+"/api/approvals/pending?app_instance_id=mock-app-id-08", "")
-	data, _ := result["data"].(map[string]interface{})
-	total, _ := data["total"].(float64)
+	total, _ := result["total"].(float64)
 	if total < 2 {
 		t.Errorf("expected >= 2 tasks for mock-app-id-08, got %v", total)
 	}
 
 	// Filter by non-existent app — should return 0
 	result2 := getJSON(t, ts.URL+"/api/approvals/pending?app_instance_id=nonexistent-app-filter", "")
-	data2, _ := result2["data"].(map[string]interface{})
-	total2, _ := data2["total"].(float64)
+	total2, _ := result2["total"].(float64)
 	if total2 != 0 {
 		t.Errorf("expected 0 tasks for nonexistent app, got %v", total2)
 	}
@@ -1659,12 +1630,9 @@ func TestMyRequests(t *testing.T) {
 	if statusCode(result) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(result), result)
 	}
-	if result["success"] != true {
-		t.Errorf("expected success=true")
-	}
-	count, _ := result["count"].(float64)
-	if count < 1 {
-		t.Errorf("expected count >= 1, got %v", count)
+	total, _ := result["total"].(float64)
+	if total < 1 {
+		t.Errorf("expected total >= 1, got %v", total)
 	}
 }
 
@@ -1723,8 +1691,7 @@ func TestCancelRequest_BySession(t *testing.T) {
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
 		"app_instance_id": "mock-app-id-08",
 	}, token)
-	initData, _ := initResult["data"].(map[string]interface{})
-	requestID, _ := initData["request_id"].(float64)
+	requestID, _ := initResult["request_id"].(float64)
 	requestIDStr := fmt.Sprintf("%.0f", requestID)
 
 	// Cancel by session type
@@ -1738,9 +1705,8 @@ func TestCancelRequest_BySession(t *testing.T) {
 
 	// Verify task is no longer pending
 	pendingResult := getJSON(t, ts.URL+"/api/approvals/pending", "")
-	data, _ := pendingResult["data"].(map[string]interface{})
-	tasks, _ := data["tasks"].([]interface{})
-	for _, task := range tasks {
+	approvals, _ := pendingResult["approvals"].([]interface{})
+	for _, task := range approvals {
 		taskMap := task.(map[string]interface{})
 		if fmt.Sprintf("%.0f", taskMap["request_id"].(float64)) == requestIDStr {
 			t.Errorf("cancelled task should not be in pending list")
@@ -1758,13 +1724,11 @@ func TestCancelRequest_ByTaskID(t *testing.T) {
 	initResult := postJSON(t, ts.URL+"/api/approvals/request/init", map[string]interface{}{
 		"app_instance_id": "mock-app-id-08",
 	}, token)
-	initData, _ := initResult["data"].(map[string]interface{})
-	requestID, _ := initData["request_id"].(float64)
+	requestID, _ := initResult["request_id"].(float64)
 	requestIDStr := fmt.Sprintf("%.0f", requestID)
 
 	confirmResult := postJSON(t, ts.URL+"/api/approvals/request/"+requestIDStr+"/confirm", map[string]interface{}{}, "")
-	confirmData, _ := confirmResult["data"].(map[string]interface{})
-	taskID, _ := confirmData["task_id"].(float64)
+	taskID, _ := confirmResult["task_id"].(float64)
 	taskIDStr := fmt.Sprintf("%.0f", taskID)
 
 	// Cancel by task ID (default type)
@@ -1955,12 +1919,12 @@ func TestAdminPolicyCRUD(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	appID := "policy-test-app"
+	appInstanceID := "policy-test-app"
 	keyName := "policy-test-key"
 
 	// CREATE / UPSERT
 	putResult := putJSON(t, ts.URL+"/api/admin/policy", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"public_key_name": keyName,
 		"enabled":         true,
 		"timeout_seconds": 300,
@@ -1976,7 +1940,7 @@ func TestAdminPolicyCRUD(t *testing.T) {
 	}
 
 	// READ
-	getResult := getJSON(t, ts.URL+"/api/admin/policy?app_instance_id="+appID+"&public_key_name="+keyName, "")
+	getResult := getJSON(t, ts.URL+"/api/admin/policy?app_instance_id="+appInstanceID+"&public_key_name="+keyName, "")
 	if statusCode(getResult) != 200 {
 		t.Fatalf("GET policy: expected 200, got %d: %v", statusCode(getResult), getResult)
 	}
@@ -1989,13 +1953,13 @@ func TestAdminPolicyCRUD(t *testing.T) {
 	}
 
 	// DELETE
-	delResult := deleteJSON(t, ts.URL+"/api/admin/policy?app_instance_id="+appID+"&public_key_name="+keyName, "")
+	delResult := deleteJSON(t, ts.URL+"/api/admin/policy?app_instance_id="+appInstanceID+"&public_key_name="+keyName, "")
 	if statusCode(delResult) != 200 {
 		t.Fatalf("DELETE policy: expected 200, got %d: %v", statusCode(delResult), delResult)
 	}
 
 	// GET after delete — expect 404
-	getAfter := getJSON(t, ts.URL+"/api/admin/policy?app_instance_id="+appID+"&public_key_name="+keyName, "")
+	getAfter := getJSON(t, ts.URL+"/api/admin/policy?app_instance_id="+appInstanceID+"&public_key_name="+keyName, "")
 	if statusCode(getAfter) != 404 {
 		t.Errorf("expected 404 after delete, got %d", statusCode(getAfter))
 	}
@@ -2015,12 +1979,12 @@ func TestAdminCreateDeleteAPIKey(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	appID := "apikey-admin-test-app"
+	appInstanceID := "apikey-admin-test-app"
 	keyName := "admin-created-key"
 
 	// CREATE
 	createResult := postJSON(t, ts.URL+"/api/admin/apikeys", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"name":            keyName,
 		"description":     "test API key",
 		"api_key":         "my-api-key-value",
@@ -2044,7 +2008,7 @@ func TestAdminCreateDeleteAPIKey(t *testing.T) {
 	}
 
 	// GET the created key
-	getResult := getJSON(t, ts.URL+"/api/apikey/"+keyName+"?app_instance_id="+appID, "")
+	getResult := getJSON(t, ts.URL+"/api/apikey/"+keyName+"?app_instance_id="+appInstanceID, "")
 	if statusCode(getResult) != 200 {
 		t.Fatalf("expected 200 on get, got %d: %v", statusCode(getResult), getResult)
 	}
@@ -2053,7 +2017,7 @@ func TestAdminCreateDeleteAPIKey(t *testing.T) {
 	}
 
 	// DELETE
-	delResult := deleteJSON(t, ts.URL+"/api/admin/apikeys/"+keyName+"?app_instance_id="+appID, "")
+	delResult := deleteJSON(t, ts.URL+"/api/admin/apikeys/"+keyName+"?app_instance_id="+appInstanceID, "")
 	if statusCode(delResult) != 200 {
 		t.Fatalf("expected 200 on delete, got %d: %v", statusCode(delResult), delResult)
 	}
@@ -2076,10 +2040,10 @@ func TestAdminDeletePublicKey(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	appID := "delete-pubkey-test-app"
+	appInstanceID := "delete-pubkey-test-app"
 	// Generate a key
 	genResult := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"curve":           "secp256k1",
 		"protocol":        "ecdsa",
 	}, "")
@@ -2090,7 +2054,7 @@ func TestAdminDeletePublicKey(t *testing.T) {
 	keyName, _ := pk["name"].(string)
 
 	// Verify key exists
-	keysBefore := getJSON(t, ts.URL+"/api/publickeys/"+appID, "")
+	keysBefore := getJSON(t, ts.URL+"/api/publickeys/"+appInstanceID, "")
 	foundBefore := false
 	for _, k := range keysBefore["public_keys"].([]interface{}) {
 		kMap := k.(map[string]interface{})
@@ -2104,7 +2068,7 @@ func TestAdminDeletePublicKey(t *testing.T) {
 	}
 
 	// Delete the key
-	delResult := deleteJSON(t, ts.URL+"/api/admin/publickeys/"+keyName+"?app_instance_id="+appID, "")
+	delResult := deleteJSON(t, ts.URL+"/api/admin/publickeys/"+keyName+"?app_instance_id="+appInstanceID, "")
 	if statusCode(delResult) != 200 {
 		t.Fatalf("expected 200, got %d: %v", statusCode(delResult), delResult)
 	}
@@ -2113,7 +2077,7 @@ func TestAdminDeletePublicKey(t *testing.T) {
 	}
 
 	// Verify key gone from list
-	keysAfter := getJSON(t, ts.URL+"/api/publickeys/"+appID, "")
+	keysAfter := getJSON(t, ts.URL+"/api/publickeys/"+appInstanceID, "")
 	// Note: deleteAdminPublicKey deletes from appKeys (default key) AND generatedKeys.
 	// So the publickeys endpoint may return 0 or 1 keys for this app depending on
 	// whether the default key was also deleted.
@@ -2363,11 +2327,11 @@ func TestSigningWithGeneratedKey(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	appID := "signing-with-generated-key-test"
+	appInstanceID := "signing-with-generated-key-test"
 
 	// Generate a new key
 	genResult := postJSON(t, ts.URL+"/api/generate-key", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"curve":           "secp256k1",
 		"protocol":        "ecdsa",
 	}, "")
@@ -2385,7 +2349,7 @@ func TestSigningWithGeneratedKey(t *testing.T) {
 
 	// Submit with explicit public key
 	result := postJSON(t, ts.URL+"/api/submit-request", map[string]interface{}{
-		"app_instance_id": appID,
+		"app_instance_id": appInstanceID,
 		"message":         []byte("signing with generated key test"),
 		"public_key":      keyBytes,
 	}, "")

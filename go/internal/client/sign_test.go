@@ -52,14 +52,14 @@ func TestMin(t *testing.T) {
 	}
 }
 
-func TestSign_NoAppID(t *testing.T) {
+func TestSign_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.Sign(ctx, []byte("test message"), testSigningKeyName)
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 

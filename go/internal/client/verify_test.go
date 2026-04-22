@@ -30,14 +30,14 @@ func singleKeyResponse(keyData, protocol, curve string) map[string]interface{} {
 	}
 }
 
-func TestGetPublicKeys_NoAppID(t *testing.T) {
+func TestGetPublicKeys_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.GetPublicKeys(ctx)
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
@@ -97,14 +97,14 @@ func TestGetPublicKeys_ServerError(t *testing.T) {
 	}
 }
 
-func TestVerify_NoAppID(t *testing.T) {
+func TestVerify_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.Verify(ctx, []byte("message"), []byte("signature"), "pk1")
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 

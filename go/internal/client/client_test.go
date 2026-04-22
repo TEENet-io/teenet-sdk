@@ -106,7 +106,7 @@ func TestSetDefaultAppInstanceIDFromEnv(t *testing.T) {
 	}
 }
 
-func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
+func TestSetDefaultAppInstanceIDFromEnv_NotSet(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
@@ -248,7 +248,7 @@ func TestGenerateKey_InvalidProtocol(t *testing.T) {
 	}
 }
 
-func TestGenerateKey_NoAppID(t *testing.T) {
+func TestGenerateKey_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
@@ -256,7 +256,7 @@ func TestGenerateKey_NoAppID(t *testing.T) {
 	// Valid combo but no app ID — underlying generateKey should fail.
 	_, err := client.GenerateKey(ctx, "schnorr", "secp256k1")
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
@@ -387,14 +387,14 @@ func TestGenerateKey_EcdsaSecp256k1WithMockServer(t *testing.T) {
 	}
 }
 
-func TestGetAPIKey_NoAppID(t *testing.T) {
+func TestGetAPIKey_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.GetAPIKey(ctx, "test-key")
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
@@ -410,14 +410,14 @@ func TestGetAPIKey_EmptyName(t *testing.T) {
 	}
 }
 
-func TestSignWithAPISecret_NoAppID(t *testing.T) {
+func TestSignWithAPISecret_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.SignWithAPISecret(ctx, "test-secret", []byte("message"))
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
@@ -772,7 +772,7 @@ func TestNoLogOutputWhenDebugDisabled(t *testing.T) {
 		t.Error("Expected no lifecycle log when debug=false")
 	}
 	if strings.Contains(output, "APP_INSTANCE_ID set to") {
-		t.Error("Expected no App ID log when debug=false")
+		t.Error("Expected no App Instance ID log when debug=false")
 	}
 }
 

@@ -302,13 +302,13 @@ func (c *Client) GetPendingWaitTimeout() time.Duration {
 
 // generateKey calls the HTTP API to generate a key and converts the response.
 func (c *Client) generateKey(ctx context.Context, curve, protocol string) (*types.GenerateKeyResult, error) {
-	appID, err := c.getAppInstanceID()
+	appInstanceID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
 
-	c.debugf("Generating %s key: curve=%s, app_id=%s", protocol, curve, appID)
-	resp, err := c.httpClient.GenerateKey(ctx, appID, curve, protocol)
+	c.debugf("Generating %s key: curve=%s, app_id=%s", protocol, curve, appInstanceID)
+	resp, err := c.httpClient.GenerateKey(ctx, appInstanceID, curve, protocol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate %s key: %w", protocol, err)
 	}
@@ -404,7 +404,7 @@ func (c *Client) GenerateKey(ctx context.Context, protocol, curve string) (*type
 //	}
 //	fmt.Printf("API Key: %s\n", result.APIKey)
 func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResult, error) {
-	appID, err := c.getAppInstanceID()
+	appInstanceID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -414,10 +414,10 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 		return nil, fmt.Errorf("API key name cannot be empty")
 	}
 
-	c.debugf("Retrieving API key: name=%s, app_id=%s", name, appID)
+	c.debugf("Retrieving API key: name=%s, app_id=%s", name, appInstanceID)
 
 	// Call HTTP API
-	resp, err := c.httpClient.GetAPIKey(ctx, appID, name)
+	resp, err := c.httpClient.GetAPIKey(ctx, appInstanceID, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
@@ -426,7 +426,7 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 		return &types.APIKeyResult{
 			Success:       false,
 			Error:         resp.Error,
-			AppInstanceID: appID,
+			AppInstanceID: appInstanceID,
 			Name:          name,
 		}, nil
 	}
@@ -467,7 +467,7 @@ func (c *Client) GetAPIKey(ctx context.Context, name string) (*types.APIKeyResul
 //	}
 //	fmt.Printf("Signature: %s\n", result.Signature)
 func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []byte) (*types.APISignResult, error) {
-	appID, err := c.getAppInstanceID()
+	appInstanceID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
@@ -482,10 +482,10 @@ func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []b
 		return nil, fmt.Errorf("message cannot be empty")
 	}
 
-	c.debugf("Signing with API secret: name=%s, app_id=%s, message_len=%d", name, appID, len(message))
+	c.debugf("Signing with API secret: name=%s, app_id=%s, message_len=%d", name, appInstanceID, len(message))
 
 	// Call HTTP API
-	resp, err := c.httpClient.SignWithAPISecret(ctx, appID, name, message)
+	resp, err := c.httpClient.SignWithAPISecret(ctx, appInstanceID, name, message)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign with API secret: %w", err)
 	}
@@ -494,7 +494,7 @@ func (c *Client) SignWithAPISecret(ctx context.Context, name string, message []b
 		return &types.APISignResult{
 			Success:       false,
 			Error:         resp.Error,
-			AppInstanceID: appID,
+			AppInstanceID: appInstanceID,
 			Name:          name,
 			MessageLength: len(message),
 		}, nil

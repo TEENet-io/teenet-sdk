@@ -16,7 +16,7 @@ const serverURL = process.env.MOCK_SERVER_URL || 'http://localhost:8089';
 
 interface TestCase {
   name: string;
-  appID: string;
+  appInstanceID: string;
   protocol: string;
   curve: string;
 }
@@ -30,10 +30,10 @@ async function main() {
   console.log();
 
   const testCases: TestCase[] = [
-    { name: 'ED25519 Schnorr', appID: 'mock-app-id-01', protocol: 'schnorr', curve: 'ed25519' },
-    { name: 'SECP256K1 ECDSA', appID: 'mock-app-id-03', protocol: 'ecdsa', curve: 'secp256k1' },
-    { name: 'SECP256K1 Schnorr', appID: 'mock-app-id-02', protocol: 'schnorr', curve: 'secp256k1' },
-    { name: 'SECP256R1 ECDSA', appID: 'mock-app-id-04', protocol: 'ecdsa', curve: 'secp256r1' },
+    { name: 'ED25519 Schnorr', appInstanceID: 'mock-app-id-01', protocol: 'schnorr', curve: 'ed25519' },
+    { name: 'SECP256K1 ECDSA', appInstanceID: 'mock-app-id-03', protocol: 'ecdsa', curve: 'secp256k1' },
+    { name: 'SECP256K1 Schnorr', appInstanceID: 'mock-app-id-02', protocol: 'schnorr', curve: 'secp256k1' },
+    { name: 'SECP256R1 ECDSA', appInstanceID: 'mock-app-id-04', protocol: 'ecdsa', curve: 'secp256r1' },
   ];
 
   let passed = 0;
@@ -42,10 +42,10 @@ async function main() {
   // Test signing and verification
   for (const tc of testCases) {
     console.log(`Test ${tc.name} (${tc.protocol}/${tc.curve})`);
-    console.log(`   App ID: ${tc.appID}`);
+    console.log(`   App Instance ID: ${tc.appInstanceID}`);
 
     try {
-      await testSignAndVerify(serverURL, tc.appID);
+      await testSignAndVerify(serverURL, tc.appInstanceID);
       console.log('   PASSED');
       passed++;
     } catch (err) {
@@ -101,9 +101,9 @@ async function main() {
   }
 }
 
-async function testSignAndVerify(serverURL: string, appID: string): Promise<void> {
+async function testSignAndVerify(serverURL: string, appInstanceID: string): Promise<void> {
   const client = new Client(serverURL);
-  client.setDefaultAppID(appID);
+  client.setDefaultAppInstanceID(appInstanceID);
 
   try {
     const message = Buffer.from('Hello, TEENet! This is a test message.');
@@ -137,7 +137,7 @@ async function testSignAndVerify(serverURL: string, appID: string): Promise<void
 
 async function testKeyGeneration(serverURL: string): Promise<void> {
   const client = new Client(serverURL);
-  client.setDefaultAppID('new-test-app');
+  client.setDefaultAppInstanceID('new-test-app');
 
   try {
     const keyCases = [
@@ -178,7 +178,7 @@ async function testKeyGeneration(serverURL: string): Promise<void> {
 
 async function testAPIKey(serverURL: string): Promise<void> {
   const client = new Client(serverURL);
-  client.setDefaultAppID('mock-app-id-03');
+  client.setDefaultAppInstanceID('mock-app-id-03');
 
   try {
     const result = await client.getAPIKey('test-api-key');
@@ -194,7 +194,7 @@ async function testAPIKey(serverURL: string): Promise<void> {
 
 async function testAPISecretSign(serverURL: string): Promise<void> {
   const client = new Client(serverURL);
-  client.setDefaultAppID('mock-app-id-03');
+  client.setDefaultAppInstanceID('mock-app-id-03');
 
   try {
     const message = Buffer.from('Message to sign with API secret');

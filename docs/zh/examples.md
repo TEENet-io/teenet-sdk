@@ -38,7 +38,7 @@
 | 示例 | 语言 | 说明 |
 |---|---|---|
 | [`teenet-wallet`](https://github.com/TEENet-io/teenet-wallet) | Go | 基于 SDK 构建的 Passkey 保护加密钱包(独立仓库) |
-| [`finance-console`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/finance-console) | Go | 金融仪表盘示例 |
+| [`finance-console`](https://github.com/TEENet-io/finance-console) | Go | 金融仪表盘示例(独立仓库) |
 | [`admin`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/admin) | Go | 邀请 Passkey 用户、配置权限策略、管理 API 密钥 |
 
 ## 运行示例

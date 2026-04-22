@@ -33,7 +33,7 @@ func main() {
 		log.Fatal("APP_INSTANCE_ID environment variable is required")
 	}
 
-	fmt.Printf("Using App ID: %s\n\n", client.GetDefaultAppInstanceID())
+	fmt.Printf("Using App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// ─── 1. Invite a passkey user ───────────────────────────────────────────
 	fmt.Println("=== Inviting passkey user ===")

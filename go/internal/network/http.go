@@ -100,16 +100,16 @@ type publicKeyResponse struct {
 
 type publicKeysResponse struct {
 	Success    bool                `json:"success"`
-	AppID      string              `json:"app_instance_id"`
+	AppInstanceID      string              `json:"app_instance_id"`
 	PublicKeys []publicKeyResponse `json:"public_keys"`
 	Error      string              `json:"error,omitempty"`
 }
 
 // SubmitRequest submits a signature request to the signing service.
 // publicKey must be provided as raw key bytes.
-func (c *HTTPClient) SubmitRequest(ctx context.Context, appID string, message []byte, publicKey []byte, passkeyToken string) (*submitRequestResponse, error) {
+func (c *HTTPClient) SubmitRequest(ctx context.Context, appInstanceID string, message []byte, publicKey []byte, passkeyToken string) (*submitRequestResponse, error) {
 	payload := submitRequestPayload{
-		AppInstanceID: appID,
+		AppInstanceID: appInstanceID,
 		Message:       message,
 		PublicKey:     publicKey,
 		PasskeyToken:  passkeyToken,
@@ -165,8 +165,8 @@ func (c *HTTPClient) GetCacheDetail(ctx context.Context, hash string) (*cacheDet
 }
 
 // GetPublicKeys retrieves bound public key information for an APP_INSTANCE_ID.
-func (c *HTTPClient) GetPublicKeys(ctx context.Context, appID string) ([]publicKeyResponse, error) {
-	reqURL := c.baseURL + "/api/publickeys/" + url.PathEscape(appID)
+func (c *HTTPClient) GetPublicKeys(ctx context.Context, appInstanceID string) ([]publicKeyResponse, error) {
+	reqURL := c.baseURL + "/api/publickeys/" + url.PathEscape(appInstanceID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build public keys request: %w", err)
@@ -220,9 +220,9 @@ type GeneratedKeyInfo struct {
 }
 
 // GenerateKey generates a new cryptographic key for an APP_INSTANCE_ID.
-func (c *HTTPClient) GenerateKey(ctx context.Context, appID, curve, protocol string) (*generateKeyResponse, error) {
+func (c *HTTPClient) GenerateKey(ctx context.Context, appInstanceID, curve, protocol string) (*generateKeyResponse, error) {
 	payload := generateKeyPayload{
-		AppInstanceID: appID,
+		AppInstanceID: appInstanceID,
 		Curve:         curve,
 		Protocol:      protocol,
 	}
@@ -263,9 +263,9 @@ type apiKeyResponse struct {
 }
 
 // GetAPIKey retrieves an API key value by name for an APP_INSTANCE_ID.
-func (c *HTTPClient) GetAPIKey(ctx context.Context, appID, name string) (*apiKeyResponse, error) {
+func (c *HTTPClient) GetAPIKey(ctx context.Context, appInstanceID, name string) (*apiKeyResponse, error) {
 	q := url.Values{}
-	q.Set("app_instance_id", appID)
+	q.Set("app_instance_id", appInstanceID)
 	reqURL := fmt.Sprintf("%s/api/apikey/%s?%s", c.baseURL, url.PathEscape(name), q.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -306,12 +306,12 @@ type apiSignResponse struct {
 }
 
 // SignWithAPISecret signs a message using an API secret stored in TEE.
-func (c *HTTPClient) SignWithAPISecret(ctx context.Context, appID, name string, message []byte) (*apiSignResponse, error) {
+func (c *HTTPClient) SignWithAPISecret(ctx context.Context, appInstanceID, name string, message []byte) (*apiSignResponse, error) {
 	// Convert message to hex string for JSON transport
 	messageHex := hex.EncodeToString(message)
 
 	payload := signWithAPISecretPayload{
-		AppInstanceID: appID,
+		AppInstanceID: appInstanceID,
 		Message:       messageHex,
 	}
 

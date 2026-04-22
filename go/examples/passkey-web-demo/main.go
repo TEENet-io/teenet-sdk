@@ -136,25 +136,27 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
+		signerToken := s.sessionToken(state)
 		var signRes *sdk.SignResult
-		callErr := withClient("", func(client *sdk.Client, _ string) error {
+		callErr := withClient(signerToken, func(client *sdk.Client, approvalToken string) error {
 			client.SetDefaultAppInstanceID(s.appInstanceID)
 			var innerErr error
-			signRes, innerErr = client.Sign(r.Context(), message, publicKeyName)
+			signRes, innerErr = client.Sign(r.Context(), message, publicKeyName, approvalToken)
 			return innerErr
 		})
-		if callErr != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]interface{}{
-				"success": false,
-				"error":   callErr.Error(),
-				"data":    signRes,
-			})
-			return
-		}
+		// APPROVAL_PENDING comes back as (signRes populated, callErr=ErrApprovalPending).
+		// Fall through whenever signRes is populated so error_code / voting_info
+		// get forwarded; otherwise frontend sees the error without error_code and
+		// renders it as a failure.
 		if signRes == nil {
 			writeJSON(w, http.StatusBadGateway, map[string]interface{}{
 				"success": false,
-				"error":   "empty sign response",
+				"error": func() string {
+					if callErr != nil {
+						return callErr.Error()
+					}
+					return "empty sign response"
+				}(),
 			})
 			return
 		}
@@ -380,6 +382,170 @@ func (s *server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, res)
 			return
 		}
+	}
+
+	// ── Admin: invite a passkey user ──────────────────────────────────────────
+	if r.Method == http.MethodPost && r.URL.Path == "/api/admin/passkey/invite" {
+		var body map[string]interface{}
+		if err := decodeJSON(r.Body, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid json body"})
+			return
+		}
+		req := sdk.PasskeyInviteRequest{DisplayName: strings.TrimSpace(toString(body["display_name"]))}
+		if exp, ok := toUint64(body["expires_in_seconds"]); ok {
+			req.ExpiresInSeconds = int(exp)
+		}
+		var res *sdk.PasskeyInviteResult
+		err := withClient("", func(client *sdk.Client, _ string) error {
+			var innerErr error
+			res, innerErr = client.InvitePasskeyUser(r.Context(), req)
+			return innerErr
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+
+	// ── Admin: list passkey users ─────────────────────────────────────────────
+	if r.Method == http.MethodGet && r.URL.Path == "/api/admin/passkey/users" {
+		query := r.URL.Query()
+		page, _ := strconv.Atoi(query.Get("page"))
+		limit, _ := strconv.Atoi(query.Get("limit"))
+		var res *sdk.PasskeyUsersResult
+		err := withClient("", func(client *sdk.Client, _ string) error {
+			var innerErr error
+			res, innerErr = client.ListPasskeyUsers(r.Context(), page, limit)
+			return innerErr
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+
+	// ── Passkey registration: options + verify (proxy invite flow) ────────────
+	if r.Method == http.MethodGet && r.URL.Path == "/api/passkey/register/options" {
+		token := strings.TrimSpace(r.URL.Query().Get("token"))
+		if token == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "token is required"})
+			return
+		}
+		var res *sdk.PasskeyRegistrationOptionsResult
+		err := withClient("", func(client *sdk.Client, _ string) error {
+			var innerErr error
+			res, innerErr = client.PasskeyRegistrationOptions(r.Context(), token)
+			return innerErr
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/passkey/register/verify" {
+		var body map[string]interface{}
+		if err := decodeJSON(r.Body, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid json body"})
+			return
+		}
+		token := toString(body["invite_token"])
+		if token == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invite_token is required"})
+			return
+		}
+		var res *sdk.PasskeyRegistrationVerifyResult
+		err := withClient("", func(client *sdk.Client, _ string) error {
+			var innerErr error
+			res, innerErr = client.PasskeyRegistrationVerify(r.Context(), token, body["credential"])
+			return innerErr
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+
+	// ── Admin: get / upsert permission policy ────────────────────────────────
+	if r.Method == http.MethodGet && r.URL.Path == "/api/admin/policy" {
+		keyName := strings.TrimSpace(r.URL.Query().Get("public_key_name"))
+		if keyName == "" {
+			keyName = "default"
+		}
+		var res *sdk.PolicyResult
+		err := withClient("", func(client *sdk.Client, _ string) error {
+			var innerErr error
+			res, innerErr = client.GetPermissionPolicy(r.Context(), keyName)
+			return innerErr
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+	if r.Method == http.MethodPut && r.URL.Path == "/api/admin/policy" {
+		var body map[string]interface{}
+		if err := decodeJSON(r.Body, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid json body"})
+			return
+		}
+		req := sdk.PolicyRequest{
+			PublicKeyName: strings.TrimSpace(toString(body["public_key_name"])),
+			Enabled:       true,
+		}
+		if req.PublicKeyName == "" {
+			req.PublicKeyName = "default"
+		}
+		if enabled, ok := body["enabled"].(bool); ok {
+			req.Enabled = enabled
+		}
+		if to, ok := toUint64(body["timeout_seconds"]); ok {
+			req.TimeoutSeconds = int(to)
+		}
+		if rawLevels, ok := body["levels"].([]interface{}); ok {
+			for _, lv := range rawLevels {
+				m, _ := lv.(map[string]interface{})
+				if m == nil {
+					continue
+				}
+				lvl := sdk.PolicyLevel{}
+				if li, ok := toUint64(m["level_index"]); ok {
+					lvl.LevelIndex = int(li)
+				}
+				if th, ok := toUint64(m["threshold"]); ok {
+					lvl.Threshold = int(th)
+				}
+				if rawMembers, ok := m["member_ids"].([]interface{}); ok {
+					for _, mid := range rawMembers {
+						if id, ok := toUint64(mid); ok {
+							lvl.MemberIDs = append(lvl.MemberIDs, uint(id))
+						}
+					}
+				}
+				req.Levels = append(req.Levels, lvl)
+			}
+		}
+		var res *sdk.AdminResult
+		err := withClient("", func(client *sdk.Client, _ string) error {
+			var innerErr error
+			res, innerErr = client.UpsertPermissionPolicy(r.Context(), req)
+			return innerErr
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
 	}
 
 	if r.Method == http.MethodGet && r.URL.Path == "/api/requests/mine" {

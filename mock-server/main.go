@@ -179,12 +179,14 @@ type ApprovalTask struct {
 	RequestID     uint64 `json:"request_id"`
 	TxID          string `json:"tx_id"`
 	AppInstanceID string `json:"app_instance_id"`
-	PublicKeyName string `json:"public_key_name,omitempty"`
+	PublicKeyName string `json:"public_key_name,omitempty"` // human-readable, for policy lookup
+	PublicKeyHex  string `json:"-"`                         // raw hex, for signing (internal)
 	Hash          string `json:"hash"`
 	Status        string `json:"status"`
 	Signature     string `json:"signature,omitempty"`
 	Payload       string `json:"payload,omitempty"`
 	InitiatorID   uint   `json:"requested_by_passkey_user_id,omitempty"`
+	CurrentLevel  int    `json:"current_level,omitempty"`
 	CreatedAt     string `json:"created_at"`
 }
 
@@ -231,7 +233,7 @@ type MockServer struct {
 	secp256k1Key *btcec.PrivateKey
 	secp256r1Key *ecdsa.PrivateKey
 
-	// App ID to key mapping. Each app_instance_id can hold multiple keys
+	// App Instance ID to key mapping. Each app_instance_id can hold multiple keys
 	// (different protocol/curve combinations), mirroring the real TEE-DAO
 	// model where one app namespace owns many keys of arbitrary types.
 	// Layout: app_instance_id -> public_key_hex -> AppKeyInfo.
@@ -288,6 +290,10 @@ type MockServer struct {
 	policiesMutex   sync.RWMutex
 	policyIDCounter uint32
 
+	// Approval actions: taskID -> levelIndex -> passkeyUserID -> APPROVE/REJECT
+	approvalActions      map[uint64]map[int]map[uint]string
+	approvalActionsMutex sync.Mutex
+
 	// Token secret for mock approval tokens
 	tokenSecret []byte
 
@@ -330,6 +336,7 @@ func NewMockServer(port string) *MockServer {
 		passkeyInvites:       make(map[string]*MockPasskeyInvite),
 		passkeyLoginSessions: make(map[uint64]*MockPasskeyLoginSession),
 		approvalTasks:        make(map[uint64]*ApprovalTask),
+		approvalActions:      make(map[uint64]map[int]map[uint]string),
 		policies:             make(map[string]*PermissionPolicy),
 		tokenSecret:          secret,
 		webAuthn:             webAuthn,
@@ -357,31 +364,31 @@ func NewMockServer(port string) *MockServer {
 
 // setAppKey registers a key under an app_instance_id. The first key
 // registered for an app becomes its default. Caller must hold appKeysMutex.
-func (s *MockServer) setAppKeyLocked(appID string, info *AppKeyInfo) {
-	if s.appKeys[appID] == nil {
-		s.appKeys[appID] = make(map[string]*AppKeyInfo)
+func (s *MockServer) setAppKeyLocked(appInstanceID string, info *AppKeyInfo) {
+	if s.appKeys[appInstanceID] == nil {
+		s.appKeys[appInstanceID] = make(map[string]*AppKeyInfo)
 	}
-	s.appKeys[appID][info.PublicKey] = info
-	if _, hasDefault := s.defaultAppKey[appID]; !hasDefault {
-		s.defaultAppKey[appID] = info.PublicKey
+	s.appKeys[appInstanceID][info.PublicKey] = info
+	if _, hasDefault := s.defaultAppKey[appInstanceID]; !hasDefault {
+		s.defaultAppKey[appInstanceID] = info.PublicKey
 	}
 }
 
 // setAppKey is the thread-safe variant of setAppKeyLocked.
-func (s *MockServer) setAppKey(appID string, info *AppKeyInfo) {
+func (s *MockServer) setAppKey(appInstanceID string, info *AppKeyInfo) {
 	s.appKeysMutex.Lock()
 	defer s.appKeysMutex.Unlock()
-	s.setAppKeyLocked(appID, info)
+	s.setAppKeyLocked(appInstanceID, info)
 }
 
-// lookupAppKey resolves an (appID, pubKeyHex) pair to the AppKeyInfo that
+// lookupAppKey resolves an (appInstanceID, pubKeyHex) pair to the AppKeyInfo that
 // should be used for signing. If pubKeyHex is non-empty and matches a
 // registered key for the app, that key is returned. Otherwise the app's
 // default key is returned. Returns (nil, false) if the app has no keys.
-func (s *MockServer) lookupAppKey(appID, pubKeyHex string) (*AppKeyInfo, bool) {
+func (s *MockServer) lookupAppKey(appInstanceID, pubKeyHex string) (*AppKeyInfo, bool) {
 	s.appKeysMutex.RLock()
 	defer s.appKeysMutex.RUnlock()
-	keys, ok := s.appKeys[appID]
+	keys, ok := s.appKeys[appInstanceID]
 	if !ok || len(keys) == 0 {
 		return nil, false
 	}
@@ -390,7 +397,7 @@ func (s *MockServer) lookupAppKey(appID, pubKeyHex string) (*AppKeyInfo, bool) {
 			return info, true
 		}
 	}
-	if def, ok := s.defaultAppKey[appID]; ok {
+	if def, ok := s.defaultAppKey[appInstanceID]; ok {
 		if info, ok := keys[def]; ok {
 			return info, true
 		}
@@ -402,10 +409,10 @@ func (s *MockServer) lookupAppKey(appID, pubKeyHex string) (*AppKeyInfo, bool) {
 }
 
 // appExists reports whether any key is registered for the given app.
-func (s *MockServer) appExists(appID string) bool {
+func (s *MockServer) appExists(appInstanceID string) bool {
 	s.appKeysMutex.RLock()
 	defer s.appKeysMutex.RUnlock()
-	_, ok := s.appKeys[appID]
+	_, ok := s.appKeys[appInstanceID]
 	return ok
 }
 
@@ -418,7 +425,7 @@ func (s *MockServer) initDefaultAppKeys() {
 
 	// Default app configurations
 	apps := []struct {
-		appID       string
+		appInstanceID       string
 		protocol    string
 		protocolNum uint32
 		curve       string
@@ -432,7 +439,7 @@ func (s *MockServer) initDefaultAppKeys() {
 	}
 
 	for _, app := range apps {
-		s.setAppKey(app.appID, &AppKeyInfo{
+		s.setAppKey(app.appInstanceID, &AppKeyInfo{
 			PublicKey:    hex.EncodeToString(app.pubKey),
 			PublicKeyRaw: app.pubKey,
 			Protocol:     app.protocol,
@@ -448,24 +455,24 @@ func (s *MockServer) initSampleAPIKeys() {
 	// Create sample API keys for test apps
 	testApps := []string{"mock-app-id-01", "mock-app-id-03"}
 
-	for _, appID := range testApps {
-		s.apiKeys[appID] = map[string]*APIKeyInfo{
+	for _, appInstanceID := range testApps {
+		s.apiKeys[appInstanceID] = map[string]*APIKeyInfo{
 			"test-api-key": {
 				Name:      "test-api-key",
-				APIKey:    "sk_test_" + appID + "_12345",
+				APIKey:    "sk_test_" + appInstanceID + "_12345",
 				HasKey:    true,
 				HasSecret: false,
 			},
 			"test-api-secret": {
 				Name:      "test-api-secret",
-				APISecret: []byte("secret_" + appID + "_abcdef"),
+				APISecret: []byte("secret_" + appInstanceID + "_abcdef"),
 				HasKey:    false,
 				HasSecret: true,
 			},
 			"test-both": {
 				Name:      "test-both",
-				APIKey:    "key_" + appID,
-				APISecret: []byte("secret_" + appID),
+				APIKey:    "key_" + appInstanceID,
+				APISecret: []byte("secret_" + appInstanceID),
 				HasKey:    true,
 				HasSecret: true,
 			},
@@ -529,11 +536,11 @@ func (s *MockServer) initVotingConfigs() {
 		"mock-app-id-03",
 		"mock-app-id-04",
 	}
-	for _, appID := range directApps {
-		s.votingConfigs[appID] = &VotingConfig{
+	for _, appInstanceID := range directApps {
+		s.votingConfigs[appInstanceID] = &VotingConfig{
 			EnableVoting:         false,
 			RequiredVotes:        1,
-			TargetAppInstanceIDs: []string{appID},
+			TargetAppInstanceIDs: []string{appInstanceID},
 			HasPasskeyPolicy:     false,
 			PasskeyPolicyEnabled: false,
 		}
@@ -733,9 +740,9 @@ func (s *MockServer) Start() error {
 	}
 
 	log.Printf("Mock Server starting on port %s", s.port)
-	log.Printf("Available test App IDs:")
-	for appID := range s.appKeys {
-		log.Printf("   - %s", appID)
+	log.Printf("Available test App Instance IDs:")
+	for appInstanceID := range s.appKeys {
+		log.Printf("   - %s", appInstanceID)
 	}
 
 	bindAddr := "127.0.0.1"
@@ -836,6 +843,7 @@ type SubmitRequestPayload struct {
 	AppInstanceID string `json:"app_instance_id"`
 	Message       []byte `json:"message"`
 	PublicKey     []byte `json:"public_key,omitempty"`
+	PasskeyToken  string `json:"passkey_token,omitempty"`
 }
 
 // handleSubmitRequest handles POST /api/submit-request
@@ -895,15 +903,24 @@ func (s *MockServer) handleSubmitRequest(c *gin.Context) {
 			pubKeyHex = keyInfo.PublicKey
 		}
 
+		// Resolve initiator: SDK sends passkey_token in the submit body;
+		// fall back to the Authorization header for direct callers.
+		initiatorID, _ := s.extractToken(c)
+		if initiatorID == 0 && strings.TrimSpace(req.PasskeyToken) != "" {
+			initiatorID, _ = s.validateToken(strings.TrimSpace(req.PasskeyToken))
+		}
 		task := &ApprovalTask{
 			ID:            taskID,
 			RequestID:     requestID,
 			TxID:          txID,
 			AppInstanceID: req.AppInstanceID,
-			PublicKeyName: pubKeyHex,
+			PublicKeyName: s.resolveKeyName(req.AppInstanceID, pubKeyHex),
+			PublicKeyHex:  pubKeyHex,
 			Hash:          hash,
 			Status:        "PENDING",
 			Payload:       hex.EncodeToString(req.Message),
+			InitiatorID:   initiatorID,
+			CurrentLevel:  1,
 			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 		}
 		s.approvalTasksMutex.Lock()
@@ -1769,6 +1786,91 @@ func (s *MockServer) extractToken(c *gin.Context) (uint, bool) {
 }
 
 // ============================================================================
+// Policy / key-name helpers
+// ============================================================================
+
+// resolveKeyName maps a pubkey hex to a human-readable key name the same way
+// /api/publickeys/:app_instance_id does. Primary keys are called "default";
+// generated keys use their stored Name; fall back to the hex if unmatched.
+func (s *MockServer) resolveKeyName(appInstanceID, pubKeyHex string) string {
+	s.appKeysMutex.RLock()
+	defaultPub, isDefault := s.defaultAppKey[appInstanceID]
+	s.appKeysMutex.RUnlock()
+	if isDefault && pubKeyHex == defaultPub {
+		return "default"
+	}
+	s.generatedKeysMutex.RLock()
+	if genKeys, ok := s.generatedKeys[appInstanceID]; ok {
+		for _, gk := range genKeys {
+			if gk.KeyData == pubKeyHex {
+				s.generatedKeysMutex.RUnlock()
+				return gk.Name
+			}
+		}
+	}
+	s.generatedKeysMutex.RUnlock()
+	return pubKeyHex
+}
+
+// lookupPolicy returns the enabled policy for (app, keyName) or nil.
+func (s *MockServer) lookupPolicy(appInstanceID, keyName string) *PermissionPolicy {
+	s.policiesMutex.RLock()
+	p, ok := s.policies[appInstanceID+":"+keyName]
+	s.policiesMutex.RUnlock()
+	if !ok || p == nil || !p.Enabled {
+		return nil
+	}
+	copy := *p
+	copy.Levels = append([]PolicyLevel(nil), p.Levels...)
+	return &copy
+}
+
+// levelAt returns the PolicyLevel for 1-based levelIdx, or nil.
+func levelAt(p *PermissionPolicy, levelIdx int) *PolicyLevel {
+	for i := range p.Levels {
+		if p.Levels[i].LevelIndex == levelIdx {
+			return &p.Levels[i]
+		}
+	}
+	return nil
+}
+
+// recordApprovalAction stores a per-(task, level, user) action.
+func (s *MockServer) recordApprovalAction(taskID uint64, levelIdx int, userID uint, action string) {
+	s.approvalActionsMutex.Lock()
+	defer s.approvalActionsMutex.Unlock()
+	if s.approvalActions[taskID] == nil {
+		s.approvalActions[taskID] = map[int]map[uint]string{}
+	}
+	if s.approvalActions[taskID][levelIdx] == nil {
+		s.approvalActions[taskID][levelIdx] = map[uint]string{}
+	}
+	s.approvalActions[taskID][levelIdx][userID] = action
+}
+
+// countApprovalsAt returns (approveCount, userApprovedAtLevel) for a task/level.
+func (s *MockServer) countApprovalsAt(taskID uint64, levelIdx int, userID uint) (int, bool) {
+	s.approvalActionsMutex.Lock()
+	defer s.approvalActionsMutex.Unlock()
+	lvls := s.approvalActions[taskID]
+	if lvls == nil {
+		return 0, false
+	}
+	actions := lvls[levelIdx]
+	if actions == nil {
+		return 0, false
+	}
+	count := 0
+	for _, a := range actions {
+		if a == "APPROVE" {
+			count++
+		}
+	}
+	_, hasMine := actions[userID]
+	return count, hasMine
+}
+
+// ============================================================================
 // Audit helper
 // ============================================================================
 
@@ -2191,13 +2293,12 @@ func (s *MockServer) handleApprovalRequestInit(c *gin.Context) {
 
 	s.addAuditRecord("APPROVAL_REQUEST", "INIT", "PENDING", body.AppInstanceID, body.Hash, txID, userID)
 
+	// Match UMS ApprovalRequestInitResp: flat {request_id, tx_id, qr_url, expires_at}.
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"request_id": requestID,
-			"tx_id":      txID,
-			"status":     "PENDING",
-		},
+		"request_id": requestID,
+		"tx_id":      txID,
+		"qr_url":     "",
+		"expires_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 	})
 }
 
@@ -2205,15 +2306,16 @@ func (s *MockServer) handleApprovalRequestInit(c *gin.Context) {
 func (s *MockServer) handleApprovalRequestChallenge(c *gin.Context) {
 	requestIDStr := c.Param("requestId")
 	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+	challenge, _ := RandomBase64(32)
+	// Flat body: UMS writes challenge options directly.
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"request_id": requestIDStr,
-			"options": gin.H{
-				"challenge":        fmt.Sprintf("mock-challenge-confirm-%d", sessionID),
-				"rp":               gin.H{"name": "TEENet Mock"},
-				"login_session_id": sessionID,
-			},
+		"request_id": requestIDStr,
+		"options": gin.H{
+			"challenge":        challenge, // base64url-encoded random bytes, browser decodes with atob
+			"rpId":             s.webAuthn.rpID,
+			"timeout":          300000,
+			"userVerification": "preferred",
+			"login_session_id": sessionID,
 		},
 	})
 }
@@ -2243,29 +2345,27 @@ func (s *MockServer) handleApprovalRequestConfirm(c *gin.Context) {
 		return
 	}
 
+	// Match UMS ApprovalRequestConfirmResp: flat {task_id, status, expires_at}.
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"task_id":    foundTask.ID,
-			"request_id": requestID,
-			"status":     "CONFIRMED",
-		},
+		"task_id":    foundTask.ID,
+		"status":     "CONFIRMED",
+		"expires_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 	})
 }
 
 // handleApprovalActionChallenge handles GET /api/approvals/:taskId/challenge
 func (s *MockServer) handleApprovalActionChallenge(c *gin.Context) {
-	taskIDStr := c.Param("taskId")
+	_ = c.Param("taskId")
 	sessionID := atomic.AddUint64(&s.loginSessionIDCounter, 1)
+	challenge, _ := RandomBase64(32)
+	// Match UMS ApprovalActionChallengeResp: flat {action_session_id, options}.
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"task_id": taskIDStr,
-			"options": gin.H{
-				"challenge":        fmt.Sprintf("mock-challenge-action-%d", sessionID),
-				"rp":               gin.H{"name": "TEENet Mock"},
-				"login_session_id": sessionID,
-			},
+		"action_session_id": sessionID,
+		"options": gin.H{
+			"challenge":        challenge,
+			"rpId":             s.webAuthn.rpID,
+			"timeout":          300000,
+			"userVerification": "preferred",
 		},
 	})
 }
@@ -2306,37 +2406,90 @@ func (s *MockServer) handleApprovalAction(c *gin.Context) {
 		return
 	}
 
-	// Snapshot the task fields we need. We release approvalTasksMutex
-	// before doing any slow work (cache lookup, ECDSA signing) so the
-	// lock is never held across an operation that also grabs another
-	// mutex — eliminating the previous approvalTasks → votingCache
-	// lock-order hazard.
+	// Snapshot task fields.
 	s.approvalTasksMutex.RLock()
 	task, exists := s.approvalTasks[taskID]
-	var taskHash, taskApp, taskTxID, taskPubKeyName string
+	var taskHash, taskApp, taskTxID, taskPubKeyName, taskPubKeyHex string
+	var taskCurrentLevel int
 	if exists {
 		taskHash = task.Hash
 		taskApp = task.AppInstanceID
 		taskTxID = task.TxID
 		taskPubKeyName = task.PublicKeyName
+		taskPubKeyHex = task.PublicKeyHex
+		taskCurrentLevel = task.CurrentLevel
+		if taskCurrentLevel == 0 {
+			taskCurrentLevel = 1
+		}
 	}
 	s.approvalTasksMutex.RUnlock()
 
 	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error":   "task not found",
-		})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "task not found"})
 		return
 	}
 
-	var signatureHex string
-	finalStatus := "REJECTED"
+	policy := s.lookupPolicy(taskApp, taskPubKeyName)
 
-	if action == "APPROVE" {
+	// Membership check: if a policy is enabled, caller must be a member of the
+	// current level's member list. This mirrors the UMS JOIN in
+	// PendingApprovalsForPasskeyService.
+	if policy != nil {
+		lvl := levelAt(policy, taskCurrentLevel)
+		if lvl == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "policy level not found"})
+			return
+		}
+		memberOK := false
+		for _, m := range lvl.MemberIDs {
+			if m == userID {
+				memberOK = true
+				break
+			}
+		}
+		if !memberOK {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "not a member of the current approval level"})
+			return
+		}
+	}
+
+	// Record the action against this task/level.
+	s.recordApprovalAction(taskID, taskCurrentLevel, userID, action)
+
+	// Decide the next state.
+	var (
+		finalStatus  = "PENDING"
+		signatureHex string
+		nextLevel    = taskCurrentLevel
+		readyToSign  = false
+	)
+
+	if action == "REJECT" {
+		finalStatus = "REJECTED"
+	} else if policy == nil {
+		// No policy — one approval signs immediately (legacy behavior).
 		finalStatus = "APPROVED"
-		// Pull the message bytes for signing without holding any lock
-		// across the sign call.
+		readyToSign = true
+	} else {
+		lvl := levelAt(policy, taskCurrentLevel)
+		approved, _ := s.countApprovalsAt(taskID, taskCurrentLevel, userID)
+		if approved < lvl.Threshold {
+			// Still collecting approvals at this level.
+			finalStatus = "PENDING"
+		} else {
+			// Threshold met. Advance to next level, or sign if this was the last.
+			if levelAt(policy, taskCurrentLevel+1) != nil {
+				nextLevel = taskCurrentLevel + 1
+				finalStatus = "PENDING"
+			} else {
+				finalStatus = "APPROVED"
+				readyToSign = true
+			}
+		}
+	}
+
+	// Sign only when fully approved.
+	if readyToSign {
 		var message []byte
 		if taskHash != "" {
 			s.votingCacheMutex.RLock()
@@ -2345,17 +2498,10 @@ func (s *MockServer) handleApprovalAction(c *gin.Context) {
 			}
 			s.votingCacheMutex.RUnlock()
 		}
-
 		if message != nil {
-			// Resolve the key bound to the approval task. PublicKeyName
-			// holds the pubkey hex captured at submit time; we look it
-			// up explicitly so the correct protocol/curve is used when
-			// the app has multiple keys.
-			if appKey, appKeyExists := s.lookupAppKey(taskApp, taskPubKeyName); appKeyExists {
+			if appKey, appKeyExists := s.lookupAppKey(taskApp, taskPubKeyHex); appKeyExists {
 				if sig, sigErr := s.signWithKey(appKey.ProtocolNum, appKey.CurveNum, message, appKey.PublicKey); sigErr == nil {
 					signatureHex = hex.EncodeToString(sig)
-					// Write the signature back to the cache entry
-					// under the cache lock alone.
 					s.votingCacheMutex.Lock()
 					if cur, ok := s.votingCache[taskHash]; ok {
 						cur.Status = "signed"
@@ -2367,24 +2513,27 @@ func (s *MockServer) handleApprovalAction(c *gin.Context) {
 		}
 	}
 
-	// Finally, write the updated task status back under the approval
-	// tasks lock alone.
+	// Persist task updates.
 	s.approvalTasksMutex.Lock()
 	if cur, ok := s.approvalTasks[taskID]; ok {
 		cur.Status = finalStatus
-		cur.Signature = signatureHex
+		cur.CurrentLevel = nextLevel
+		if signatureHex != "" {
+			cur.Signature = signatureHex
+		}
 	}
 	s.approvalTasksMutex.Unlock()
 
 	s.addAuditRecord("APPROVAL_ACTION", action, finalStatus, taskApp, taskHash, taskTxID, userID)
 
+	// Match UMS ApprovalActionResp: flat {task_id, app_instance_id, tx_id, payload, status, current_level}.
 	resp := gin.H{
-		"success": true,
-		"data": gin.H{
-			"task_id": taskID,
-			"status":  finalStatus,
-			"action":  action,
-		},
+		"task_id":         taskID,
+		"app_instance_id": taskApp,
+		"tx_id":           taskTxID,
+		"payload":         "",
+		"status":          finalStatus,
+		"current_level":   nextLevel,
 	}
 	if signatureHex != "" {
 		resp["signature"] = signatureHex
@@ -2395,24 +2544,82 @@ func (s *MockServer) handleApprovalAction(c *gin.Context) {
 // handleApprovalPending handles GET /api/approvals/pending
 func (s *MockServer) handleApprovalPending(c *gin.Context) {
 	appFilter := c.Query("app_instance_id")
+	// If logged in, scope to tasks where the caller is a member of the current level.
+	userID, hasUser := s.extractToken(c)
 
 	s.approvalTasksMutex.RLock()
-	pending := make([]*ApprovalTask, 0)
+	all := make([]*ApprovalTask, 0, len(s.approvalTasks))
 	for _, task := range s.approvalTasks {
 		if task.Status == "PENDING" {
 			if appFilter == "" || task.AppInstanceID == appFilter {
-				pending = append(pending, task)
+				all = append(all, task)
 			}
 		}
 	}
 	s.approvalTasksMutex.RUnlock()
 
+	pending := make([]gin.H, 0, len(all))
+	levelProgress := map[string]gin.H{}
+	for _, task := range all {
+		currentLevel := task.CurrentLevel
+		if currentLevel == 0 {
+			currentLevel = 1
+		}
+		// Look up caller's action at the current level (empty if not yet acted).
+		myAction := ""
+		if hasUser {
+			s.approvalActionsMutex.Lock()
+			if lvls := s.approvalActions[task.ID]; lvls != nil {
+				if actions := lvls[currentLevel]; actions != nil {
+					myAction = actions[userID]
+				}
+			}
+			s.approvalActionsMutex.Unlock()
+		}
+		policy := s.lookupPolicy(task.AppInstanceID, task.PublicKeyName)
+		if policy != nil && hasUser {
+			lvl := levelAt(policy, currentLevel)
+			if lvl == nil {
+				continue
+			}
+			isMember := false
+			for _, m := range lvl.MemberIDs {
+				if m == userID {
+					isMember = true
+					break
+				}
+			}
+			if !isMember {
+				continue
+			}
+			approved, _ := s.countApprovalsAt(task.ID, currentLevel, userID)
+			levelProgress[strconv.FormatUint(task.ID, 10)] = gin.H{
+				"approved":  approved,
+				"threshold": lvl.Threshold,
+			}
+		}
+		pending = append(pending, gin.H{
+			"id":                           task.ID,
+			"request_id":                   task.RequestID,
+			"tx_id":                        task.TxID,
+			"app_instance_id":              task.AppInstanceID,
+			"public_key_name":              task.PublicKeyName,
+			"hash":                         task.Hash,
+			"status":                       task.Status,
+			"payload":                      task.Payload,
+			"current_level":                currentLevel,
+			"created_at":                   task.CreatedAt,
+			"requested_by_passkey_user_id": task.InitiatorID,
+			"my_action":                    myAction,
+		})
+	}
+
+	// Match UMS PendingApprovalsResp: {approvals, level_progress, total, pagination}.
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"tasks": pending,
-			"total": len(pending),
-		},
+		"approvals":      pending,
+		"level_progress": levelProgress,
+		"total":          len(pending),
+		"pagination":     gin.H{"page": 1, "limit": 50},
 	})
 }
 
@@ -2436,10 +2643,11 @@ func (s *MockServer) handleMyRequests(c *gin.Context) {
 	}
 	s.approvalTasksMutex.RUnlock()
 
+	// Match UMS InitiatedApprovalsResp: {requests, total, pagination}.
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    tasks,
-		"count":   len(tasks),
+		"requests":   tasks,
+		"total":      len(tasks),
+		"pagination": gin.H{"page": 1, "limit": 50},
 	})
 }
 
@@ -2759,7 +2967,7 @@ func (s *MockServer) handleAdminDeletePublicKey(c *gin.Context) {
 
 	// Remove from generatedKeys by name
 	s.generatedKeysMutex.Lock()
-	for appID, keys := range s.generatedKeys {
+	for appInstanceID, keys := range s.generatedKeys {
 		filtered := make([]*GeneratedKeyInfo, 0, len(keys))
 		for _, k := range keys {
 			if k.Name != name {
@@ -2768,7 +2976,7 @@ func (s *MockServer) handleAdminDeletePublicKey(c *gin.Context) {
 				deleted = true
 			}
 		}
-		s.generatedKeys[appID] = filtered
+		s.generatedKeys[appInstanceID] = filtered
 	}
 	s.generatedKeysMutex.Unlock()
 
@@ -2980,6 +3188,8 @@ func (s *MockServer) handlePasskeyRegisterVerify(c *gin.Context) {
 		}
 		credential, err := s.webAuthn.FinishRegistration(webUser, sessionData, credentialJSONBytes(body.Credential))
 		if err != nil {
+			log.Printf("[DEBUG] FinishRegistration failed for invite %s: %v", body.InviteToken, err)
+			log.Printf("[DEBUG] credential JSON: %s", string(credentialJSONBytes(body.Credential)))
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
 				"error":   "registration failed: " + err.Error(),

@@ -45,7 +45,7 @@ func main() {
 	// Test cases
 	testCases := []struct {
 		name     string
-		appID    string
+		appInstanceID    string
 		protocol string
 		curve    string
 	}{
@@ -60,9 +60,9 @@ func main() {
 
 	for _, tc := range testCases {
 		fmt.Printf("Test %s (%s/%s)\n", tc.name, tc.protocol, tc.curve)
-		fmt.Printf("   App ID: %s\n", tc.appID)
+		fmt.Printf("   App Instance ID: %s\n", tc.appInstanceID)
 
-		if err := testSignAndVerify(serverURL, tc.appID); err != nil {
+		if err := testSignAndVerify(serverURL, tc.appInstanceID); err != nil {
 			fmt.Printf("   FAILED: %v\n", err)
 			failed++
 		} else {
@@ -115,10 +115,10 @@ func main() {
 	}
 }
 
-func testSignAndVerify(serverURL, appID string) error {
+func testSignAndVerify(serverURL, appInstanceID string) error {
 	// Create client
 	client := sdk.NewClient(serverURL)
-	client.SetDefaultAppInstanceID(appID)
+	client.SetDefaultAppInstanceID(appInstanceID)
 	defer client.Close()
 
 	// Test message

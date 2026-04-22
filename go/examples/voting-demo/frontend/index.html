@@ -27,7 +27,7 @@
         <h1>🗳️ TEENet Voting Demo Application</h1>
 
         <div class="app-info">
-            <strong>App ID:</strong> <code id="appId">Loading...</code>
+            <strong>App Instance ID:</strong> <code id="appInstanceId">Loading...</code>
         </div>
 
         <!-- Direct Sign and Verify Section -->
@@ -197,12 +197,12 @@
             document.body.classList.add('loaded');
         }, 100);
 
-        // Initialize app and load APP_ID
+        // Initialize app and load APP_INSTANCE_ID
         console.log('Inline script executing');
 
         const currentPath = window.location.pathname.replace(/\/+$/, '');
 
-        // Load APP_ID from config API
+        // Load APP_INSTANCE_ID from config API
         async function loadConfig() {
             try {
                 console.log('API base:', currentPath);
@@ -211,13 +211,13 @@
                 const config = await response.json();
                 console.log('Config response:', config);
 
-                document.getElementById('appId').textContent = config.app_instance_id || 'Unknown';
+                document.getElementById('appInstanceId').textContent = config.app_instance_id || 'Unknown';
 
-                // Store APP_ID globally for use in app.js
-                window.LOADED_APP_ID = config.app_instance_id;
+                // Store APP_INSTANCE_ID globally for use in app.js
+                window.LOADED_APP_INSTANCE_ID = config.app_instance_id;
             } catch (error) {
                 console.error('Config load failed:', error);
-                document.getElementById('appId').textContent = 'Error: ' + error.message;
+                document.getElementById('appInstanceId').textContent = 'Error: ' + error.message;
             }
         }
 

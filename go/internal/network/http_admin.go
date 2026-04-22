@@ -17,8 +17,8 @@ func (c *HTTPClient) doAdminRequest(ctx context.Context, method, path string, pa
 	return c.doRawRequest(ctx, method, path, "", payload, "admin")
 }
 
-// marshalWithAppID marshals payload to JSON and injects "app_instance_id" into the top-level object.
-func marshalWithAppID(appInstanceID string, payload interface{}) ([]byte, error) {
+// marshalWithAppInstanceID marshals payload to JSON and injects "app_instance_id" into the top-level object.
+func marshalWithAppInstanceID(appInstanceID string, payload interface{}) ([]byte, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
@@ -33,7 +33,7 @@ func marshalWithAppID(appInstanceID string, payload interface{}) ([]byte, error)
 
 // AdminInvitePasskeyUser calls POST /api/admin/passkey/invite.
 func (c *HTTPClient) AdminInvitePasskeyUser(ctx context.Context, appInstanceID string, payload interface{}) (*ApprovalBridgeResponse, error) {
-	encoded, err := marshalWithAppID(appInstanceID, payload)
+	encoded, err := marshalWithAppInstanceID(appInstanceID, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (c *HTTPClient) AdminGetDeploymentLogs(ctx context.Context, appInstanceID s
 
 // AdminUpsertPolicy calls PUT /api/admin/policy.
 func (c *HTTPClient) AdminUpsertPolicy(ctx context.Context, appInstanceID string, payload interface{}) (*ApprovalBridgeResponse, error) {
-	encoded, err := marshalWithAppID(appInstanceID, payload)
+	encoded, err := marshalWithAppInstanceID(appInstanceID, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (c *HTTPClient) AdminDeletePublicKey(ctx context.Context, appInstanceID, ke
 
 // AdminCreateAPIKey calls POST /api/admin/apikeys.
 func (c *HTTPClient) AdminCreateAPIKey(ctx context.Context, appInstanceID string, payload interface{}) (*ApprovalBridgeResponse, error) {
-	encoded, err := marshalWithAppID(appInstanceID, payload)
+	encoded, err := marshalWithAppInstanceID(appInstanceID, payload)
 	if err != nil {
 		return nil, err
 	}

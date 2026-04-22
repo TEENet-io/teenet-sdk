@@ -26,14 +26,14 @@ func shortPrefix(s string, n int) string {
 
 func main() {
 	// Get voter app IDs from environment
-	// Example: export VOTER_APP_IDS="app-id-1,app-id-2"
-	voterAppIDsEnv := os.Getenv("VOTER_APP_IDS")
-	if voterAppIDsEnv == "" {
-		log.Fatal("VOTER_APP_IDS environment variable is required (comma-separated list of app IDs)")
+	// Example: export VOTER_APP_INSTANCE_IDS="app-id-1,app-id-2"
+	voterAppInstanceIDsEnv := os.Getenv("VOTER_APP_INSTANCE_IDS")
+	if voterAppInstanceIDsEnv == "" {
+		log.Fatal("VOTER_APP_INSTANCE_IDS environment variable is required (comma-separated list of app IDs)")
 	}
 
-	voterAppIDs := strings.Split(voterAppIDsEnv, ",")
-	if len(voterAppIDs) < 2 {
+	voterAppInstanceIDs := strings.Split(voterAppInstanceIDsEnv, ",")
+	if len(voterAppInstanceIDs) < 2 {
 		log.Fatal("At least 2 voter app IDs are required")
 	}
 
@@ -62,13 +62,13 @@ func main() {
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
-		go func(voteNum int, voterAppID string, url string) {
+		go func(voteNum int, voterAppInstanceID string, url string) {
 			defer wg.Done()
 
-			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum+1, shortPrefix(voterAppID, 8))
+			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum+1, shortPrefix(voterAppInstanceID, 8))
 
 			client := sdk.NewClient(url)
-			client.SetDefaultAppInstanceID(voterAppID)
+			client.SetDefaultAppInstanceID(voterAppInstanceID)
 
 			result, err := client.Sign(context.Background(), message, publicKeyName)
 
@@ -95,7 +95,7 @@ func main() {
 			}
 
 			client.Close()
-		}(i, voterAppIDs[i], serviceURLs[i])
+		}(i, voterAppInstanceIDs[i], serviceURLs[i])
 	}
 
 	wg.Wait()

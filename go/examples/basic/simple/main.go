@@ -37,7 +37,7 @@ func main() {
 	fmt.Println("TEENet SDK Simple Example")
 	fmt.Println("=========================")
 	fmt.Printf("Service URL: %s\n", client.GetServiceURL())
-	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppInstanceID())
+	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Get public key information
 	fmt.Println("1. Get Public Keys")

@@ -25,14 +25,14 @@ type pkCacheEntry struct {
 
 // GetPublicKeys retrieves all bound public keys for the default APP_INSTANCE_ID.
 func (c *Client) GetPublicKeys(ctx context.Context) ([]types.PublicKeyInfo, error) {
-	appID, err := c.getAppInstanceID()
+	appInstanceID, err := c.getAppInstanceID()
 	if err != nil {
 		return nil, err
 	}
 
 	// Read cache entry while holding RLock
 	c.mu.RLock()
-	entry, found := c.pkCache[appID]
+	entry, found := c.pkCache[appInstanceID]
 	c.mu.RUnlock()
 
 	// Check cache hit
@@ -41,8 +41,8 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]types.PublicKeyInfo, erro
 	}
 
 	// Cache miss — use singleflight to collapse concurrent requests
-	val, err, _ := c.pkGroup.Do(appID, func() (interface{}, error) {
-		keys, err := c.httpClient.GetPublicKeys(ctx, appID)
+	val, err, _ := c.pkGroup.Do(appInstanceID, func() (interface{}, error) {
+		keys, err := c.httpClient.GetPublicKeys(ctx, appInstanceID)
 		if err != nil {
 			return nil, err
 		}
@@ -57,7 +57,7 @@ func (c *Client) GetPublicKeys(ctx context.Context) ([]types.PublicKeyInfo, erro
 
 		// Update cache
 		c.mu.Lock()
-		c.pkCache[appID] = pkCacheEntry{
+		c.pkCache[appInstanceID] = pkCacheEntry{
 			keys:      result,
 			expiresAt: time.Now().Add(c.keyCacheTTL),
 		}

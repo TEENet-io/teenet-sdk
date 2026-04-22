@@ -148,13 +148,13 @@ test('close() is a no-op and does not throw', () => {
   assert.doesNotThrow(() => c.close());
 });
 
-// ─── sign() — no App ID ─────────────────────────────────────────────────────
+// ─── sign() — no App Instance ID ─────────────────────────────────────────────────────
 
-test('sign() throws when no App ID is set', async () => {
+test('sign() throws when no App Instance ID is set', async () => {
   const c = makeClient('http://127.0.0.1:1');
   await assert.rejects(
     () => c.sign(Buffer.from('hello'), 'pk1'),
-    /App ID not set/
+    /App Instance ID not set/
   );
 });
 
@@ -223,11 +223,11 @@ test('sign() includes passkey_token in request body when provided', async () => 
 
 // ─── getPublicKeys() ─────────────────────────────────────────────────────────
 
-test('getPublicKeys() throws when no App ID is set', async () => {
+test('getPublicKeys() throws when no App Instance ID is set', async () => {
   const c = makeClient('http://127.0.0.1:1');
   await assert.rejects(
     () => c.getPublicKeys(),
-    /App ID not set/
+    /App Instance ID not set/
   );
 });
 
@@ -561,11 +561,11 @@ test('generateKey() returns failure when server returns success:false', async ()
   }
 });
 
-test('generateKey(ECDSA) throws when no App ID is set', async () => {
+test('generateKey(ECDSA) throws when no App Instance ID is set', async () => {
   const c = makeClient('http://127.0.0.1:1');
   await assert.rejects(
     () => c.generateKey('ecdsa', 'secp256k1'),
-    /App ID not set/
+    /App Instance ID not set/
   );
 });
 
@@ -699,11 +699,11 @@ test('getAPIKey() returns failure when server returns success:false', async () =
   }
 });
 
-test('getAPIKey() throws when no App ID is set', async () => {
+test('getAPIKey() throws when no App Instance ID is set', async () => {
   const c = makeClient('http://127.0.0.1:1');
   await assert.rejects(
     () => c.getAPIKey('k'),
-    /App ID not set/
+    /App Instance ID not set/
   );
 });
 
@@ -803,11 +803,11 @@ test('invitePasskeyUser() sends correct body and maps invite result', async () =
   }
 });
 
-test('invitePasskeyUser() returns error when no App ID is set', async () => {
+test('invitePasskeyUser() returns error when no App Instance ID is set', async () => {
   const c = makeClient('http://127.0.0.1:1');
   const result = await c.invitePasskeyUser({ displayName: 'Bob' });
   assert.equal(result.success, false);
-  assert.match(result.error || '', /App ID not set/);
+  assert.match(result.error || '', /App Instance ID not set/);
 });
 
 // ─── Admin: listPasskeyUsers() ────────────────────────────────────────────────

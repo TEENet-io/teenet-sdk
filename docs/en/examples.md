@@ -38,7 +38,7 @@ End-to-end sample apps live in the repository under [`go/examples/`](https://git
 | Example | Language | What it shows |
 |---|---|---|
 | [`teenet-wallet`](https://github.com/TEENet-io/teenet-wallet) | Go | A complete Passkey-protected crypto wallet built on the SDK (separate repo) |
-| [`finance-console`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/finance-console) | Go | Finance dashboard sample |
+| [`finance-console`](https://github.com/TEENet-io/finance-console) | Go | Finance dashboard sample (separate repo) |
 | [`admin`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/admin) | Go | Invite passkey users, upsert permission policies, manage API keys |
 
 ## Running examples

@@ -127,7 +127,7 @@ func TestGetPublicKeys_Success(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(publicKeysResponse{
 			Success: true,
-			AppID:   "test-app-id",
+			AppInstanceID:   "test-app-id",
 			PublicKeys: []publicKeyResponse{{
 				ID:       1,
 				Name:     "pk1",
@@ -229,9 +229,9 @@ func TestGetAPIKey_Success(t *testing.T) {
 		}
 
 		// Check query parameter
-		appID := r.URL.Query().Get("app_instance_id")
-		if appID != "test-app-id" {
-			t.Errorf("Expected app_instance_id 'test-app-id', got '%s'", appID)
+		appInstanceID := r.URL.Query().Get("app_instance_id")
+		if appInstanceID != "test-app-id" {
+			t.Errorf("Expected app_instance_id 'test-app-id', got '%s'", appInstanceID)
 		}
 
 		w.Header().Set("Content-Type", "application/json")

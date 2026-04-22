@@ -50,7 +50,7 @@ func TestClientInvitePasskeyUser_Success(t *testing.T) {
 	}
 }
 
-func TestClientInvitePasskeyUser_NoAppID(t *testing.T) {
+func TestClientInvitePasskeyUser_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	c := &Client{
 		httpClient: network.NewHTTPClient("http://localhost:1", &http.Client{}),
@@ -58,7 +58,7 @@ func TestClientInvitePasskeyUser_NoAppID(t *testing.T) {
 	}
 	_, err := c.InvitePasskeyUser(ctx, types.PasskeyInviteRequest{DisplayName: "Bob"})
 	if err == nil {
-		t.Fatal("expected error when no App ID configured")
+		t.Fatal("expected error when no App Instance ID configured")
 	}
 }
 

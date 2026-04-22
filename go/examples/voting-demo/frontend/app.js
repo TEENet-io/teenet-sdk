@@ -80,7 +80,7 @@ function createNotificationContainer() {
 
 // Global state
 let votedMessages = new Set(); // Track messages that have been voted on
-let appId = window.LOADED_APP_ID || ''; // Load from global set by index.html
+let appInstanceId = window.LOADED_APP_INSTANCE_ID || ''; // Load from global set by index.html
 
 // Dynamic API base path detection - works for both direct access and proxy access
 function getApiBase() {
@@ -152,7 +152,7 @@ async function directSign() {
                 <div class="voting-details">
                     <p><strong>Details:</strong></p>
                     <ul>
-                        <li>App Instance ID: <code>${result.app_instance_id || appId}</code></li>
+                        <li>App Instance ID: <code>${result.app_instance_id || appInstanceId}</code></li>
                         <li>Message: ${result.message}</li>
                     </ul>
                 </div>

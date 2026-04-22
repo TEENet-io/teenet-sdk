@@ -144,6 +144,34 @@
   <p class="sub">Initiator uses Sign (auto approval init); approver handles pending/confirm/action</p>
   <div class="grid">
     <section class="card">
+      <h2>Admin A) Invite &amp; Register Passkey</h2>
+      <label>Display name (for the new approver)</label>
+      <input id="inviteDisplayName" placeholder="e.g. Alice" />
+      <button id="btnInvite" type="button">Create Invite</button>
+      <div id="msgInvite" class="op-msg"></div>
+      <label>Invite token</label>
+      <input id="inviteToken" placeholder="created invite will appear here" />
+      <label>Register URL (share this with the approver)</label>
+      <input id="inviteRegisterURL" readonly placeholder="register URL will appear here" />
+      <button id="btnRegisterPasskey" type="button">Register Passkey With This Token</button>
+      <div id="msgRegister" class="op-msg"></div>
+      <label>Registered approvers (passkey user IDs)</label>
+      <div id="approverList" class="mini-list" style="min-height: 38px"></div>
+      <button id="btnRefreshApprovers" type="button" style="margin-top:6px">Refresh Approvers</button>
+    </section>
+
+    <section class="card">
+      <h2>Admin B) Permission Policy (key: <code>default</code>)</h2>
+      <p class="hint">Pick which registered approvers must sign. Approvers advance one level at a time; later levels only see the task after earlier levels finish.</p>
+      <div id="policyLevels"></div>
+      <button id="btnAddLevel" type="button" style="background:linear-gradient(135deg,#6b7280,#9ca3af)">+ Add Level</button>
+      <button id="btnSavePolicy" type="button">Save Policy</button>
+      <div id="msgPolicy" class="op-msg"></div>
+      <button id="btnLoadPolicy" type="button" style="margin-top:6px">Load Current Policy</button>
+      <pre id="policyView" class="hint" style="background:rgba(0,0,0,.03);border-radius:10px;padding:8px;white-space:pre-wrap;margin-top:6px"></pre>
+    </section>
+
+    <section class="card">
       <h2>1) Passkey Login</h2>
       <button id="btnLogin">Passkey Login</button>
       <div id="msgLogin" class="op-msg"></div>
@@ -155,7 +183,7 @@
     <section class="card">
       <h2>2) Initiate By Sign</h2>
       <label>public_key_name</label>
-      <input id="signPublicKeyName" placeholder="e.g. my-key" />
+      <input id="signPublicKeyName" value="default" placeholder="e.g. default" />
       <label>payload(JSON or plain text)</label>
       <textarea id="signPayload">{"to":"0x1234","amount":"1"}</textarea>
       <button id="btnSign">Sign (Auto Init Approval)</button>
@@ -168,13 +196,9 @@
 
     <section class="card">
       <h2>3) Pending List</h2>
-      <label>app_instance_id (optional)</label>
-      <input id="pendingAppInstanceId" placeholder="e.g. app-demo-001" />
-      <label>public_key_name (optional, with app_instance_id)</label>
-      <input id="pendingPublicKeyName" placeholder="e.g. pk-alpha" />
       <button id="btnPending">Get Pending</button>
       <div id="msgPending" class="op-msg"></div>
-      <p class="hint">Requires login token</p>
+      <p class="hint">Requires login token · scoped to this app instance</p>
       <div id="pendingList" class="pending-list"></div>
     </section>
 
@@ -420,14 +444,17 @@
     return out;
   }
 
+  // Generate a unique session ID once per page load, stored only in memory.
+  // Do NOT use localStorage or sessionStorage — sessionStorage is inherited when
+  // a tab is opened from another tab, causing multiple tabs to share the same session.
+  const _PAGE_SID = (() => {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+  })();
+
   function getDemoSessionID() {
-    const key = 'passkey_demo_session_id';
-    let sid = sessionStorage.getItem(key);
-    if (!sid) {
-      sid = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-      sessionStorage.setItem(key, sid);
-    }
-    return sid;
+    return _PAGE_SID;
   }
 
   function getApiBasePath() {
@@ -456,6 +483,254 @@
     });
     return res.json();
   }
+
+  // ── Admin: Invite + Register ─────────────────────────────────────────────
+  function renderApproverList(users) {
+    const node = el('approverList');
+    if (!node) return;
+    node.innerHTML = '';
+    if (!users || users.length === 0) {
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = 'No registered approvers yet.';
+      node.appendChild(hint);
+      return;
+    }
+    for (const u of users) {
+      const row = document.createElement('div');
+      row.className = 'mini-row';
+      const id = document.createElement('span');
+      id.className = 'mono';
+      id.textContent = `#${u.id}`;
+      row.appendChild(id);
+      row.appendChild(document.createTextNode(` — ${u.display_name || 'user'}`));
+      node.appendChild(row);
+    }
+  }
+
+  async function refreshApprovers() {
+    const res = await api('/api/admin/passkey/users?page=1&limit=50');
+    renderApproverList(res?.users || []);
+  }
+  el('btnRefreshApprovers').onclick = refreshApprovers;
+
+  el('btnInvite').onclick = async () => {
+    try {
+      const name = String(el('inviteDisplayName').value || '').trim() || 'approver';
+      const res = await api('/api/admin/passkey/invite', 'POST', { display_name: name, expires_in_seconds: 86400 });
+      show(res);
+      const token = res?.invite_token || res?.data?.invite_token || '';
+      const registerURL = res?.register_url || res?.data?.register_url || '';
+      if (!token) { setOpMsg('msgInvite', false, `Invite failed: ${res?.error || res?.message || 'unknown'}`); return; }
+      el('inviteToken').value = token;
+      el('inviteRegisterURL').value = registerURL;
+      setOpMsg('msgInvite', true, `Invite created. Token: ${token}${registerURL ? ` · Register URL: ${registerURL}` : ''}`);
+    } catch (e) {
+      setOpMsg('msgInvite', false, `Invite failed: ${String(e)}`);
+    }
+  };
+
+  el('btnRegisterPasskey').onclick = async () => {
+    const token = String(el('inviteToken').value || '').trim();
+    if (!token) { setOpMsg('msgRegister', false, 'Enter an invite token first'); return; }
+    try {
+      const optsRes = await api('/api/passkey/register/options?token=' + encodeURIComponent(token));
+      const rawOpts = optsRes?.options || optsRes?.data?.options || optsRes;
+      if (!rawOpts) { setOpMsg('msgRegister', false, `Options failed: ${optsRes?.error || 'unknown'}`); return; }
+      const opts = (function normalizeCreateOptions(o) {
+        const pub = o.publicKey ? { ...o.publicKey } : { ...o };
+        if (typeof pub.challenge === 'string') pub.challenge = b64urlToBuffer(pub.challenge);
+        if (pub.user && typeof pub.user.id === 'string') pub.user = { ...pub.user, id: b64urlToBuffer(pub.user.id) };
+        if (Array.isArray(pub.excludeCredentials)) {
+          pub.excludeCredentials = pub.excludeCredentials.map(c => ({ ...c, id: typeof c.id === 'string' ? b64urlToBuffer(c.id) : c.id }));
+        }
+        return { publicKey: pub };
+      })(rawOpts);
+      const cred = await navigator.credentials.create(opts);
+      const verifyRes = await api('/api/passkey/register/verify', 'POST', {
+        invite_token: token,
+        credential: credentialToJSON(cred),
+      });
+      show(verifyRes);
+      const userId = verifyRes?.passkey_user_id || verifyRes?.data?.passkey_user_id;
+      if (userId) {
+        setOpMsg('msgRegister', true, `Registered as passkey user #${userId}`);
+        await refreshApprovers();
+        await loadPolicyUsers();
+      } else {
+        setOpMsg('msgRegister', false, `Register failed: ${verifyRes?.error || 'unknown'}`);
+      }
+    } catch (e) {
+      setOpMsg('msgRegister', false, `Register failed: ${String(e)}`);
+    }
+  };
+
+  // ── Admin: Policy (multi-level, checkbox member selection) ───────────────
+  let policyUsers = [];
+  let policyLevelsState = [{ level_index: 1, threshold: 1, member_ids: [] }];
+
+  function policyLevelCard(lv, idx, canRemove) {
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:rgba(255,255,255,.6)';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px';
+    const title = document.createElement('strong');
+    title.textContent = `Level ${lv.level_index}`;
+    header.appendChild(title);
+    if (canRemove) {
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.textContent = '× Remove';
+      rm.style.cssText = 'width:auto;margin:0;padding:4px 10px;font-size:12px;background:linear-gradient(135deg,#ef4444,#f87171)';
+      rm.onclick = () => removePolicyLevel(idx);
+      header.appendChild(rm);
+    }
+    card.appendChild(header);
+
+    const thrWrap = document.createElement('div');
+    thrWrap.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px';
+    const thrLbl = document.createElement('span');
+    thrLbl.textContent = 'Threshold';
+    thrLbl.style.cssText = 'font-size:12px;color:var(--text-2);font-weight:700';
+    thrWrap.appendChild(thrLbl);
+    const thrInput = document.createElement('input');
+    thrInput.type = 'number';
+    thrInput.min = '1';
+    thrInput.value = String(lv.threshold);
+    thrInput.style.cssText = 'width:80px';
+    thrInput.oninput = () => { lv.threshold = parseInt(thrInput.value, 10) || 1; };
+    thrWrap.appendChild(thrInput);
+    const thrHint = document.createElement('span');
+    thrHint.style.cssText = 'font-size:11px;color:var(--text-2)';
+    thrHint.textContent = `of ${lv.member_ids.length} member(s) selected`;
+    thrWrap.appendChild(thrHint);
+    card.appendChild(thrWrap);
+
+    const membersLbl = document.createElement('div');
+    membersLbl.textContent = 'Members';
+    membersLbl.style.cssText = 'font-size:12px;color:var(--text-2);font-weight:700;margin:6px 0 4px';
+    card.appendChild(membersLbl);
+
+    if (policyUsers.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'hint';
+      empty.textContent = 'No registered approvers yet — register some under Admin A.';
+      card.appendChild(empty);
+    } else {
+      const list = document.createElement('div');
+      list.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:4px';
+      for (const u of policyUsers) {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:12px;cursor:pointer;border-radius:4px';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = lv.member_ids.includes(u.id);
+        cb.style.cssText = 'width:auto;margin:0';
+        cb.onchange = () => {
+          if (cb.checked) {
+            if (!lv.member_ids.includes(u.id)) lv.member_ids.push(u.id);
+          } else {
+            lv.member_ids = lv.member_ids.filter(x => x !== u.id);
+          }
+          thrHint.textContent = `of ${lv.member_ids.length} member(s) selected`;
+        };
+        row.appendChild(cb);
+        const idSpan = document.createElement('span');
+        idSpan.className = 'mono';
+        idSpan.textContent = `#${u.id}`;
+        idSpan.style.cssText = 'color:var(--accent)';
+        row.appendChild(idSpan);
+        row.appendChild(document.createTextNode(' ' + (u.display_name || 'user')));
+        list.appendChild(row);
+      }
+      card.appendChild(list);
+    }
+    return card;
+  }
+
+  function renderPolicyLevels() {
+    const container = el('policyLevels');
+    container.innerHTML = '';
+    policyLevelsState.forEach((lv, idx) => {
+      container.appendChild(policyLevelCard(lv, idx, policyLevelsState.length > 1));
+    });
+  }
+
+  function addPolicyLevel() {
+    policyLevelsState.push({ level_index: policyLevelsState.length + 1, threshold: 1, member_ids: [] });
+    renderPolicyLevels();
+  }
+
+  function removePolicyLevel(i) {
+    policyLevelsState.splice(i, 1);
+    policyLevelsState.forEach((lv, idx) => { lv.level_index = idx + 1; });
+    renderPolicyLevels();
+  }
+
+  async function loadPolicyUsers() {
+    try {
+      const res = await api('/api/admin/passkey/users?page=1&limit=200');
+      policyUsers = (res?.users || []).filter(u => u && u.id != null);
+    } catch (e) {
+      policyUsers = [];
+    }
+    renderPolicyLevels();
+  }
+
+  el('btnAddLevel').onclick = addPolicyLevel;
+
+  el('btnSavePolicy').onclick = async () => {
+    try {
+      const levels = policyLevelsState.map(lv => ({
+        level_index: lv.level_index,
+        threshold: Math.max(1, lv.threshold | 0),
+        member_ids: [...lv.member_ids],
+      }));
+      for (const lv of levels) {
+        if (lv.member_ids.length === 0) {
+          setOpMsg('msgPolicy', false, `Level ${lv.level_index}: pick at least one member`);
+          return;
+        }
+        if (lv.threshold > lv.member_ids.length) {
+          setOpMsg('msgPolicy', false, `Level ${lv.level_index}: threshold cannot exceed member count`);
+          return;
+        }
+      }
+      const body = { public_key_name: 'default', timeout_seconds: 3600, levels };
+      const res = await api('/api/admin/policy', 'PUT', body);
+      show(res);
+      if (res?.success === false) {
+        setOpMsg('msgPolicy', false, `Save failed: ${res?.error || res?.message || 'unknown'}`);
+      } else {
+        const summary = levels.map(l => `L${l.level_index}: ${l.threshold}/${l.member_ids.length}`).join(' → ');
+        setOpMsg('msgPolicy', true, `Policy saved (${summary})`);
+      }
+    } catch (e) {
+      setOpMsg('msgPolicy', false, `Save failed: ${String(e)}`);
+    }
+  };
+
+  el('btnLoadPolicy').onclick = async () => {
+    try {
+      const res = await api('/api/admin/policy?public_key_name=default');
+      el('policyView').textContent = JSON.stringify(res, null, 2);
+      if (res?.policy?.levels) {
+        policyLevelsState = res.policy.levels.map((lv, i) => ({
+          level_index: lv.level_index || i + 1,
+          threshold: lv.threshold || 1,
+          member_ids: Array.isArray(lv.member_ids) ? [...lv.member_ids] : [],
+        }));
+        if (policyLevelsState.length === 0) policyLevelsState = [{ level_index: 1, threshold: 1, member_ids: [] }];
+        renderPolicyLevels();
+      }
+    } catch (e) {
+      el('policyView').textContent = String(e);
+    }
+  };
+
+  // Initial render + auto-refresh members after registering a new passkey.
+  loadPolicyUsers();
 
   el('btnLogin').onclick = async () => {
     try {
@@ -521,17 +796,7 @@
 
   el('btnPending').onclick = async () => {
     try {
-      const appInstanceId = String(el('pendingAppInstanceId')?.value || '').trim();
-      const publicKeyName = String(el('pendingPublicKeyName')?.value || '').trim();
-      const query = new URLSearchParams();
-      if (appInstanceId) {
-        query.set('app_instance_id', appInstanceId);
-      }
-      if (publicKeyName) {
-        query.set('public_key_name', publicKeyName);
-      }
-      const suffix = query.toString() ? `?${query.toString()}` : '';
-      const res = await api(`/api/approvals/pending${suffix}`);
+      const res = await api('/api/approvals/pending');
       renderPendingList(res);
       show(res);
       const count = Array.isArray(res?.data?.approvals) ? res.data.approvals.length : 0;
@@ -548,7 +813,7 @@
       const requestId = Number(el('requestId').value);
       const challengeRes = await api(`/api/approvals/request/${requestId}/challenge`);
       if (!challengeRes.success) throw new Error(challengeRes.error || 'request challenge failed');
-      const options = normalizeOptions(challengeRes.data);
+      const options = normalizeOptions(challengeRes.data?.options || challengeRes.data);
       const cred = await navigator.credentials.get(options);
       const confirmRes = await api(`/api/approvals/request/${requestId}/confirm`, 'POST', {
         credential: credentialToJSON(cred),

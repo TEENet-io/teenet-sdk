@@ -32,19 +32,19 @@ func TestSetDefaultAppInstanceID(t *testing.T) {
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
-	appID := "test-app-id"
-	client.SetDefaultAppInstanceID(appID)
+	appInstanceID := "test-app-id"
+	client.SetDefaultAppInstanceID(appInstanceID)
 
-	if client.GetDefaultAppInstanceID() != appID {
-		t.Errorf("Expected APP_INSTANCE_ID '%s', got '%s'", appID, client.GetDefaultAppInstanceID())
+	if client.GetDefaultAppInstanceID() != appInstanceID {
+		t.Errorf("Expected APP_INSTANCE_ID '%s', got '%s'", appInstanceID, client.GetDefaultAppInstanceID())
 	}
 }
 
 // TestSetDefaultAppInstanceIDFromEnv tests loading APP_INSTANCE_ID from environment
 func TestSetDefaultAppInstanceIDFromEnv(t *testing.T) {
-	// Set environment variable (uses APP_INSTANCE_ID, not APP_ID)
-	testAppID := "env-test-app-id"
-	t.Setenv("APP_INSTANCE_ID", testAppID)
+	// Set environment variable (uses APP_INSTANCE_ID, not APP_INSTANCE_ID)
+	testAppInstanceID := "env-test-app-id"
+	t.Setenv("APP_INSTANCE_ID", testAppInstanceID)
 
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
@@ -54,13 +54,13 @@ func TestSetDefaultAppInstanceIDFromEnv(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if client.GetDefaultAppInstanceID() != testAppID {
-		t.Errorf("Expected APP_INSTANCE_ID '%s', got '%s'", testAppID, client.GetDefaultAppInstanceID())
+	if client.GetDefaultAppInstanceID() != testAppInstanceID {
+		t.Errorf("Expected APP_INSTANCE_ID '%s', got '%s'", testAppInstanceID, client.GetDefaultAppInstanceID())
 	}
 }
 
-// TestSetDefaultAppIDFromEnv_NotSet tests error when env var not set
-func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
+// TestSetDefaultAppInstanceIDFromEnv_NotSet tests error when env var not set
+func TestSetDefaultAppInstanceIDFromEnv_NotSet(t *testing.T) {
 	os.Unsetenv("APP_INSTANCE_ID")
 
 	client := NewClient("http://localhost:8080")
@@ -68,7 +68,7 @@ func TestSetDefaultAppIDFromEnv_NotSet(t *testing.T) {
 
 	err := client.SetDefaultAppInstanceIDFromEnv()
 	if err == nil {
-		t.Fatal("Expected error when APP_ID not set, got nil")
+		t.Fatal("Expected error when APP_INSTANCE_ID not set, got nil")
 	}
 }
 
@@ -136,8 +136,8 @@ func TestClientClose(t *testing.T) {
 	}
 }
 
-// TestSignWithoutAppID tests that Sign returns error when App ID is not set
-func TestSignWithoutAppID(t *testing.T) {
+// TestSignWithoutAppInstanceID tests that Sign returns error when App Instance ID is not set
+func TestSignWithoutAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
@@ -147,7 +147,7 @@ func TestSignWithoutAppID(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when signing without APP_INSTANCE_ID, got nil")
 	}
-	if err != nil && err.Error() != "default App ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)" {
+	if err != nil && err.Error() != "default App Instance ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)" {
 		// Check that it's the expected error about APP_INSTANCE_ID.
 		t.Logf("Got error: %v", err)
 	}
@@ -181,15 +181,15 @@ func TestNewClient_ExplicitOverridesEnv(t *testing.T) {
 	}
 }
 
-// TestVerify_NoAppID tests Verify without APP_INSTANCE_ID
-func TestVerify_NoAppID(t *testing.T) {
+// TestVerify_NoAppInstanceID tests Verify without APP_INSTANCE_ID
+func TestVerify_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.Verify(ctx, []byte("message"), []byte("signature"), "pk1")
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
@@ -229,56 +229,56 @@ func TestClientOptions_NilOptions(t *testing.T) {
 	}
 }
 
-// TestGenerateKey_NoAppID tests GenerateKey without APP_INSTANCE_ID
-func TestGenerateKey_NoAppID(t *testing.T) {
+// TestGenerateKey_NoAppInstanceID tests GenerateKey without APP_INSTANCE_ID
+func TestGenerateKey_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.GenerateKey(ctx, ProtocolSchnorr, CurveSECP256K1)
 	if err == nil {
-		t.Error("Expected error when no App ID set (Schnorr)")
+		t.Error("Expected error when no App Instance ID set (Schnorr)")
 	}
 
 	_, err = client.GenerateKey(ctx, ProtocolECDSA, CurveSECP256K1)
 	if err == nil {
-		t.Error("Expected error when no App ID set (ECDSA)")
+		t.Error("Expected error when no App Instance ID set (ECDSA)")
 	}
 }
 
-// TestGetAPIKey_NoAppID tests GetAPIKey without APP_INSTANCE_ID
-func TestGetAPIKey_NoAppID(t *testing.T) {
+// TestGetAPIKey_NoAppInstanceID tests GetAPIKey without APP_INSTANCE_ID
+func TestGetAPIKey_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.GetAPIKey(ctx, "test-key")
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
-// TestSignWithAPISecret_NoAppID tests SignWithAPISecret without APP_INSTANCE_ID
-func TestSignWithAPISecret_NoAppID(t *testing.T) {
+// TestSignWithAPISecret_NoAppInstanceID tests SignWithAPISecret without APP_INSTANCE_ID
+func TestSignWithAPISecret_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.SignWithAPISecret(ctx, "test-secret", []byte("message"))
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 
-// TestGetPublicKeys_NoAppID tests GetPublicKeys without APP_INSTANCE_ID
-func TestGetPublicKeys_NoAppID(t *testing.T) {
+// TestGetPublicKeys_NoAppInstanceID tests GetPublicKeys without APP_INSTANCE_ID
+func TestGetPublicKeys_NoAppInstanceID(t *testing.T) {
 	ctx := context.Background()
 	client := NewClient("http://localhost:8080")
 	defer client.Close()
 
 	_, err := client.GetPublicKeys(ctx)
 	if err == nil {
-		t.Error("Expected error when no App ID set")
+		t.Error("Expected error when no App Instance ID set")
 	}
 }
 

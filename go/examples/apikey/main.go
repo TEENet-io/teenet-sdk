@@ -46,7 +46,7 @@ func main() {
 	fmt.Printf("TEENet API Key Example\n")
 	fmt.Printf("======================\n")
 	fmt.Printf("Service URL: %s\n", client.GetServiceURL())
-	fmt.Printf("App ID: %s\n\n", client.GetDefaultAppInstanceID())
+	fmt.Printf("App Instance ID: %s\n\n", client.GetDefaultAppInstanceID())
 
 	// Example 1: Retrieve a bound API key (should succeed)
 	fmt.Println("Example 1: Retrieve Bound API Key")

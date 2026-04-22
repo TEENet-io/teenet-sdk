@@ -134,34 +134,34 @@ export class Client {
     this.keyCacheTTL = options?.keyCacheTTL ?? 60000; // Default 60s, -1 to disable
 
     // Auto-load APP_INSTANCE_ID from environment if available
-    const appID = process.env.APP_INSTANCE_ID;
-    if (appID) {
-      this.defaultAppInstanceID = appID;
+    const appInstanceID = process.env.APP_INSTANCE_ID;
+    if (appInstanceID) {
+      this.defaultAppInstanceID = appInstanceID;
     }
   }
 
   /**
    * Set the default application ID
-   * @param appID - Your TEENet application ID
+   * @param appInstanceID - Your TEENet application ID
    */
-  setDefaultAppInstanceID(appID: string): void {
-    this.defaultAppInstanceID = appID;
+  setDefaultAppInstanceID(appInstanceID: string): void {
+    this.defaultAppInstanceID = appInstanceID;
   }
 
   /**
-   * Set the default App ID from environment variable
+   * Set the default App Instance ID from environment variable
    * @throws Error if APP_INSTANCE_ID is not set
    */
   setDefaultAppInstanceIDFromEnv(): void {
-    const appID = process.env.APP_INSTANCE_ID;
-    if (!appID) {
+    const appInstanceID = process.env.APP_INSTANCE_ID;
+    if (!appInstanceID) {
       throw new Error('APP_INSTANCE_ID environment variable not set');
     }
-    this.defaultAppInstanceID = appID;
+    this.defaultAppInstanceID = appInstanceID;
   }
 
   /**
-   * Get the currently configured default App ID
+   * Get the currently configured default App Instance ID
    */
   getDefaultAppInstanceID(): string {
     return this.defaultAppInstanceID;
@@ -196,7 +196,7 @@ export class Client {
    */
   async sign(message: Buffer, publicKeyName: string, passkeyToken?: string): Promise<SignResult> {
     if (!this.defaultAppInstanceID) {
-      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
+      throw new Error('App Instance ID not set. Call setDefaultAppInstanceID() first.');
     }
     if (!message || message.length === 0) {
       return this.signFailure(ErrorCode.INVALID_INPUT, 'message must not be empty');
@@ -223,7 +223,7 @@ export class Client {
     const keyHex = keyInfo.keyData.startsWith('0x') ? keyInfo.keyData.slice(2) : keyInfo.keyData;
     payload.public_key = Buffer.from(keyHex, 'hex').toString('base64');
     this.logDebug('sign.submit', {
-      appId: this.defaultAppInstanceID,
+      appInstanceId: this.defaultAppInstanceID,
       pendingWaitTimeout: this.pendingWaitTimeout,
       statusPollInterval: DEFAULT_STATUS_POLL_INTERVAL,
     });
@@ -465,11 +465,11 @@ export class Client {
   }
 
   /**
-   * Get all bound public keys for the default App ID
+   * Get all bound public keys for the default App Instance ID
    */
   async getPublicKeys(): Promise<BoundPublicKeyInfo[]> {
     if (!this.defaultAppInstanceID) {
-      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
+      throw new Error('App Instance ID not set. Call setDefaultAppInstanceID() first.');
     }
 
     // Check cache (evict expired entry if stale)
@@ -622,7 +622,7 @@ export class Client {
    */
   private async postGenerateKey(protocol: string, curve: string): Promise<GenerateKeyResult> {
     if (!this.defaultAppInstanceID) {
-      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
+      throw new Error('App Instance ID not set. Call setDefaultAppInstanceID() first.');
     }
 
     const response = await this.post('/api/generate-key', {
@@ -665,7 +665,7 @@ export class Client {
    */
   async getAPIKey(name: string): Promise<APIKeyResult> {
     if (!this.defaultAppInstanceID) {
-      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
+      throw new Error('App Instance ID not set. Call setDefaultAppInstanceID() first.');
     }
 
     const response = await this.get(
@@ -694,7 +694,7 @@ export class Client {
    */
   async signWithAPISecret(name: string, message: Buffer): Promise<APISignResult> {
     if (!this.defaultAppInstanceID) {
-      throw new Error('App ID not set. Call setDefaultAppInstanceID() first.');
+      throw new Error('App Instance ID not set. Call setDefaultAppInstanceID() first.');
     }
 
     const response = await this.post(`/api/apikey/${encodeURIComponent(name)}/sign`, {
@@ -725,7 +725,7 @@ export class Client {
    */
   async invitePasskeyUser(req: PasskeyInviteRequest): Promise<PasskeyInviteResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set. Call setDefaultAppInstanceID() first.' };
+      return { success: false, error: 'App Instance ID not set. Call setDefaultAppInstanceID() first.' };
     }
     const body: Record<string, unknown> = {
       app_instance_id: this.defaultAppInstanceID,
@@ -753,7 +753,7 @@ export class Client {
    */
   async listPasskeyUsers(page = 0, limit = 0): Promise<PasskeyUsersResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.', users: [], total: 0, page: 0, limit: 0 };
+      return { success: false, error: 'App Instance ID not set.', users: [], total: 0, page: 0, limit: 0 };
     }
     const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID });
     if (page > 0) q.set('page', String(page));
@@ -776,7 +776,7 @@ export class Client {
    */
   async deletePasskeyUser(userId: number): Promise<AdminResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.' };
+      return { success: false, error: 'App Instance ID not set.' };
     }
     const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID });
     const resp = await this.requestAdmin(`/api/admin/passkey/users/${userId}?${q}`, 'DELETE');
@@ -794,7 +794,7 @@ export class Client {
    */
   async listAuditRecords(page = 0, limit = 0): Promise<AuditRecordsResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.', records: [], total: 0, page: 0, limit: 0 };
+      return { success: false, error: 'App Instance ID not set.', records: [], total: 0, page: 0, limit: 0 };
     }
     const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID });
     if (page > 0) q.set('page', String(page));
@@ -817,7 +817,7 @@ export class Client {
    */
   async upsertPermissionPolicy(req: PolicyRequest): Promise<AdminResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.' };
+      return { success: false, error: 'App Instance ID not set.' };
     }
     const body: Record<string, unknown> = {
       app_instance_id: this.defaultAppInstanceID,
@@ -844,7 +844,7 @@ export class Client {
    */
   async getPermissionPolicy(publicKeyName: string): Promise<PolicyResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.' };
+      return { success: false, error: 'App Instance ID not set.' };
     }
     const q = new URLSearchParams({
       app_instance_id: this.defaultAppInstanceID,
@@ -950,7 +950,7 @@ export class Client {
    */
   async createAPIKey(req: import('./types').CreateAPIKeyRequest): Promise<import('./types').CreateAPIKeyResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.' };
+      return { success: false, error: 'App Instance ID not set.' };
     }
     const resp = await this.requestAdmin('/api/admin/apikeys', 'POST', {
       app_instance_id: this.defaultAppInstanceID,
@@ -988,7 +988,7 @@ export class Client {
 
   private async adminDelete(path: string, extraParams?: Record<string, string>): Promise<AdminResult> {
     if (!this.defaultAppInstanceID) {
-      return { success: false, error: 'App ID not set.' };
+      return { success: false, error: 'App Instance ID not set.' };
     }
     const q = new URLSearchParams({ app_instance_id: this.defaultAppInstanceID, ...extraParams });
     const resp = await this.requestAdmin(`${path}?${q}`, 'DELETE');

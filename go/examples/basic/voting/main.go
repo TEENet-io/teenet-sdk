@@ -19,19 +19,19 @@ import (
 
 func main() {
 	// Get voter app IDs from environment
-	// Example: export VOTER_APP_IDS="app-id-1,app-id-2,app-id-3"
-	voterAppIDsEnv := os.Getenv("VOTER_APP_IDS")
-	if voterAppIDsEnv == "" {
-		log.Fatal("VOTER_APP_IDS environment variable is required (comma-separated list of app IDs)")
+	// Example: export VOTER_APP_INSTANCE_IDS="app-id-1,app-id-2,app-id-3"
+	voterAppInstanceIDsEnv := os.Getenv("VOTER_APP_INSTANCE_IDS")
+	if voterAppInstanceIDsEnv == "" {
+		log.Fatal("VOTER_APP_INSTANCE_IDS environment variable is required (comma-separated list of app IDs)")
 	}
 
-	voterAppIDs := strings.Split(voterAppIDsEnv, ",")
-	if len(voterAppIDs) < 3 {
+	voterAppInstanceIDs := strings.Split(voterAppInstanceIDsEnv, ",")
+	if len(voterAppInstanceIDs) < 3 {
 		log.Fatal("At least 3 voter app IDs are required")
 	}
 
 	// Use first voter's app_id as target (for signing after threshold)
-	targetAppID := voterAppIDs[0]
+	targetAppInstanceID := voterAppInstanceIDs[0]
 	publicKeyName := os.Getenv("PUBLIC_KEY_NAME")
 	if publicKeyName == "" {
 		log.Fatal("PUBLIC_KEY_NAME environment variable is required")
@@ -45,20 +45,20 @@ func main() {
 	message := []byte("Voting test message at " + time.Now().Format("15:04:05"))
 
 	fmt.Printf("🗳️  Voting Test\n")
-	fmt.Printf("🎯 Target App ID: %s\n", targetAppID)
+	fmt.Printf("🎯 Target App Instance ID: %s\n", targetAppInstanceID)
 	fmt.Printf("📝 Message: %s\n\n", string(message))
 
 	// Simulate 2 voters voting concurrently (need 2/3 for threshold)
 	var wg sync.WaitGroup
 	for i := 1; i <= 3; i++ {
 		wg.Add(1)
-		go func(voteNum int, voterAppID string) {
+		go func(voteNum int, voterAppInstanceID string) {
 			defer wg.Done()
 
-			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum, voterAppID[:8])
+			fmt.Printf("🎯 Vote %d (voter: %s): Submitting...\n", voteNum, voterAppInstanceID[:8])
 
 			client := sdk.NewClient(serviceURL)
-			client.SetDefaultAppInstanceID(voterAppID) // Each voter uses their own app_id
+			client.SetDefaultAppInstanceID(voterAppInstanceID) // Each voter uses their own app_id
 
 			result, err := client.Sign(context.Background(), message, publicKeyName)
 
@@ -85,7 +85,7 @@ func main() {
 			}
 
 			client.Close()
-		}(i, voterAppIDs[i-1])
+		}(i, voterAppInstanceIDs[i-1])
 	}
 
 	wg.Wait()

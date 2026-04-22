@@ -63,7 +63,7 @@ import (
 //
 // Example (Threshold Voting):
 //
-//	// If App ID is configured for 2-of-3 voting, this will:
+//	// If App Instance ID is configured for 2-of-3 voting, this will:
 //	// 1. Submit the signing request
 //	// 2. Wait up to PendingWaitTimeout (default 10s) for threshold completion
 //	// 3. Return final signed/failed result
@@ -76,11 +76,11 @@ import (
 func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string, passkeyToken ...string) (*types.SignResult, error) {
 	// Check if APP_INSTANCE_ID is set
 	c.mu.RLock()
-	appID := c.defaultAppInstanceID
+	appInstanceID := c.defaultAppInstanceID
 	c.mu.RUnlock()
 
-	if appID == "" {
-		return nil, fmt.Errorf("default App ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)")
+	if appInstanceID == "" {
+		return nil, fmt.Errorf("default App Instance ID is not set (use SetDefaultAppInstanceID or set APP_INSTANCE_ID environment variable)")
 	}
 	if len(message) == 0 {
 		msg := "message must not be empty"
@@ -110,10 +110,10 @@ func (c *Client) Sign(ctx context.Context, message []byte, publicKeyName string,
 	}
 
 	c.debugf("Signing message (length: %d bytes, hash: %s), app_id: %s, with public key name '%s' (%d bytes)",
-		len(message), truncateForLog(messageHash), appID, publicKeyName, len(pubKey))
+		len(message), truncateForLog(messageHash), appInstanceID, publicKeyName, len(pubKey))
 	c.debugf("sign.submit app_id=%s hash=%s pending_wait_ms=%d poll_base_ms=%d",
-		appID, messageHash, c.pendingWaitTimeout.Milliseconds(), defaultStatusPollInterval.Milliseconds())
-	resp, err := c.httpClient.SubmitRequest(ctx, appID, message, pubKey, token)
+		appInstanceID, messageHash, c.pendingWaitTimeout.Milliseconds(), defaultStatusPollInterval.Milliseconds())
+	resp, err := c.httpClient.SubmitRequest(ctx, appInstanceID, message, pubKey, token)
 	if err != nil {
 		return signFailure(types.ErrorCodeSignRequestFailed, fmt.Sprintf("Failed to submit request: %v", err), nil), err
 	}
