@@ -144,7 +144,7 @@ func NewClientWithOptions(serviceURL string, opts *ClientOptions) *Client {
 //
 // Example:
 //
-//	client.SetDefaultAppInstanceID("f5a8f44238cd6112b9f02f7f63a12533")
+//	client.SetDefaultAppInstanceID("my-app-instance")
 func (c *Client) SetDefaultAppInstanceID(appInstanceID string) {
 	if c == nil || c.impl == nil {
 		return

@@ -65,10 +65,10 @@
 
 ## 快速入口
 
-- [**快速上手**](zh/quick-start.md) —— 安装 SDK 并完成首次签名
-- [**API 参考**](zh/api.md) —— Go + TypeScript 完整 API,代码示例点击标签即可切换
-- [**Mock Server**](zh/mock-server.md) —— 真实密码学、零基础设施,本地开发用
-- [**示例**](zh/examples.md) —— 端到端示例应用
+- [**快速上手**](quick-start.md) —— 安装 SDK 并完成首次签名
+- [**API 参考**](api.md) —— Go + TypeScript 完整 API,代码示例点击标签即可切换
+- [**Mock Server**](mock-server.md) —— 真实密码学、零基础设施,本地开发用
+- [**示例**](examples.md) —— 端到端示例应用
 
 ---
 

@@ -37,7 +37,7 @@
 
 | 示例 | 语言 | 说明 |
 |---|---|---|
-| [`openclaw-wallet`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/openclaw-wallet) | Go | 基于 SDK 构建的完整钱包 |
+| [`teenet-wallet`](https://github.com/TEENet-io/teenet-wallet) | Go | 基于 SDK 构建的 Passkey 保护加密钱包(独立仓库) |
 | [`finance-console`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/finance-console) | Go | 金融仪表盘示例 |
 | [`admin`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/admin) | Go | 邀请 Passkey 用户、配置权限策略、管理 API 密钥 |
 
@@ -46,6 +46,6 @@
 大部分示例需要下面二者之一:
 
 - 运行中的 TEENet 服务(环境变量里有 `SERVICE_URL` + `APP_INSTANCE_ID`),**或**
-- [Mock Server](zh/mock-server.md) 在 `:8089` 上运行
+- [Mock Server](mock-server.md) 在 `:8089` 上运行
 
 每个示例都有自己的 README 说明具体步骤。

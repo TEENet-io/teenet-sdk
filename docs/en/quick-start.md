@@ -106,7 +106,14 @@ make build && make run
 # listens on :8089 with pre-configured test keys
 ```
 
-Point your client at `http://localhost:8089` and run the example above.
+Point your client at `http://localhost:8089` and run the example above. The mock ships with 8 preconfigured app instances (`mock-app-id-01` through `mock-app-id-08`) covering every protocol/curve combination — all under the key name `default`. So to run the snippet above against the mock, set:
+
+```bash
+export SERVICE_URL=http://localhost:8089
+export APP_INSTANCE_ID=mock-app-id-01   # Schnorr/ED25519, direct signing
+```
+
+and replace `"my-key"` in the snippet with `"default"`.
 
 See [Mock Server](mock-server.md) for details.
 

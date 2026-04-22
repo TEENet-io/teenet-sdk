@@ -74,3 +74,10 @@ const (
 	CurveSECP256K1 = crypto.CurveSECP256K1
 	CurveSECP256R1 = crypto.CurveSECP256R1
 )
+
+// Standalone verification helpers. Do not require a Client — useful for
+// offline / third-party verification. Mirrors the TypeScript SDK exports.
+var (
+	VerifySignature  = crypto.VerifySignature
+	VerifyHMACSHA256 = crypto.VerifyHMACSHA256
+)

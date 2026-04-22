@@ -58,12 +58,19 @@ go run main.go
 
 ## Building
 
-Each example has its own `go.mod` file. To build an example:
+All basic examples share the parent `go/examples/go.mod`. To build from the repo root:
 
 ```bash
-cd <example-directory>
-go mod tidy
-go build
+cd go/examples
+go build ./basic/simple
+go build ./basic/voting
+go build ./basic/forwarding
+```
+
+Or run directly with `go run`:
+
+```bash
+cd go/examples/basic/simple && go run .
 ```
 
 ## Environment Variables

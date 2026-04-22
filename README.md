@@ -35,7 +35,7 @@ make build && make run
 # listens on :8089 with pre-configured test keys
 ```
 
-The mock ships with ready-to-use app instances for every supported algorithm, e.g. `test-ecdsa-secp256k1`, `test-schnorr-ed25519`, `test-ecdsa-secp256r1`, `test-schnorr-secp256k1`.
+The mock ships with 8 ready-to-use app instances (`mock-app-id-01` through `mock-app-id-08`) covering every supported algorithm, M-of-N voting, and Passkey approval. All share the key name `default`. See [mock-server/README.md](mock-server/README.md) for the full table.
 
 ### 2. Install the SDK
 
@@ -68,14 +68,14 @@ func main() {
 
     // For local dev with the mock server:
     client := sdk.NewClient("http://localhost:8089")
-    client.SetDefaultAppInstanceID("test-ecdsa-secp256k1")
+    client.SetDefaultAppInstanceID("mock-app-id-01") // Schnorr/ED25519
     defer client.Close()
 
     // When deployed on TEENet, SERVICE_URL and APP_INSTANCE_ID are
     // injected automatically — you can just call sdk.NewClient().
 
     msg := []byte("hello, teenet")
-    res, err := client.Sign(ctx, msg, "test-ecdsa-secp256k1")
+    res, err := client.Sign(ctx, msg, "default") // "default" is the mock's key name
     if err != nil {
         log.Fatal(err)
     }
@@ -83,7 +83,7 @@ func main() {
         log.Fatalf("sign failed: %s (%s)", res.Error, res.ErrorCode)
     }
 
-    ok, _ := client.Verify(ctx, msg, res.Signature, "test-ecdsa-secp256k1")
+    ok, _ := client.Verify(ctx, msg, res.Signature, "default")
     fmt.Printf("signature=%x valid=%v\n", res.Signature, ok)
 }
 ```
@@ -95,18 +95,18 @@ import { Client } from '@teenet/sdk';
 async function main() {
     // For local dev with the mock server:
     const client = new Client('http://localhost:8089');
-    client.setDefaultAppInstanceID('test-ecdsa-secp256k1');
+    client.setDefaultAppInstanceID('mock-app-id-01'); // Schnorr/ED25519
 
     // When deployed on TEENet, SERVICE_URL and APP_INSTANCE_ID are
     // injected automatically — you can just call `new Client()`.
 
     const msg = Buffer.from('hello, teenet');
-    const res = await client.sign(msg, 'test-ecdsa-secp256k1');
+    const res = await client.sign(msg, 'default'); // "default" is the mock's key name
     if (!res.success) {
         throw new Error(`sign failed: ${res.error} (${res.errorCode})`);
     }
 
-    const ok = await client.verify(msg, res.signature, 'test-ecdsa-secp256k1');
+    const ok = await client.verify(msg, res.signature, 'default');
     console.log(`signature=${res.signature.toString('hex')} valid=${ok}`);
 
     client.close();

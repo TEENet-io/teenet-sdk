@@ -7,7 +7,7 @@
 //
 // Usage:
 //   1. Start mock server: cd mock-server && make run
-//   2. Run tests: cd examples/mock-test && go run main.go
+//   2. Run tests: cd go/examples && go run .
 
 package main
 

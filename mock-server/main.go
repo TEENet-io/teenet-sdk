@@ -734,10 +734,8 @@ func (s *MockServer) Start() error {
 
 	log.Printf("Mock Server starting on port %s", s.port)
 	log.Printf("Available test App IDs:")
-	for appID, keys := range s.appKeys {
-		for _, keyInfo := range keys {
-			log.Printf("   - %s (%s/%s)", appID, keyInfo.Protocol, keyInfo.Curve)
-		}
+	for appID := range s.appKeys {
+		log.Printf("   - %s", appID)
 	}
 
 	bindAddr := "127.0.0.1"

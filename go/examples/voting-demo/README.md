@@ -30,8 +30,8 @@ Both instances can query/fetch the final signature
 
 ### Prerequisites
 
-- Go 1.21 or higher
-- Running TEENet signing service
+- Go 1.24 or higher
+- Running TEENet signing service (or the [mock server](../../../mock-server/) on `:8089` — ships with a preconfigured 2-of-3 voting group: `mock-app-id-05`, `mock-app-id-06`, `mock-app-id-07`)
 - Multiple APP_INSTANCE_IDs for testing (configured on signing service)
 
 ### Installation
@@ -43,9 +43,11 @@ go mod tidy
 
 ### Running Multiple Instances
 
+The IDs below match the mock server's preconfigured 2-of-3 voting group. Replace with your own IDs when running against a real TEENet service.
+
 #### Instance 1 (Port 8081)
 ```bash
-APP_INSTANCE_ID="f5a8f44238cd6112b9f02f7f63a12533" \
+APP_INSTANCE_ID="mock-app-id-05" \
 PORT="8081" \
 SERVICE_URL="http://localhost:8089" \
 go run .
@@ -53,7 +55,7 @@ go run .
 
 #### Instance 2 (Port 8082)
 ```bash
-APP_INSTANCE_ID="3d8eabdab6bb5a4df0472e52afc46985" \
+APP_INSTANCE_ID="mock-app-id-06" \
 PORT="8082" \
 SERVICE_URL="http://localhost:8089" \
 go run .
@@ -61,7 +63,7 @@ go run .
 
 #### Instance 3 (Port 8083) - Optional
 ```bash
-APP_INSTANCE_ID="6c09bbe17bc38a86b22d348f89f4e0b8" \
+APP_INSTANCE_ID="mock-app-id-07" \
 PORT="8083" \
 SERVICE_URL="http://localhost:8089" \
 go run .
@@ -102,7 +104,7 @@ go build -o voting-demo .
 
 ### Run Binary
 ```bash
-APP_INSTANCE_ID="f5a8f44238cd6112b9f02f7f63a12533" PORT="8081" ./voting-demo
+APP_INSTANCE_ID="mock-app-id-05" PORT="8081" ./voting-demo
 ```
 
 ## API Endpoints
@@ -113,7 +115,7 @@ Get current instance configuration
 **Response:**
 ```json
 {
-  "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533",
+  "app_instance_id": "mock-app-id-05",
   "service_url": "http://localhost:8089"
 }
 ```
@@ -132,7 +134,7 @@ Submit vote for message signing
 ```json
 {
   "success": true,
-  "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533",
+  "app_instance_id": "mock-app-id-05",
   "message": "Vote submitted successfully",
   "voting_info": {
     "needs_voting": true,
@@ -153,7 +155,7 @@ Health check
 {
   "status": "healthy",
   "service": "Voting Demo App",
-  "app_instance_id": "f5a8f44238cd6112b9f02f7f63a12533"
+  "app_instance_id": "mock-app-id-05"
 }
 ```
 

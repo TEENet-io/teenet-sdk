@@ -87,10 +87,10 @@ func main() {
 	addr := host + ":" + port
 	log.Printf("[go-passkey-web-demo] http://%s", addr)
 	log.Printf("[go-passkey-web-demo] SERVICE_URL=%s", serviceURL)
-	if appInstanceID == "" {
+	if s.appInstanceID == "" {
 		log.Printf("[go-passkey-web-demo] APP_INSTANCE_ID=(missing)")
 	} else {
-		log.Printf("[go-passkey-web-demo] APP_INSTANCE_ID=%s", appInstanceID)
+		log.Printf("[go-passkey-web-demo] APP_INSTANCE_ID=%s", s.appInstanceID)
 	}
 
 	if err := http.ListenAndServe(addr, mux); err != nil {

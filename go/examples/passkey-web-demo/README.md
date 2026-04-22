@@ -2,14 +2,16 @@
 
 This demo is the Go version of `typescript/examples/passkey-web-demo`.
 
-- Backend: Go + `@teenet-sdk/go`
+- Backend: Go + `github.com/TEENet-io/teenet-sdk/go`
 - Frontend: Browser page with WebAuthn (Passkey)
 - Flow: sign(auto-init approval) -> login -> pending -> confirm -> action -> my requests/signature query
 
 ## 1) Setup
 
+From the repository root:
+
 ```bash
-cd /home/sun/tee/teenet-sdk/go/examples
+cd go/examples
 ```
 
 Required environment variables:

@@ -4,7 +4,7 @@
 # and PASSKEY_RP_ORIGIN to be set before it will start; these defaults
 # let `make run` work out of the box for local development.
 export PASSKEY_RP_ID ?= localhost
-export PASSKEY_RP_ORIGIN ?= http://localhost:8080
+export PASSKEY_RP_ORIGIN ?= http://localhost:18080
 export PASSKEY_RP_NAME ?= TEENet Mock
 export PASSKEY_REQUIRE_UV ?= true
 export PASSKEY_PLATFORM_ONLY ?= false
@@ -63,7 +63,7 @@ help:
 	@echo "Environment variables (with defaults):"
 	@echo "  MOCK_SERVER_PORT      - Server port (default: 8089)"
 	@echo "  PASSKEY_RP_ID         - WebAuthn RP id (default: localhost)"
-	@echo "  PASSKEY_RP_ORIGIN     - WebAuthn RP origin (default: http://localhost:8080)"
+	@echo "  PASSKEY_RP_ORIGIN     - WebAuthn RP origin (default: http://localhost:18080)"
 	@echo "  PASSKEY_RP_NAME       - WebAuthn RP display name (default: TEENet Mock)"
 	@echo "  PASSKEY_REQUIRE_UV    - Require user verification (default: true)"
 	@echo "  PASSKEY_PLATFORM_ONLY - Platform authenticators only (default: false)"

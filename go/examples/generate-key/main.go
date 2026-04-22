@@ -16,11 +16,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
+	"os"
 	"time"
-
-	"crypto/sha256"
 
 	sdk "github.com/TEENet-io/teenet-sdk/go"
 )

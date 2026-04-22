@@ -106,13 +106,20 @@ make build && make run
 # 监听 :8089,内置测试密钥
 ```
 
-将客户端指向 `http://localhost:8089`,运行上面的示例即可。
+将客户端指向 `http://localhost:8089` 即可运行上面的示例。Mock Server 内置 8 个 app instance(`mock-app-id-01` 到 `mock-app-id-08`),覆盖所有协议/曲线组合,对应的密钥名统一是 `default`。所以把上面的示例指向 Mock Server 时,需要设置:
 
-详见 [Mock Server](zh/mock-server.md)。
+```bash
+export SERVICE_URL=http://localhost:8089
+export APP_INSTANCE_ID=mock-app-id-01   # Schnorr/ED25519,直签
+```
+
+并将示例里的 `"my-key"` 替换为 `"default"`。
+
+详见 [Mock Server](mock-server.md)。
 
 ---
 
 ## 下一步
 
-- [**API 参考**](zh/api.md) —— Go 和 TypeScript 的完整方法集
-- [**示例**](zh/examples.md) —— 端到端示例(投票 UI、Passkey Web 示例、钱包等)
+- [**API 参考**](api.md) —— Go 和 TypeScript 的完整方法集
+- [**示例**](examples.md) —— 端到端示例(投票 UI、Passkey Web 示例、钱包等)
