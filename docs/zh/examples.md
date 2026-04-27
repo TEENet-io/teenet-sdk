@@ -1,6 +1,6 @@
 # 示例
 
-完整的端到端示例在 [`go/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples) 和 [`typescript/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/typescript/examples) 目录下。
+仓库内示例位于 [`go/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples) 和 [`typescript/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/typescript/examples) 目录下。
 
 ## 按类别
 
@@ -25,7 +25,6 @@
 | 示例 | 语言 | 说明 |
 |---|---|---|
 | [`passkey-web-demo`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/passkey-web-demo) | Go + 浏览器 | 基于 WebAuthn 的签名请求审批 |
-| [`passkey-web-demo`](https://github.com/TEENet-io/teenet-sdk/tree/main/typescript/examples/passkey-web-demo) | TypeScript + 浏览器 | 同样的流程,TypeScript 版 |
 
 ### 投票 UI
 
@@ -48,4 +47,4 @@
 - 运行中的 TEENet 服务(环境变量里有 `SERVICE_URL` + `APP_INSTANCE_ID`),**或**
 - [Mock Server](mock-server.md) 在 `:8089` 上运行
 
-每个示例都有自己的 README 说明具体步骤。
+部分示例包含 README 说明具体运行步骤。

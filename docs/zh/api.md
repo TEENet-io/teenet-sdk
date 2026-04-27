@@ -479,7 +479,7 @@ Curve.SECP256R1   // 'secp256r1'
 | `MISSING_HASH` | 响应缺少 hash |
 | `STATUS_QUERY_FAILED` | 轮询状态请求失败 |
 | `SIGN_FAILED` | 投票最终为失败 |
-| `THRESHOLD_TIMEOUT` | 在 `pendingWaitTimeout` 内未达到门限 |
+| `THRESHOLD_TIMEOUT` | 在 `PendingWaitTimeout` (Go) / `pendingWaitTimeout` (TypeScript) 内未达到门限 |
 | `APPROVAL_PENDING` | 需要 Passkey 审批 —— 走审批流程 |
 
 Go 里,`APPROVAL_PENDING` 还通过哨兵 `sdk.ErrApprovalPending` 暴露:

@@ -500,7 +500,7 @@ Returned on `SignResult.ErrorCode` (Go) / `result.errorCode` (TypeScript).
 | `MISSING_HASH` | Pending response missing hash |
 | `STATUS_QUERY_FAILED` | Polling status request failed |
 | `SIGN_FAILED` | Voting finalized as failed |
-| `THRESHOLD_TIMEOUT` | Threshold not met before `pendingWaitTimeout` |
+| `THRESHOLD_TIMEOUT` | Threshold not met before `PendingWaitTimeout` (Go) / `pendingWaitTimeout` (TypeScript) |
 | `APPROVAL_PENDING` | Request requires passkey approval — follow the approval flow |
 
 In Go, `APPROVAL_PENDING` is also surfaced as the sentinel `sdk.ErrApprovalPending`:

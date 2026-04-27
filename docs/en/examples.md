@@ -1,6 +1,6 @@
 # Examples
 
-End-to-end sample apps live in the repository under [`go/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples) and [`typescript/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/typescript/examples).
+Repository examples live under [`go/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples) and [`typescript/examples/`](https://github.com/TEENet-io/teenet-sdk/tree/main/typescript/examples).
 
 ## By category
 
@@ -25,7 +25,6 @@ End-to-end sample apps live in the repository under [`go/examples/`](https://git
 | Example | Language | What it shows |
 |---|---|---|
 | [`passkey-web-demo`](https://github.com/TEENet-io/teenet-sdk/tree/main/go/examples/passkey-web-demo) | Go + browser | WebAuthn-based approval of signing requests |
-| [`passkey-web-demo`](https://github.com/TEENet-io/teenet-sdk/tree/main/typescript/examples/passkey-web-demo) | TypeScript + browser | Same flow, in TypeScript |
 
 ### Voting UI
 
@@ -48,4 +47,4 @@ Most examples expect either:
 - a live TEENet service (`SERVICE_URL` + `APP_INSTANCE_ID` in env), **or**
 - the [mock server](mock-server.md) running on `:8089`
 
-Each example has its own README with specific setup steps.
+Several examples include README files with specific setup steps.
