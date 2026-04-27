@@ -123,7 +123,7 @@ main();
 |---|---|
 | `SIGN_REQUEST_FAILED` | Retry — network or transient service issue |
 | `SIGN_REQUEST_REJECTED` | Fix the request; inspect `result.Error` |
-| `THRESHOLD_TIMEOUT` | Voting didn't finish in time — raise `PendingWaitTimeout` |
+| `THRESHOLD_TIMEOUT` | Voting didn't finish in time — raise `PendingWaitTimeout` (Go) / `pendingWaitTimeout` (TypeScript) |
 | `APPROVAL_PENDING` | Prompt a Passkey approver — follow the [approval flow](https://teenet-io.github.io/teenet-sdk/#/en/api?id=passkey-approval) |
 
 Full list in the [API reference → Error codes](https://teenet-io.github.io/teenet-sdk/#/en/api?id=error-codes).
@@ -240,7 +240,6 @@ Complete working examples live under [`go/examples/`](go/examples) and [`typescr
 - **apikey** — store secrets and sign HMAC payloads inside the TEE
 - **passkey-web-demo** — browser WebAuthn approval flow
 - **voting-demo** — interactive M-of-N voting UI
-- **finance-console** — sample dashboard built on the SDK
 - **admin** — invite users, manage permission policies
 
 ## Repository Layout
