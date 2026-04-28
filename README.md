@@ -263,6 +263,7 @@ teenet-sdk/
 ## Getting Help
 
 - **Bug reports, feature requests, questions** — [open a GitHub issue](https://github.com/TEENet-io/teenet-sdk/issues)
+- **Security vulnerabilities** — follow [SECURITY.md](SECURITY.md); do not disclose details in public issues
 - **Website** — [teenet.io](https://teenet.io)
 
 Built on TEENet: [TEENet Wallet](https://github.com/TEENet-io/teenet-wallet) — a Passkey-protected, AI-agent-ready crypto wallet.

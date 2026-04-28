@@ -129,6 +129,4 @@ Before opening a PR, check the items that apply:
 ## Security Issues
 
 Do not open public issues for vulnerabilities or suspected key-handling
-problems. Use GitHub private vulnerability reporting if it is enabled for the
-repository, or contact the maintainers privately before publishing details.
-
+problems. Follow [SECURITY.md](SECURITY.md) for private reporting guidance.
