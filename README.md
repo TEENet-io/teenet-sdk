@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![npm](https://img.shields.io/badge/npm-%40teenet%2Fsdk-CB3837.svg?logo=npm&logoColor=white)](https://www.npmjs.com/package/@teenet/sdk)
-[![Developer Preview](https://img.shields.io/badge/Status-Developer_Preview-orange.svg)]()
+[![Developer Preview](https://img.shields.io/badge/Status-Developer_Preview-orange.svg)](#disclaimer)
 [![Docs](https://img.shields.io/badge/Docs-teenet--io.github.io-7c3aed.svg)](https://teenet-io.github.io/teenet-sdk/)
 
 The official client SDK for building applications on [TEENet](https://teenet.io) — a platform that provides hardware-isolated runtime and managed key custody for any application that needs to protect secrets.
@@ -57,6 +57,7 @@ package main
 
 import (
     "context"
+    "errors"
     "fmt"
     "log"
 
@@ -76,11 +77,18 @@ func main() {
 
     msg := []byte("hello, teenet")
     res, err := client.Sign(ctx, msg, "default") // "default" is the mock's key name
+    if res != nil && !res.Success {
+        if errors.Is(err, sdk.ErrApprovalPending) && res.VotingInfo != nil {
+            log.Fatalf("approval pending: request_id=%d tx_id=%s",
+                res.VotingInfo.RequestID, res.VotingInfo.TxID)
+        }
+        log.Fatalf("sign failed: %s (%s)", res.Error, res.ErrorCode)
+    }
     if err != nil {
         log.Fatal(err)
     }
-    if !res.Success {
-        log.Fatalf("sign failed: %s (%s)", res.Error, res.ErrorCode)
+    if res == nil {
+        log.Fatal("sign failed: empty result")
     }
 
     ok, _ := client.Verify(ctx, msg, res.Signature, "default")
@@ -274,6 +282,7 @@ For contribution workflow, compatibility expectations, and PR checklist, see [CO
 - **[Go SDK README](go/README.md)** — Go-specific notes
 - **[TypeScript SDK README](typescript/README.md)** — TypeScript-specific notes
 - **[Mock server README](mock-server/README.md)** — local-first testing
+- **[Changelog](CHANGELOG.md)** — release notes and upgrade highlights
 
 ## Getting Help
 
@@ -285,7 +294,7 @@ Built on TEENet: [TEENet Wallet](https://github.com/TEENet-io/teenet-wallet) —
 
 ## Contributing
 
-Contributions are welcome — bug fixes, new examples, additional language bindings, documentation improvements. Please open an issue or pull request.
+Contributions are welcome — bug fixes, new examples, additional language bindings, documentation improvements. See [CONTRIBUTING.md](CONTRIBUTING.md) for local development commands, compatibility expectations, and the PR checklist.
 
 ## Disclaimer
 

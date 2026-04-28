@@ -15,6 +15,7 @@ package main
 
 import (
     "context"
+    "errors"
     "fmt"
     "log"
 
@@ -31,11 +32,18 @@ func main() {
     // Sign a message
     message := []byte("Hello, TEENet!")
     result, err := client.Sign(ctx, message, "my-key")
+    if result != nil && !result.Success {
+        if errors.Is(err, sdk.ErrApprovalPending) && result.VotingInfo != nil {
+            log.Fatalf("approval pending: request_id=%d tx_id=%s",
+                result.VotingInfo.RequestID, result.VotingInfo.TxID)
+        }
+        log.Fatalf("Signing failed: %s (%s)", result.Error, result.ErrorCode)
+    }
     if err != nil {
         log.Fatal(err)
     }
-    if !result.Success {
-        log.Fatalf("Signing failed: %s", result.Error)
+    if result == nil {
+        log.Fatal("Signing failed: empty result")
     }
     fmt.Printf("Signature: %x\n", result.Signature)
 
@@ -125,7 +133,13 @@ getCredential := func(options interface{}) ([]byte, error) {
 }
 
 // 0) Passkey login (SDK orchestrates options + verify)
-loginRes, _ := client.PasskeyLoginWithCredential(ctx, getCredential)
+loginRes, err := client.PasskeyLoginWithCredential(ctx, getCredential)
+if err != nil {
+    log.Fatalf("login failed: %v", err)
+}
+if loginRes == nil {
+    log.Fatal("login failed: empty result")
+}
 if !loginRes.Success {
     log.Fatalf("login failed: %s", loginRes.Error)
 }
@@ -136,11 +150,20 @@ if approvalToken == "" {
 
 // 1) Initiator side: just call Sign (approval request is auto-initialized by backend policy)
 signRes, err := client.Sign(ctx, []byte(`{"to":"0x1234","amount":"1"}`), "my-key")
-if err != nil {
-    log.Fatalf("sign failed: %v", err)
+if signRes == nil {
+    if err != nil {
+        log.Fatalf("sign failed: %v", err)
+    }
+    log.Fatal("sign failed: empty result")
 }
 if signRes.ErrorCode != "APPROVAL_PENDING" {
+    if err != nil {
+        log.Fatalf("sign failed: %v", err)
+    }
     log.Fatalf("expected approval pending, got: %+v", signRes)
+}
+if signRes.VotingInfo == nil {
+    log.Fatal("approval request missing voting info")
 }
 requestID := signRes.VotingInfo.RequestID
 
