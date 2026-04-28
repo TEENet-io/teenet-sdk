@@ -252,6 +252,21 @@ teenet-sdk/
 └── docs/           # Bilingual (EN + 中文) Docsify site — deployed via GitHub Pages
 ```
 
+## Development / Testing
+
+There is no top-level build command. Run checks in the module you are changing:
+
+| Area | Command |
+|---|---|
+| Go SDK tests | `cd go && go test ./...` |
+| TypeScript SDK build + tests | `cd typescript && npm ci && npm run build && npm test` |
+| Mock server tests | `cd mock-server && make gotest` |
+| Run mock server locally | `cd mock-server && make run` |
+| Smoke-test running mock server | `cd mock-server && make test` |
+| Preview docs locally | `python3 -m http.server 3000 --directory docs` |
+
+For contribution workflow, compatibility expectations, and PR checklist, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Documentation
 
 - **[teenet-io.github.io/teenet-sdk](https://teenet-io.github.io/teenet-sdk/)** — SDK docs site, bilingual (EN + 中文), with Go/TS tab switching
