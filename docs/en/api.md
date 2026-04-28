@@ -108,15 +108,30 @@ raw message and the SDK handles hashing.
 ```go
 // Schnorr / EdDSA — raw message
 result, err := client.Sign(ctx, []byte("hello, teenet"), "my-schnorr-key")
-if err != nil || !result.Success {
+if result != nil && !result.Success {
     log.Fatalf("sign failed: %s (%s)", result.Error, result.ErrorCode)
+}
+if err != nil {
+    log.Fatalf("sign failed: %v", err)
+}
+if result == nil {
+    log.Fatal("sign failed: empty result")
 }
 ok, _ := client.Verify(ctx, []byte("hello, teenet"), result.Signature, "my-schnorr-key")
 
 // ECDSA secp256k1 — caller hashes (Ethereum-style Keccak-256)
 hashedMsg := crypto.Keccak256(rawMessage)
-result, err := client.Sign(ctx, hashedMsg, "my-ecdsa-key")
-ok, _ := client.Verify(ctx, hashedMsg, result.Signature, "my-ecdsa-key")
+result, err = client.Sign(ctx, hashedMsg, "my-ecdsa-key")
+if result != nil && !result.Success {
+    log.Fatalf("sign failed: %s (%s)", result.Error, result.ErrorCode)
+}
+if err != nil {
+    log.Fatalf("sign failed: %v", err)
+}
+if result == nil {
+    log.Fatal("sign failed: empty result")
+}
+ok, _ = client.Verify(ctx, hashedMsg, result.Signature, "my-ecdsa-key")
 ```
 
 #### **TypeScript**
@@ -317,16 +332,34 @@ getCredential := func(options interface{}) ([]byte, error) {
 }
 
 // 0) Log in with a passkey to obtain an approval token.
-login, _ := client.PasskeyLoginWithCredential(ctx, getCredential)
+login, err := client.PasskeyLoginWithCredential(ctx, getCredential)
+if err != nil {
+    log.Fatalf("login failed: %v", err)
+}
+if login == nil {
+    log.Fatal("login failed: empty result")
+}
 if !login.Success {
     log.Fatalf("login: %s", login.Error)
 }
 approvalToken := login.Data["token"].(string)
 
 // 1) Initiator: just call Sign. Backend policy auto-creates the approval request.
-sign, _ := client.Sign(ctx, []byte(`{"to":"0x1234","amount":"1"}`), "my-key")
+sign, err := client.Sign(ctx, []byte(`{"to":"0x1234","amount":"1"}`), "my-key")
+if sign == nil {
+    if err != nil {
+        log.Fatalf("sign failed: %v", err)
+    }
+    log.Fatal("sign failed: empty result")
+}
 if sign.ErrorCode != "APPROVAL_PENDING" {
+    if err != nil {
+        log.Fatalf("sign failed: %v", err)
+    }
     log.Fatalf("expected APPROVAL_PENDING, got %+v", sign)
+}
+if sign.VotingInfo == nil {
+    log.Fatal("approval request missing voting info")
 }
 requestID := sign.VotingInfo.RequestID
 

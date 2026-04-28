@@ -55,8 +55,14 @@ func main() {
     // client.SetDefaultAppInstanceID("my-app-instance")
 
     result, err := client.Sign(ctx, []byte("hello, teenet"), "my-key")
-    if err != nil || !result.Success {
-        log.Fatalf("sign failed: %v %s", err, result.Error)
+    if result != nil && !result.Success {
+        log.Fatalf("sign failed: %s (%s)", result.Error, result.ErrorCode)
+    }
+    if err != nil {
+        log.Fatalf("sign failed: %v", err)
+    }
+    if result == nil {
+        log.Fatal("sign failed: empty result")
     }
     fmt.Printf("signature: %x\n", result.Signature)
 

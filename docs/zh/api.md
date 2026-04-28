@@ -100,15 +100,30 @@ client.close();
 ```go
 // Schnorr / EdDSA —— 传原始消息
 result, err := client.Sign(ctx, []byte("hello, teenet"), "my-schnorr-key")
-if err != nil || !result.Success {
+if result != nil && !result.Success {
     log.Fatalf("签名失败: %s (%s)", result.Error, result.ErrorCode)
+}
+if err != nil {
+    log.Fatalf("签名失败: %v", err)
+}
+if result == nil {
+    log.Fatal("签名失败: 空结果")
 }
 ok, _ := client.Verify(ctx, []byte("hello, teenet"), result.Signature, "my-schnorr-key")
 
 // ECDSA secp256k1 —— 调用方做哈希(以太坊风格 Keccak-256)
 hashedMsg := crypto.Keccak256(rawMessage)
-result, err := client.Sign(ctx, hashedMsg, "my-ecdsa-key")
-ok, _ := client.Verify(ctx, hashedMsg, result.Signature, "my-ecdsa-key")
+result, err = client.Sign(ctx, hashedMsg, "my-ecdsa-key")
+if result != nil && !result.Success {
+    log.Fatalf("签名失败: %s (%s)", result.Error, result.ErrorCode)
+}
+if err != nil {
+    log.Fatalf("签名失败: %v", err)
+}
+if result == nil {
+    log.Fatal("签名失败: 空结果")
+}
+ok, _ = client.Verify(ctx, hashedMsg, result.Signature, "my-ecdsa-key")
 ```
 
 #### **TypeScript**
@@ -299,16 +314,34 @@ getCredential := func(options interface{}) ([]byte, error) {
 }
 
 // 0) 用 Passkey 登录,拿到 approval token。
-login, _ := client.PasskeyLoginWithCredential(ctx, getCredential)
+login, err := client.PasskeyLoginWithCredential(ctx, getCredential)
+if err != nil {
+    log.Fatalf("登录失败: %v", err)
+}
+if login == nil {
+    log.Fatal("登录失败: 空结果")
+}
 if !login.Success {
     log.Fatalf("登录失败: %s", login.Error)
 }
 approvalToken := login.Data["token"].(string)
 
 // 1) 发起方直接调用 Sign。后端策略会自动创建审批请求。
-sign, _ := client.Sign(ctx, []byte(`{"to":"0x1234","amount":"1"}`), "my-key")
+sign, err := client.Sign(ctx, []byte(`{"to":"0x1234","amount":"1"}`), "my-key")
+if sign == nil {
+    if err != nil {
+        log.Fatalf("签名失败: %v", err)
+    }
+    log.Fatal("签名失败: 空结果")
+}
 if sign.ErrorCode != "APPROVAL_PENDING" {
+    if err != nil {
+        log.Fatalf("签名失败: %v", err)
+    }
     log.Fatalf("期望 APPROVAL_PENDING,实际得到 %+v", sign)
+}
+if sign.VotingInfo == nil {
+    log.Fatal("审批请求缺少 voting info")
 }
 requestID := sign.VotingInfo.RequestID
 
